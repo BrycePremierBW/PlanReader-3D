@@ -1,6 +1,6 @@
 {
   "benchmark_id": "school_rd_60_62",
-  "timestamp": "2026-09-06T13:44:02.110156+00:00",
+  "timestamp": "2026-09-06T14:39:22.208133+00:00",
   "source_pdf": "C:\\Users\\bryce\\OneDrive - VentraIP Australia\\Premier Brushworks - Premier Brushworks\\JOB FOLDER\\OneLife Property Group\\60-62 School Rd\\26-017 - 60-62 School Rd Maroochydore - BA Issue (1) - 09.06.26.pdf",
   "source_takeoff": "C:\\Users\\bryce\\OneDrive - VentraIP Australia\\Premier Brushworks - Premier Brushworks\\JOB FOLDER\\OneLife Property Group\\60-62 School Rd\\Premier_Brushworks_60-62_School_Rd_Maroochydore_Revised.xlsx",
   "project_identity": {
@@ -190,6 +190,24 @@
       "notes": ""
     },
     {
+      "quantity_id": "window_schedule_total_count",
+      "description": "Total scheduled window and glazed door openings across both blocks",
+      "expected": 83.0,
+      "actual": 83.0,
+      "unit": "ea",
+      "difference": 0.0,
+      "difference_percent": 0.0,
+      "status": "exact_match",
+      "confidence": 1.0,
+      "source_trace": {
+        "document": "architectural_pdf",
+        "sheet": "WINDOW QUANTITIES SCHEDULE",
+        "page": 30,
+        "line_or_region": "TOTAL QTY"
+      },
+      "notes": ""
+    },
+    {
       "quantity_id": "external_substrate_provisional_area",
       "description": "External facade cladding substrate area (provisional pending approved elevation takeoff)",
       "expected": 850.0,
@@ -209,16 +227,16 @@
     }
   ],
   "summary": {
-    "total_expected_quantities": 9,
-    "pass_count": 8,
+    "total_expected_quantities": 10,
+    "pass_count": 9,
     "fail_count": 0,
     "warnings_count": 1,
     "provisional_count": 1,
-    "exact_match_count": 8,
+    "exact_match_count": 9,
     "within_tolerance_count": 0,
     "outside_tolerance_count": 0,
     "missing_count": 0,
-    "accuracy_score": 0.8889,
-    "readiness_score": 0.8889
+    "accuracy_score": 0.9,
+    "readiness_score": 0.9
   }
 }
