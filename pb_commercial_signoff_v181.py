@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import datetime
 import hashlib
+import math
 import sqlite3
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -49,6 +50,9 @@ def compute_commercial_signature(
     fingerprint: str,
 ) -> str:
     """Compute cryptographic SHA-256 signature for commercial takeoff sign-off integrity."""
+    for name, val in [("val_ex_gst", val_ex_gst), ("litres", litres), ("hours", hours)]:
+        if isinstance(val, bool) or not isinstance(val, (int, float)) or not math.isfinite(val):
+            raise ValueError(f"Non-finite commercial value in signature: {name}={val}")
     raw = f"{workspace_id}:{val_ex_gst:.2f}:{litres:.2f}:{hours:.2f}:{fingerprint}"
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
@@ -77,7 +81,12 @@ class CommercialSignoffAuthority:
             """,
             (workspace_id,)
         )
-        val_ex_gst, litres, hours = [float(x) for x in cur.fetchone()]
+        row = cur.fetchone()
+        val_ex_gst = float(row[0]) if row and row[0] is not None else 0.0
+        litres = float(row[1]) if row and row[1] is not None else 0.0
+        hours = float(row[2]) if row and row[2] is not None else 0.0
+        if not (math.isfinite(val_ex_gst) and math.isfinite(litres) and math.isfinite(hours)):
+            raise ValueError("Non-finite commercial totals cannot be signed off.")
 
         ts = datetime.datetime.now(datetime.timezone.utc).isoformat()
         signature = compute_commercial_signature(workspace_id, val_ex_gst, litres, hours, preflight_fingerprint)

@@ -492,7 +492,7 @@ def derive_export_preflight(conn_or_app: Any, workspace_id: int, bridge_availabl
         "pub_rows": pub_rows,
         "payload_hash": payload_hash,
     }
-    raw_json = json.dumps(fingerprint_data, sort_keys=True)
+    raw_json = json.dumps(fingerprint_data, sort_keys=True, allow_nan=False)
     preflight_fingerprint = hashlib.sha256(raw_json.encode("utf-8")).hexdigest()
 
     return CommercialPreflightResult(

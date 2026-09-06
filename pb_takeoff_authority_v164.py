@@ -112,7 +112,7 @@ def compute_model_surface_authority_fingerprint(row: Mapping[str, Any]) -> str:
     payload = {
         field: _canonical_value(row.get(field)) for field in _AUTHORITY_BOUND_FIELDS
     }
-    raw = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    raw = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 

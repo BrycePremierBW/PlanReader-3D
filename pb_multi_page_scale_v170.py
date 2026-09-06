@@ -159,10 +159,15 @@ class MultiPageScaleRegistry:
             plabel = str(p.get("page_label") or (f"Page {page_seq}" if page_seq is not None else f"Page [ID:{pid}]"))
             ptype = str(p.get("page_type") or "Plan").lower()
             raw_px_m = p.get("px_per_m")
-            try:
-                px_m = float(raw_px_m) if raw_px_m is not None else 0.0
-            except (ValueError, TypeError):
+            if isinstance(raw_px_m, bool) or raw_px_m is None:
                 px_m = 0.0
+            else:
+                try:
+                    px_m = float(raw_px_m)
+                    if not math.isfinite(px_m) or px_m < 0:
+                        px_m = 0.0
+                except (ValueError, TypeError):
+                    px_m = 0.0
             stext = str(p.get("scale_text") or "")
 
             has_m = pid in measured_page_ids

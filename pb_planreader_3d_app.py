@@ -298,24 +298,42 @@ def verify_password(password: str, stored_hash: Any) -> bool:
 
 
 def to_float(value: Any, default: float = 0.0) -> float:
+    # Ensure fallback default is strictly finite and not a boolean
+    safe_default = 0.0
+    if not isinstance(default, bool) and isinstance(default, (int, float)):
+        def_flt = float(default)
+        if math.isfinite(def_flt):
+            safe_default = def_flt
+
+    if value is None or isinstance(value, bool):
+        return safe_default
+    if isinstance(value, (int, float)):
+        res = float(value)
+        return res if math.isfinite(res) else safe_default
     try:
-        if value is None or value == "":
-            return default
-        result = float(value)
-        if result != result or result in (float("inf"), float("-inf")):
-            return default
-        return result
+        val_str = str(value).strip()
+        if not val_str:
+            return safe_default
+        # Strip currency symbols, commas, and extraneous non-numeric prefixes
+        cleaned = re.sub(r"^[^\d\-+.]+", "", val_str)
+        cleaned = cleaned.replace(",", "").strip()
+        if not cleaned:
+            return safe_default
+        res = float(cleaned)
+        return res if math.isfinite(res) else safe_default
     except Exception:
-        return default
+        return safe_default
 
 
 def to_int(value: Any, default: int = 0) -> int:
-    try:
-        if value is None or value == "":
-            return default
-        return int(float(value))
-    except Exception:
-        return default
+    safe_default = 0
+    if not isinstance(default, bool) and isinstance(default, (int, float)):
+        def_flt = float(default)
+        if math.isfinite(def_flt):
+            safe_default = int(def_flt)
+
+    flt = to_float(value, default=float(safe_default))
+    return int(flt)
 
 
 def normalise_whitespace(text: Any) -> str:
@@ -2266,22 +2284,34 @@ def seed_drawing_register(workspace_id: int) -> None:
 # -----------------------------------------------------------------------------
 
 
-def paint_litres(quantity: float, unit: str, coats: float, coverage: float) -> float:
-    if unit != "m²" or coverage <= 0:
+def paint_litres(quantity: Any, unit: str, coats: Any, coverage: Any) -> float:
+    q = to_float(quantity, 0.0)
+    c = to_float(coats, 0.0)
+    cov = to_float(coverage, 0.0)
+    if unit != "m²" or cov <= 0.0 or q <= 0.0 or c <= 0.0:
         return 0.0
-    return max(0.0, quantity * coats / coverage)
+    val = (q * c) / cov
+    return val if math.isfinite(val) and val > 0.0 else 0.0
 
 
-def labour_hours(quantity: float, unit: str, productivity: float) -> float:
-    if productivity <= 0:
+def labour_hours(quantity: Any, unit: str, productivity: Any) -> float:
+    q = to_float(quantity, 0.0)
+    prod = to_float(productivity, 0.0)
+    if prod <= 0.0 or q <= 0.0:
         return 0.0
     if unit in {"m²", "lm", "No.", "item"}:
-        return max(0.0, quantity / productivity)
+        val = q / prod
+        return val if math.isfinite(val) and val > 0.0 else 0.0
     return 0.0
 
 
-def row_value(quantity: float, rate: float) -> float:
-    return max(0.0, quantity * rate)
+def row_value(quantity: Any, rate: Any) -> float:
+    q = to_float(quantity, 0.0)
+    r = to_float(rate, 0.0)
+    if q <= 0.0 or r <= 0.0:
+        return 0.0
+    val = q * r
+    return val if math.isfinite(val) and val > 0.0 else 0.0
 
 
 DEFAULT_RATES_M2 = {
@@ -3276,18 +3306,20 @@ def copy_takeoff_rows_to_level(workspace_id: int, row_ids: Sequence[int], target
 
 
 def _quote_settings(workspace_id: int) -> Dict[str, Any]:
-    def f(key: str, default: float) -> float:
-        try:
-            return float(workspace_setting(workspace_id, key, default))
-        except (TypeError, ValueError):
-            return float(default)
+    def f(key: str, default: float, min_val: Optional[float] = None) -> float:
+        val = to_float(workspace_setting(workspace_id, key, default), default)
+        if not math.isfinite(val):
+            return default
+        if min_val is not None and val < min_val:
+            return default
+        return val
 
     return {
-        "gst_rate_pct": f("gst_rate_pct", 10.0),
-        "pricing_margin_pct": f("pricing_margin_pct", 0.0),
-        "default_coverage_m2_per_litre": f("default_coverage_m2_per_litre", 12.0),
-        "default_productivity_m2_per_hour": f("default_productivity_m2_per_hour", 8.0),
-        "default_wall_height_m": f("default_wall_height_m", 2.7),
+        "gst_rate_pct": f("gst_rate_pct", 10.0, 0.0),
+        "pricing_margin_pct": f("pricing_margin_pct", 0.0, 0.0),
+        "default_coverage_m2_per_litre": f("default_coverage_m2_per_litre", 12.0, 0.01),
+        "default_productivity_m2_per_hour": f("default_productivity_m2_per_hour", 8.0, 0.01),
+        "default_wall_height_m": f("default_wall_height_m", 2.7, 0.01),
         "internal_pricing_basis": str(workspace_setting(workspace_id, "internal_pricing_basis", "wall_m2") or "wall_m2").strip().lower(),
         "quote_header": str(workspace_setting(workspace_id, "quote_header", "Premier Brushworks Pty Ltd")),
         "quote_footer": str(workspace_setting(workspace_id, "quote_footer", "Valid for 30 days. All quantities require estimator review against the current issued drawings and specification before pricing or construction use.")),
@@ -3374,15 +3406,15 @@ def per_level_summary(workspace_id: int) -> pd.DataFrame:
             & takeoff["unit"].eq("m²")
         ]
         out.append({
-            "level": level,
+            "level": str(level),
             "rows": int(len(work_group)),
-            "m2": float(work_group.loc[work_group["unit"].eq("m²"), "quantity"].sum()),
-            "floor_m2": float(floor_group["quantity"].sum()),
-            "lm": float(work_group.loc[work_group["unit"].eq("lm"), "quantity"].sum()),
-            "count": float(work_group.loc[work_group["unit"].isin({"No.", "item"}), "quantity"].sum()),
-            "paint_litres": float(work_group["paint_litres"].sum()),
-            "labour_hours": float(work_group["labour_hours"].sum()),
-            "value_ex_gst": float(work_group["value_ex_gst"].sum()),
+            "m2": to_float(work_group.loc[work_group["unit"].eq("m²"), "quantity"].sum()),
+            "floor_m2": to_float(floor_group["quantity"].sum()),
+            "lm": to_float(work_group.loc[work_group["unit"].eq("lm"), "quantity"].sum()),
+            "count": to_float(work_group.loc[work_group["unit"].isin({"No.", "item"}), "quantity"].sum()),
+            "paint_litres": to_float(work_group["paint_litres"].sum()),
+            "labour_hours": to_float(work_group["labour_hours"].sum()),
+            "value_ex_gst": to_float(work_group["value_ex_gst"].sum()),
         })
     df = pd.DataFrame(out)
     df["sort"] = df["level"].map(level_sort_key)
@@ -3396,12 +3428,12 @@ def quote_summary_frame(workspace_id: int) -> pd.DataFrame:
     if levels.empty:
         return levels
     settings = _quote_settings(workspace_id)
-    margin = settings["pricing_margin_pct"] / 100.0
-    gst = settings["gst_rate_pct"] / 100.0
+    margin = to_float(settings["pricing_margin_pct"]) / 100.0
+    gst = to_float(settings["gst_rate_pct"]) / 100.0
     levels = levels.copy()
-    levels["markup_ex_gst"] = levels["value_ex_gst"] * (1 + margin)
-    levels["gst"] = levels["markup_ex_gst"] * gst
-    levels["total_inc_gst"] = levels["markup_ex_gst"] + levels["gst"]
+    levels["markup_ex_gst"] = [to_float(v * (1 + margin)) for v in levels["value_ex_gst"]]
+    levels["gst"] = [to_float(v * gst) for v in levels["markup_ex_gst"]]
+    levels["total_inc_gst"] = [to_float(m + g) for m, g in zip(levels["markup_ex_gst"], levels["gst"])]
     return levels
 
 
@@ -3416,8 +3448,9 @@ def quote_workbook_bytes(workspace_id: int) -> bytes:
     settings = _quote_settings(workspace_id)
     levels = quote_summary_frame(workspace_id)
     takeoff = dataframe_for_takeoff(workspace_id)
-    margin = settings["pricing_margin_pct"] / 100.0
-    gst = settings["gst_rate_pct"] / 100.0
+    val_sum = to_float(takeoff["value_ex_gst"].sum()) if not takeoff.empty else 0.0
+    margin = to_float(settings["pricing_margin_pct"]) / 100.0
+    gst = to_float(settings["gst_rate_pct"]) / 100.0
     header = pd.DataFrame([
         ["Quotation", str(settings["quote_header"])],
         ["Job number", workspace.get("job_no", "")],
@@ -3427,17 +3460,17 @@ def quote_workbook_bytes(workspace_id: int) -> bytes:
         ["Drawing issue", workspace.get("drawing_issue", "")],
         ["Estimator", workspace.get("estimator", "")],
         ["Prepared", now_stamp()],
-        ["Mark-up (ex GST)", f"{settings['pricing_margin_pct']:.1f}%"],
-        ["GST", f"{settings['gst_rate_pct']:.1f}%"],
+        ["Mark-up (ex GST)", f"{to_float(settings['pricing_margin_pct']):.1f}%"],
+        ["GST", f"{to_float(settings['gst_rate_pct']):.1f}%"],
     ], columns=["Field", "Value"])
     totals = pd.DataFrame({
         "Metric": ["Value ex GST", "Mark-up", "Subtotal ex GST", "GST", "Total inc GST"],
         "Amount": [
-            float(takeoff["value_ex_gst"].sum()) if not takeoff.empty else 0.0,
-            float(takeoff["value_ex_gst"].sum()) * margin if not takeoff.empty else 0.0,
-            float(takeoff["value_ex_gst"].sum()) * (1 + margin) if not takeoff.empty else 0.0,
-            float(takeoff["value_ex_gst"].sum()) * (1 + margin) * gst if not takeoff.empty else 0.0,
-            float(takeoff["value_ex_gst"].sum()) * (1 + margin) * (1 + gst) if not takeoff.empty else 0.0,
+            val_sum,
+            to_float(val_sum * margin),
+            to_float(val_sum * (1 + margin)),
+            to_float(val_sum * (1 + margin) * gst),
+            to_float(val_sum * (1 + margin) * (1 + gst)),
         ],
     })
     sheets: List[Tuple[str, pd.DataFrame]] = [
@@ -3479,13 +3512,13 @@ def quote_pdf_bytes(workspace_id: int) -> bytes:
     settings = _quote_settings(workspace_id)
     levels = quote_summary_frame(workspace_id)
     takeoff = dataframe_for_takeoff(workspace_id)
-    margin = settings["pricing_margin_pct"] / 100.0
-    gst = settings["gst_rate_pct"] / 100.0
-    sub_total = float(takeoff["value_ex_gst"].sum()) if not takeoff.empty else 0.0
-    markup = sub_total * margin
-    subtotal_ex = sub_total + markup
-    gst_amount = subtotal_ex * gst
-    grand = subtotal_ex + gst_amount
+    margin = to_float(settings["pricing_margin_pct"]) / 100.0
+    gst = to_float(settings["gst_rate_pct"]) / 100.0
+    sub_total = to_float(takeoff["value_ex_gst"].sum()) if not takeoff.empty else 0.0
+    markup = to_float(sub_total * margin)
+    subtotal_ex = to_float(sub_total + markup)
+    gst_amount = to_float(subtotal_ex * gst)
+    grand = to_float(subtotal_ex + gst_amount)
 
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4, landscape
@@ -3530,14 +3563,14 @@ def quote_pdf_bytes(workspace_id: int) -> bytes:
     else:
         head = [["Level", "Rows", "m²", "Floor m²", "lm", "Count", "Paint (L)", "Labour (hrs)", "Value ex GST", "Mark-up", "GST", "Total inc GST"]]
         body = head + [
-            [str(r["level"]), int(r["rows"]), f"{r['m2']:,.1f}", f"{r['floor_m2']:,.1f}", f"{r['lm']:,.1f}", f"{r['count']:,.1f}",
-             f"{r['paint_litres']:,.1f}", f"{r['labour_hours']:,.1f}", f"${r['value_ex_gst']:,.2f}",
-             f"${r['markup_ex_gst'] - r['value_ex_gst']:,.2f}", f"${r['gst']:,.2f}", f"${r['total_inc_gst']:,.2f}"]
+            [str(r["level"]), int(to_int(r["rows"])), f"{to_float(r['m2']):,.1f}", f"{to_float(r['floor_m2']):,.1f}", f"{to_float(r['lm']):,.1f}", f"{to_float(r['count']):,.1f}",
+             f"{to_float(r['paint_litres']):,.1f}", f"{to_float(r['labour_hours']):,.1f}", f"${to_float(r['value_ex_gst']):,.2f}",
+             f"${to_float(r['markup_ex_gst']) - to_float(r['value_ex_gst']):,.2f}", f"${to_float(r['gst']):,.2f}", f"${to_float(r['total_inc_gst']):,.2f}"]
             for r in levels.to_dict("records")
         ]
-        body.append(["TOTAL", int(levels["rows"].sum()), f"{levels['m2'].sum():,.1f}", f"{levels['floor_m2'].sum():,.1f}", f"{levels['lm'].sum():,.1f}",
-                     f"{levels['count'].sum():,.1f}", f"{levels['paint_litres'].sum():,.1f}",
-                     f"{levels['labour_hours'].sum():,.1f}", f"${sub_total:,.2f}", f"${markup:,.2f}",
+        body.append(["TOTAL", int(to_int(levels["rows"].sum())), f"{to_float(levels['m2'].sum()):,.1f}", f"{to_float(levels['floor_m2'].sum()):,.1f}", f"{to_float(levels['lm'].sum()):,.1f}",
+                     f"{to_float(levels['count'].sum()):,.1f}", f"{to_float(levels['paint_litres'].sum()):,.1f}",
+                     f"{to_float(levels['labour_hours'].sum()):,.1f}", f"${sub_total:,.2f}", f"${markup:,.2f}",
                      f"${gst_amount:,.2f}", f"${grand:,.2f}"])
         table = Table(body, repeatRows=1, colWidths=[20 * mm, 12 * mm, 15 * mm, 15 * mm, 12 * mm, 13 * mm, 16 * mm, 19 * mm, 23 * mm, 17 * mm, 14 * mm, 23 * mm])
         table.setStyle(TableStyle([
@@ -3632,18 +3665,31 @@ def dataframe_for_takeoff(workspace_id: int) -> pd.DataFrame:
         return df
     basis = str(workspace_setting(workspace_id, "internal_pricing_basis", "wall_m2") or "wall_m2").strip().lower()
     floor_by_level = floor_area_by_level(df)
+    clean_qty: List[float] = []
+    clean_rate: List[float] = []
+    clean_coats: List[float] = []
+    clean_coverage: List[float] = []
+    clean_productivity: List[float] = []
     paint_rows: List[float] = []
     labour_rows: List[float] = []
     value_rows: List[float] = []
     priced_qty_rows: List[float] = []
     basis_rows: List[str] = []
     for r in df.itertuples():
-        qty = to_float(r.quantity)
-        unit = str(r.unit or "")
-        role = str(r.row_role or "").strip()
-        coats = to_float(r.coats, 2)
-        coverage = to_float(r.coverage_m2_per_litre, 12)
-        productivity = to_float(r.productivity_m2_per_hour, 8)
+        qty = to_float(getattr(r, "quantity", 0.0))
+        unit = str(getattr(r, "unit", "") or "")
+        role = str(getattr(r, "row_role", "") or "").strip()
+        coats = to_float(getattr(r, "coats", 2.0), 2.0)
+        coverage = to_float(getattr(r, "coverage_m2_per_litre", 12.0), 12.0)
+        productivity = to_float(getattr(r, "productivity_m2_per_hour", 8.0), 8.0)
+        rate = to_float(getattr(r, "rate_per_unit", 0.0), 0.0)
+
+        clean_qty.append(qty)
+        clean_rate.append(rate)
+        clean_coats.append(coats)
+        clean_coverage.append(coverage)
+        clean_productivity.append(productivity)
+
         if role == "floor_area":
             paint_rows.append(0.0)
             labour_rows.append(0.0)
@@ -3655,15 +3701,21 @@ def dataframe_for_takeoff(workspace_id: int) -> pd.DataFrame:
         hours = labour_hours(qty, unit, productivity)
         paint_rows.append(litres)
         labour_rows.append(hours)
-        if basis == "floor_m2" and unit == "m²" and is_internal_wall_row(r.section, r.element):
-            floor_m2 = floor_by_level.get(level_of(r.location), 0.0)
+        if basis == "floor_m2" and unit == "m²" and is_internal_wall_row(getattr(r, "section", ""), getattr(r, "element", "")):
+            floor_m2 = to_float(floor_by_level.get(level_of(getattr(r, "location", "")), 0.0))
             priced_qty_rows.append(floor_m2)
             basis_rows.append("Floor m²")
-            value_rows.append(row_value(floor_m2, to_float(r.rate_per_unit)))
+            value_rows.append(row_value(floor_m2, rate))
         else:
             priced_qty_rows.append(qty)
             basis_rows.append("Wall m²" if basis == "floor_m2" and unit == "m²" else "Quantity")
-            value_rows.append(row_value(qty, to_float(r.rate_per_unit)))
+            value_rows.append(row_value(qty, rate))
+
+    df["quantity"] = clean_qty
+    df["rate_per_unit"] = clean_rate
+    df["coats"] = clean_coats
+    df["coverage_m2_per_litre"] = clean_coverage
+    df["productivity_m2_per_hour"] = clean_productivity
     df["paint_litres"] = paint_rows
     df["labour_hours"] = labour_rows
     df["priced_quantity"] = priced_qty_rows
@@ -4098,10 +4150,10 @@ def push_takeoff_to_jobhub(workspace_id: int, bridge: JobHubBridge, created_by: 
     internal_mask = takeoff["section"].astype(str).str.lower().str.contains("internal|ceiling|door|joinery")
     external_mask = takeoff["section"].astype(str).str.lower().str.contains("external|facade|elevation|soffit|canopy")
     m2_mask = takeoff["unit"].astype(str).eq("m²")
-    interior = float(takeoff.loc[internal_mask & m2_mask, "quantity"].fillna(0).sum())
-    exterior = float(takeoff.loc[external_mask & m2_mask, "quantity"].fillna(0).sum())
-    total_hours = float(takeoff["labour_hours"].fillna(0).sum())
-    total_litres = float(takeoff["paint_litres"].fillna(0).sum())
+    interior = to_float(takeoff.loc[internal_mask & m2_mask, "quantity"].fillna(0).sum())
+    exterior = to_float(takeoff.loc[external_mask & m2_mask, "quantity"].fillna(0).sum())
+    total_hours = to_float(takeoff["labour_hours"].fillna(0).sum())
+    total_litres = to_float(takeoff["paint_litres"].fillna(0).sum())
     takeoff_no = f"PR-{workspace.get('job_no')}-{datetime.now().strftime('%Y%m%d-%H%M')}"
     if bridge.kind == "postgres":
         package_id = bridge.execute(
@@ -4121,14 +4173,31 @@ def push_takeoff_to_jobhub(workspace_id: int, bridge: JobHubBridge, created_by: 
     for _, row in takeoff.iterrows():
         unit = str(row.get("unit") or "")
         qty = to_float(row.get("quantity"))
-        m2 = qty if unit == "m²" else 0
-        lm = qty if unit == "lm" else 0
-        count = qty if unit in {"No.", "item"} else 0
+        m2 = qty if unit == "m²" else 0.0
+        lm = qty if unit == "lm" else 0.0
+        count = qty if unit in {"No.", "item"} else 0.0
         bridge.execute(
             """INSERT INTO painting_takeoff_lines(package_id,area_type,location_area,substrate,labour_category,m2,unit,quantity,coats,productivity_m2_per_hour,labour_hours,finish_type,element_count,lineal_metres,paint_litres,flags,notes,created_at)
                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
-                package_id,row.get("section",""),row.get("location",""),row.get("substrate",""),row.get("element",""),m2,unit,qty,row.get("coats",0),row.get("productivity_m2_per_hour",0),row.get("labour_hours",0),row.get("finish_system",""),count,lm,row.get("paint_litres",0),row.get("confidence",""),f"{row.get('notes','')} | Source: {row.get('source_reference','')}",now_stamp(),
+                package_id,
+                str(row.get("section") or ""),
+                str(row.get("location") or ""),
+                str(row.get("substrate") or ""),
+                str(row.get("element") or ""),
+                m2,
+                unit,
+                qty,
+                to_float(row.get("coats"), 0.0),
+                to_float(row.get("productivity_m2_per_hour"), 0.0),
+                to_float(row.get("labour_hours"), 0.0),
+                str(row.get("finish_system") or ""),
+                count,
+                lm,
+                to_float(row.get("paint_litres"), 0.0),
+                str(row.get("confidence") or ""),
+                f"{str(row.get('notes') or '')} | Source: {str(row.get('source_reference') or '')}",
+                now_stamp(),
             ),
         )
         line_count += 1
@@ -4360,6 +4429,17 @@ def create_linked_jobhub_job(bridge: Optional[JobHubBridge], job_no: str, job_na
     return None
 
 
+def _sanitize_for_json(obj: Any) -> Any:
+    """Recursively convert non-finite floats to 0.0 to satisfy RFC 8259."""
+    if isinstance(obj, dict):
+        return {k: _sanitize_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_sanitize_for_json(v) for v in obj]
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else 0.0
+    return obj
+
+
 def _jobhub_takeoff_lines_csv(workspace: Dict[str, Any], takeoff: pd.DataFrame) -> str:
     """Take-off rows in JobHub's shared ``job_takeoff_rows`` column order."""
     buf = io.StringIO()
@@ -4370,9 +4450,9 @@ def _jobhub_takeoff_lines_csv(workspace: Dict[str, Any], takeoff: pd.DataFrame) 
     for _, row in takeoff_work_rows(takeoff).iterrows():
         unit = str(row.get("unit") or "")
         qty = to_float(row.get("quantity"))
-        m2 = qty if unit == "m²" else 0
-        lm = qty if unit == "lm" else 0
-        count = qty if unit in {"No.", "item"} else 0
+        m2 = qty if unit == "m²" else 0.0
+        lm = qty if unit == "lm" else 0.0
+        count = qty if unit in {"No.", "item"} else 0.0
         section = str(row.get("section") or "Internal walls and ceilings")
         internal_external = "Internal" if "internal" in section.lower() else ("External" if "external" in section.lower() else "Internal")
         writer.writerow([
@@ -4381,7 +4461,7 @@ def _jobhub_takeoff_lines_csv(workspace: Dict[str, Any], takeoff: pd.DataFrame) 
             str(row.get("substrate") or "Other"),
             str(row.get("element") or ""),
             m2, lm, count,
-            to_float(row.get("coats"), 1),
+            to_float(row.get("coats"), 1.0),
             to_float(row.get("rate_per_unit")),
             to_float(row.get("labour_hours")),
             to_float(row.get("paint_litres")),
@@ -4401,12 +4481,12 @@ def _takeoff_summary_csv(takeoff: pd.DataFrame) -> str:
     for section, group in takeoff_work_rows(takeoff).groupby("section", dropna=False):
         writer.writerow([
             str(section or "Unassigned"),
-            float(group.loc[group["unit"].eq("m²"), "quantity"].sum()),
-            float(group.loc[group["unit"].eq("lm"), "quantity"].sum()),
-            float(group.loc[group["unit"].isin({"No.", "item"}), "quantity"].sum()),
-            float(group["paint_litres"].sum()),
-            float(group["labour_hours"].sum()),
-            float(group["value_ex_gst"].sum()),
+            to_float(group.loc[group["unit"].eq("m²"), "quantity"].sum()),
+            to_float(group.loc[group["unit"].eq("lm"), "quantity"].sum()),
+            to_float(group.loc[group["unit"].isin({"No.", "item"}), "quantity"].sum()),
+            to_float(group["paint_litres"].sum()),
+            to_float(group["labour_hours"].sum()),
+            to_float(group["value_ex_gst"].sum()),
         ])
     return buf.getvalue()
 
@@ -4444,12 +4524,12 @@ def _progress_package_readme(workspace: Dict[str, Any], takeoff: pd.DataFrame, p
     else:
         work = takeoff_work_rows(takeoff)
         lines.append(f"Take-off lines:   {len(work)}")
-        lines.append(f"Measured m2:      {float(work.loc[work['unit'].eq('m2' if 'm2' in set(work['unit'].astype(str)) else 'm²'), 'quantity'].sum()):,.2f}")
-        lines.append(f"Paint litres:     {float(work['paint_litres'].sum()):,.2f}")
-        lines.append(f"Labour hours:     {float(work['labour_hours'].sum()):,.2f}")
-        lines.append(f"Value ex GST:     ${float(work['value_ex_gst'].sum()):,.2f}")
+        lines.append(f"Measured m2:      {to_float(work.loc[work['unit'].eq('m2' if 'm2' in set(work['unit'].astype(str)) else 'm²'), 'quantity'].sum()):,.2f}")
+        lines.append(f"Paint litres:     {to_float(work['paint_litres'].sum()):,.2f}")
+        lines.append(f"Labour hours:     {to_float(work['labour_hours'].sum()):,.2f}")
+        lines.append(f"Value ex GST:     ${to_float(work['value_ex_gst'].sum()):,.2f}")
         if "row_role" in takeoff.columns:
-            floor_m2 = float(takeoff.loc[takeoff["row_role"].fillna("").eq("floor_area") & takeoff["unit"].eq("m²"), "quantity"].sum())
+            floor_m2 = to_float(takeoff.loc[takeoff["row_role"].fillna("").eq("floor_area") & takeoff["unit"].eq("m²"), "quantity"].sum())
             if floor_m2:
                 lines.append(f"Floor m2 (ref):   {floor_m2:,.2f}")
     lines += [
@@ -4477,36 +4557,36 @@ def progress_package_bytes(workspace_id: int) -> bytes:
         manifest = {
             "app": APP_NAME,
             "app_version": APP_VERSION,
-            "job_no": workspace.get("job_no", ""),
-            "job_name": workspace.get("job_name", ""),
-            "builder_client": workspace.get("builder_client", ""),
-            "site_address": workspace.get("site_address", ""),
-            "drawing_issue": workspace.get("drawing_issue", ""),
-            "estimator": workspace.get("estimator", ""),
-            "status": workspace.get("status", ""),
+            "job_no": str(workspace.get("job_no", "") or ""),
+            "job_name": str(workspace.get("job_name", "") or ""),
+            "builder_client": str(workspace.get("builder_client", "") or ""),
+            "site_address": str(workspace.get("site_address", "") or ""),
+            "drawing_issue": str(workspace.get("drawing_issue", "") or ""),
+            "estimator": str(workspace.get("estimator", "") or ""),
+            "status": str(workspace.get("status", "") or ""),
             "generated": now_stamp(),
-            "executive_summary": workspace.get("executive_summary", ""),
+            "executive_summary": str(workspace.get("executive_summary", "") or ""),
             "totals": {
-                "m2": float(work_takeoff.loc[work_takeoff["unit"].eq("m²"), "quantity"].sum()) if not work_takeoff.empty else 0.0,
-                "lm": float(work_takeoff.loc[work_takeoff["unit"].eq("lm"), "quantity"].sum()) if not work_takeoff.empty else 0.0,
-                "count": float(work_takeoff.loc[work_takeoff["unit"].isin({"No.", "item"}), "quantity"].sum()) if not work_takeoff.empty else 0.0,
-                "paint_litres": float(work_takeoff["paint_litres"].sum()) if not work_takeoff.empty else 0.0,
-                "labour_hours": float(work_takeoff["labour_hours"].sum()) if not work_takeoff.empty else 0.0,
-                "value_ex_gst": float(work_takeoff["value_ex_gst"].sum()) if not work_takeoff.empty else 0.0,
+                "m2": to_float(work_takeoff.loc[work_takeoff["unit"].eq("m²"), "quantity"].sum()) if not work_takeoff.empty else 0.0,
+                "lm": to_float(work_takeoff.loc[work_takeoff["unit"].eq("lm"), "quantity"].sum()) if not work_takeoff.empty else 0.0,
+                "count": to_float(work_takeoff.loc[work_takeoff["unit"].isin({"No.", "item"}), "quantity"].sum()) if not work_takeoff.empty else 0.0,
+                "paint_litres": to_float(work_takeoff["paint_litres"].sum()) if not work_takeoff.empty else 0.0,
+                "labour_hours": to_float(work_takeoff["labour_hours"].sum()) if not work_takeoff.empty else 0.0,
+                "value_ex_gst": to_float(work_takeoff["value_ex_gst"].sum()) if not work_takeoff.empty else 0.0,
             },
             "pages": pages.to_dict("records"),
             "measured_rows": int((work_takeoff["quantity_status"].astype(str).str.lower().str.contains("measur") if not work_takeoff.empty else pd.Series(dtype=bool)).sum()),
         }
-        zf.writestr("package_manifest.json", json.dumps(manifest, indent=2, default=str))
+        zf.writestr("package_manifest.json", json.dumps(_sanitize_for_json(manifest), indent=2, default=str, allow_nan=False))
         zf.writestr("3d/3d_progress_marker.html", build_3d_figure(workspace_id).to_html(full_html=True, include_plotlyjs=True))
         zf.writestr("3d/building.obj", generate_obj(workspace_id))
-        zf.writestr("3d/building_geometry.json", json.dumps({
-            "workspace": workspace,
-            "masses": lquery("SELECT * FROM model_masses WHERE workspace_id=?", (workspace_id,)),
-            "openings": lquery("SELECT * FROM model_openings WHERE workspace_id=?", (workspace_id,)),
-            "mapped_zones": lquery("SELECT * FROM mapped_zones WHERE workspace_id=?", (workspace_id,)),
-            "measurement_lines": lquery("SELECT * FROM measurement_lines WHERE workspace_id=?", (workspace_id,)),
-        }, indent=2, default=str))
+        zf.writestr("3d/building_geometry.json", json.dumps(_sanitize_for_json({
+            "workspace": dict(workspace),
+            "masses": [dict(r) for r in lquery("SELECT * FROM model_masses WHERE workspace_id=?", (workspace_id,))],
+            "openings": [dict(r) for r in lquery("SELECT * FROM model_openings WHERE workspace_id=?", (workspace_id,))],
+            "mapped_zones": [dict(r) for r in lquery("SELECT * FROM mapped_zones WHERE workspace_id=?", (workspace_id,))],
+            "measurement_lines": [dict(r) for r in lquery("SELECT * FROM measurement_lines WHERE workspace_id=?", (workspace_id,))],
+        }), indent=2, default=str, allow_nan=False))
         zf.writestr("takeoff/paint_takeoff.xlsx", excel_export_bytes(workspace_id))
         if not takeoff.empty:
             zf.writestr("takeoff/takeoff_schedule.csv", takeoff.to_csv(index=False))
@@ -4552,9 +4632,9 @@ def _sync_jobhub_takeoff_rows(bridge: JobHubBridge, job_id: int, takeoff: pd.Dat
     for _, row in takeoff.iterrows():
         unit = str(row.get("unit") or "")
         qty = to_float(row.get("quantity"))
-        m2 = qty if unit == "m²" else 0
-        lm = qty if unit == "lm" else 0
-        count = qty if unit in {"No.", "item"} else 0
+        m2 = qty if unit == "m²" else 0.0
+        lm = qty if unit == "lm" else 0.0
+        count = qty if unit in {"No.", "item"} else 0.0
         section = str(row.get("section") or "Internal walls and ceilings")
         internal_external = "Internal" if "internal" in section.lower() else ("External" if "external" in section.lower() else "Internal")
         payloads.append((
@@ -4563,7 +4643,7 @@ def _sync_jobhub_takeoff_rows(bridge: JobHubBridge, job_id: int, takeoff: pd.Dat
             str(row.get("substrate") or "Other"),
             str(row.get("element") or ""),
             m2, lm, count,
-            to_float(row.get("coats"), 1),
+            to_float(row.get("coats"), 1.0),
             to_float(row.get("rate_per_unit")),
             to_float(row.get("labour_hours")),
             to_float(row.get("paint_litres")),
