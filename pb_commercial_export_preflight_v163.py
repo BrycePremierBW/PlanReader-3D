@@ -561,6 +561,11 @@ def verify_toctou_and_publish_jobhub(
     job_id = preflight.jobhub_job_id
     if job_id:
         try:
+            from pb_planreader_3d_app import ensure_jobhub_takeoff_tables
+            ensure_jobhub_takeoff_tables(bridge)
+        except Exception:
+            pass
+        try:
             query_sql = "SELECT id, takeoff_no, notes FROM painting_takeoff_packages WHERE job_id=? AND status='Published' ORDER BY id DESC"
             existing_pkgs = bridge.query(query_sql, (job_id,))
             for pkg in existing_pkgs:
@@ -570,7 +575,8 @@ def verify_toctou_and_publish_jobhub(
         except RuntimeError:
             raise
         except (sqlite3.OperationalError, sqlite3.DatabaseError, TypeError, ValueError, AttributeError) as exc:
-            raise RuntimeError(f"Duplicate verification failed closed: unable to query existing JobHub packages ({exc}).") from exc
+            if "no such table" not in str(exc).lower():
+                raise RuntimeError(f"Duplicate verification failed closed: unable to query existing JobHub packages ({exc}).") from exc
 
     # Safely determine signature BEFORE invocation to prevent double-invocation on internal TypeError
     supports_kwargs = True

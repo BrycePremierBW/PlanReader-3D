@@ -217,6 +217,8 @@ class MockJobHubBridge:
             if "status='Pending'" in sql:
                 return [p for p in self.packages if p.get("status") == "Pending"]
             return self.packages
+        if "jobs" in sql:
+            return [{"id": params[0] if params else 101, "status": self.job_status}]
         return []
 
 

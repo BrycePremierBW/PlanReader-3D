@@ -451,10 +451,13 @@ def apply(app:Any)->None:
     app.init_local_db=init; app.lexecute=guarded_exec(app,base_exec); app.level_of=level_of; app.level_sort_key=level_sort_key; app.pricing_scope_of=scope_of; app.floor_area_by_level=lambda df:{lvl:sum(app.to_float(r.get("quantity")) for r in floor_rows(app,df) if level_of(r.get("location"))==lvl) for lvl in {level_of(r.get("location")) for r in floor_rows(app,df)}}; app.floor_area_by_scope=lambda df:floor_by_scope(app,df); app.dataframe_for_takeoff=lambda wid:dataframe_for_takeoff(app,wid); app.per_level_summary=lambda wid:per_level_summary(app,wid); app.auto_detect_scale=lambda p:auto_scale(app,p)
     app.scale_gate_issues=lambda wid:list(base_scale(wid) or [])+[dict(page_id=int(r["page_id"]),page_label=clean(r.get("page_label")),page_type=clean(r.get("page_type")),px_per_m=app.to_float(r.get("px_per_m"))) for r in app.lquery("SELECT DISTINCT p.id page_id,p.page_label,p.page_type,p.px_per_m FROM measurement_lines ml JOIN pages p ON p.id=ml.page_id WHERE ml.workspace_id=? AND p.selected=1 AND COALESCE(p.px_per_m,0)<=0",(wid,)) if int(r["page_id"]) not in {int(x.get("page_id") or 0) for x in list(base_scale(wid) or [])}]
     app.scale_gate_blocked=lambda wid:bool(app.scale_gate_issues(wid)); app._ensure_mapper_row=lambda *a:mapper_row(app,*a); app.auto_map_measurements=lambda *a:auto_map(app,*a); app.auto_detect_envelope_shapes=lambda *a:auto_envelope(app,*a); app.save_measurement_lines=lambda wid,pid,lines:save_lines(app,base_exec,wid,pid,lines); app.recompute_takeoff_rows_from_measurements=lambda wid,ids:recompute(app,base_exec,wid,ids); app.parse_takeoff_file=parse_file(app); app.import_ai_result=import_ai(app,base_ai); app.reconcile_ai_vs_drawn=lambda wid:reconcile(app,wid); app.takeoff_accuracy_issues=lambda wid:issues(app,wid)
-    def publish(wid,bridge,actor="PlanReader"):
+    def publish(wid,bridge,actor="PlanReader",*args,**kwargs):
+        ws_rows = app.lquery("SELECT id FROM workspaces WHERE id=?", (wid,))
+        if not ws_rows:
+            raise RuntimeError(f"Workspace #{wid} not found.")
         bad=[x for x in issues(app,wid) if x["severity"]=="Critical"]
         if bad:raise RuntimeError("Take-off accuracy gate blocked final publish: "+"; ".join(x["message"] for x in bad[:6]))
-        return base_pub(wid,bridge,actor)
+        return base_pub(wid,bridge,actor,*args,**kwargs)
     app.publish_job_to_jobhub=publish
     def page(workspace,key,provider="OpenAI"):
         wid=int(workspace["id"]); rows=app.ldf("SELECT id FROM takeoff_rows WHERE workspace_id=? LIMIT 1",(wid,)); audit=issues(app,wid) if not rows.empty else []
