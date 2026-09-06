@@ -112,6 +112,7 @@ def floor_rows(app: Any, df: pd.DataFrame) -> List[Dict[str, Any]]:
     mapped, chosen = mapped_ids(app, wid) if wid else set(), {}
     for row in df.to_dict("records"):
         if clean(row.get("row_role")) != "floor_area" or app._normalise_unit(row.get("unit")) != "m²": continue
+        if hasattr(app, "is_commercial_floor_reference_row") and not app.is_commercial_floor_reference_row(row): continue
         rid, conf, status = int(row.get("id") or 0), clean(row.get("confidence")).lower(), clean(row.get("quantity_status")).lower()
         rank = (5 if rid in mapped or status == "mapped" else 0, 3 if conf in REVIEWED else (1 if not is_ai(row) else 0), rid)
         key = scope_of(row.get("location"))
@@ -133,6 +134,8 @@ def floor_for_scope(floors: Dict[str, float], scope: str) -> float:
 def dataframe_for_takeoff(app: Any, wid: int) -> pd.DataFrame:
     schema(app)
     df = app.ldf("SELECT * FROM takeoff_rows WHERE workspace_id=? ORDER BY id", (wid,))
+    if df.empty: return df
+    df = app.commercial_takeoff_rows(df).copy()
     if df.empty: return df
     basis, floors = clean(app.workspace_setting(wid, "internal_pricing_basis", "wall_m2")).lower(), floor_by_scope(app, df)
     groups: Dict[str, List[int]] = {}

@@ -70,6 +70,19 @@ def is_excluded_takeoff_row(row: Mapping[str, Any]) -> bool:
     return _normalised(row.get("inclusion_status")) in _EXCLUDED_SCOPE_VALUES
 
 
+def is_commercial_floor_reference_row(row: Mapping[str, Any]) -> bool:
+    """Return whether a row is a commercially valid floor reference (not excluded, and approved if model-derived)."""
+    if not is_floor_reference_row(row):
+        return False
+    if is_excluded_takeoff_row(row):
+        return False
+    if is_model_surface_row(row):
+        approved, _ = model_surface_authority(row)
+        if not approved:
+            return False
+    return True
+
+
 _AUTHORITY_BOUND_FIELDS = (
     "workspace_id",
     "section",
@@ -206,10 +219,10 @@ def model_surface_authority(row: Mapping[str, Any]) -> Tuple[bool, str]:
 
 def takeoff_row_publishability(row: Mapping[str, Any]) -> Tuple[bool, str]:
     """Single policy used by preflight, pricing, exports, and JobHub delivery."""
-    if is_floor_reference_row(row):
-        return False, "FLOOR_REFERENCE"
     if is_excluded_takeoff_row(row):
         return False, "EXCLUDED"
+    if is_floor_reference_row(row):
+        return False, "FLOOR_REFERENCE"
     approved, reason = model_surface_authority(row)
     if not approved:
         return False, reason
