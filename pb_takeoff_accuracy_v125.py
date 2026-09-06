@@ -145,13 +145,24 @@ def dataframe_for_takeoff(app: Any, wid: int) -> pd.DataFrame:
         f = floor_for_scope(floors, scope)
         weights = [max(0.0, app.to_float(df.loc[i,"quantity"])) for i in idxs]; total = sum(weights)
         for i,w in zip(idxs,weights): allocated[i] = f if len(idxs)==1 else (f*w/total if f>0 and total>0 else 0.0)
+    clean_qty, clean_rate, clean_coats, clean_cov, clean_prod = [], [], [], [], []
     paints, hours, priced, labels, values = [],[],[],[],[]
     for idx,row in df.iterrows():
         q, unit, role = max(0.0, app.to_float(row.get("quantity"))), app._normalise_unit(row.get("unit")) or clean(row.get("unit")), clean(row.get("row_role"))
+        rate = max(0.0, app.to_float(row.get("rate_per_unit")))
+        coats = app.to_float(row.get("coats"), 2.0)
+        coverage = app.to_float(row.get("coverage_m2_per_litre"), 12.0)
+        productivity = app.to_float(row.get("productivity_m2_per_hour"), 8.0)
+        clean_qty.append(q); clean_rate.append(rate); clean_coats.append(coats); clean_cov.append(coverage); clean_prod.append(productivity)
         if role == "floor_area": paints.append(0.0); hours.append(0.0); priced.append(q if unit=="m²" else 0.0); labels.append("Floor area (reference)"); values.append(0.0); continue
-        paints.append(app.paint_litres(q, unit, app.to_float(row.get("coats"),2), app.to_float(row.get("coverage_m2_per_litre"),12)))
-        hours.append(app.labour_hours(q, unit, app.to_float(row.get("productivity_m2_per_hour"),8)))
-        pq = allocated.get(int(idx), q); priced.append(pq); labels.append("Floor m² allocated" if int(idx) in allocated and len(groups.get(scope_of(row.get("location")),[]))>1 else ("Floor m²" if int(idx) in allocated else "Quantity")); values.append(app.row_value(pq, app.to_float(row.get("rate_per_unit"))))
+        paints.append(app.paint_litres(q, unit, coats, coverage))
+        hours.append(app.labour_hours(q, unit, productivity))
+        pq = allocated.get(int(idx), q); priced.append(pq); labels.append("Floor m² allocated" if int(idx) in allocated and len(groups.get(scope_of(row.get("location")),[]))>1 else ("Floor m²" if int(idx) in allocated else "Quantity")); values.append(app.row_value(pq, rate))
+    df["quantity"] = clean_qty
+    df["rate_per_unit"] = clean_rate
+    df["coats"] = clean_coats
+    df["coverage_m2_per_litre"] = clean_cov
+    df["productivity_m2_per_hour"] = clean_prod
     df["paint_litres"],df["labour_hours"],df["priced_quantity"],df["pricing_basis"],df["value_ex_gst"] = paints,hours,priced,labels,values
     return df
 
@@ -165,7 +176,7 @@ def per_level_summary(app: Any, wid: int) -> pd.DataFrame:
     out=[]
     for lvl in set(work["level"].tolist())|set(fm):
         g=work.loc[work["level"].eq(lvl)]
-        out.append({"level":lvl,"rows":len(g),"m2":float(g.loc[g["unit"].eq("m²"),"quantity"].sum()),"floor_m2":fm.get(lvl,0.0),"lm":float(g.loc[g["unit"].eq("lm"),"quantity"].sum()),"count":float(g.loc[g["unit"].isin({"No.","item"}),"quantity"].sum()),"paint_litres":float(g["paint_litres"].sum()),"labour_hours":float(g["labour_hours"].sum()),"value_ex_gst":float(g["value_ex_gst"].sum())})
+        out.append({"level":str(lvl),"rows":len(g),"m2":app.to_float(g.loc[g["unit"].eq("m²"),"quantity"].sum()),"floor_m2":app.to_float(fm.get(lvl,0.0)),"lm":app.to_float(g.loc[g["unit"].eq("lm"),"quantity"].sum()),"count":app.to_float(g.loc[g["unit"].isin({"No.","item"}),"quantity"].sum()),"paint_litres":app.to_float(g["paint_litres"].sum()),"labour_hours":app.to_float(g["labour_hours"].sum()),"value_ex_gst":app.to_float(g["value_ex_gst"].sum())})
     r=pd.DataFrame(out,columns=cols); r["_sort"]=r["level"].map(level_sort_key); return r.sort_values(["_sort","level"]).drop(columns="_sort").reset_index(drop=True)
 
 
