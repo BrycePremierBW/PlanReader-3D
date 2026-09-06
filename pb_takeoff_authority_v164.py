@@ -30,6 +30,23 @@ AUTHORITY_REVIEWED_AT_FIELD = "commercial_authority_reviewed_at"
 AUTHORITY_FINGERPRINT_FIELD = "commercial_authority_fingerprint"
 
 _EXCLUDED_SCOPE_VALUES = {"exclude", "excluded", "exclusion"}
+_CLARIFICATION_SCOPE_VALUES = {"clarification", "clarification_only"}
+
+_PROVISIONAL_STATUS_VALUES = {
+    "provisional",
+    "provisional_measured",
+    "to_measure",
+    "to_review",
+    "unmeasured",
+    "not_applicable",
+}
+
+_PROVISIONAL_INCLUSION_VALUES = {
+    "provisional",
+    "provisional_sum",
+    "provisional_item",
+    "prov",
+}
 
 _AI_REVIEWED_CONFIDENCE_VALUES = {
     "approved",
@@ -81,8 +98,11 @@ def is_floor_reference_row(row: Mapping[str, Any]) -> bool:
 
 
 def is_excluded_takeoff_row(row: Mapping[str, Any]) -> bool:
-    """Recognise the legacy inclusion spellings without substring ambiguity."""
-    return _normalised(row.get("inclusion_status")) in _EXCLUDED_SCOPE_VALUES
+    """Recognise explicit exclusion in either legacy scope/status field."""
+    return (
+        _normalised(row.get("inclusion_status")) in _EXCLUDED_SCOPE_VALUES
+        or _normalised(row.get("quantity_status")) in _EXCLUDED_SCOPE_VALUES
+    )
 
 
 def is_ai_takeoff_row(row: Mapping[str, Any]) -> bool:
@@ -168,11 +188,30 @@ def prepare_ai_takeoff_editor_save(
     return merged
 
 
+def takeoff_row_scope_authority(row: Mapping[str, Any]) -> Tuple[bool, str]:
+    """Require resolved, commercially active scope before pricing or publication."""
+    if is_excluded_takeoff_row(row):
+        return False, "EXCLUDED"
+
+    inclusion = _normalised(row.get("inclusion_status"))
+    if inclusion in _CLARIFICATION_SCOPE_VALUES:
+        return False, "CLARIFICATION"
+    if inclusion in _PROVISIONAL_INCLUSION_VALUES:
+        return False, "PROVISIONAL"
+
+    quantity_status = _normalised(row.get("quantity_status"))
+    if quantity_status in _PROVISIONAL_STATUS_VALUES:
+        return False, "PROVISIONAL"
+
+    return True, "SCOPE_AUTHORISED"
+
+
 def is_commercial_floor_reference_row(row: Mapping[str, Any]) -> bool:
-    """Return whether a row is a commercially valid floor reference (not excluded, and approved if model-derived)."""
+    """Return whether a floor reference has resolved scope and model authority."""
     if not is_floor_reference_row(row):
         return False
-    if is_excluded_takeoff_row(row):
+    scope_approved, _ = takeoff_row_scope_authority(row)
+    if not scope_approved:
         return False
     ai_approved, _ = ai_takeoff_authority(row)
     if not ai_approved:
@@ -319,7 +358,7 @@ def model_surface_authority(row: Mapping[str, Any]) -> Tuple[bool, str]:
 
 
 def takeoff_row_publishability(row: Mapping[str, Any]) -> Tuple[bool, str]:
-    """Single policy used by preflight, pricing, exports, and JobHub delivery."""
+    """Return whether a row can enter commercial preflight review."""
     if is_excluded_takeoff_row(row):
         return False, "EXCLUDED"
     if is_floor_reference_row(row):
@@ -333,21 +372,15 @@ def takeoff_row_publishability(row: Mapping[str, Any]) -> Tuple[bool, str]:
     return True, "PUBLISHABLE"
 
 
-_PROVISIONAL_STATUS_VALUES = {
-    "provisional",
-    "provisional_measured",
-    "to_measure",
-    "to_review",
-    "unmeasured",
-    "not_applicable",
-}
-
-_PROVISIONAL_INCLUSION_VALUES = {
-    "provisional",
-    "provisional_sum",
-    "provisional_item",
-    "prov",
-}
+def takeoff_row_pricing_authority(row: Mapping[str, Any]) -> Tuple[bool, str]:
+    """Return whether a resolved row may affect firm pricing or active work."""
+    publishable, reason = takeoff_row_publishability(row)
+    if not publishable:
+        return False, reason
+    scope_approved, scope_reason = takeoff_row_scope_authority(row)
+    if not scope_approved:
+        return False, scope_reason
+    return True, "PRICING_AUTHORISED"
 
 
 def is_provisional_takeoff_row(row: Mapping[str, Any]) -> bool:
@@ -396,11 +429,12 @@ def is_jobhub_eligible_row(row: Mapping[str, Any]) -> Tuple[bool, str]:
     Ineligible rows:
     - Excluded rows (EXCLUDED)
     - Floor reference rows (FLOOR_REFERENCE)
+    - Clarification-only or provisional rows
     - Unreviewed AI drafts or unapproved/tampered model surfaces
     - Non-positive or non-finite quantities (ZERO_OR_INVALID_QUANTITY)
     """
-    publishable, reason = takeoff_row_publishability(row)
-    if not publishable:
+    pricing_approved, reason = takeoff_row_pricing_authority(row)
+    if not pricing_approved:
         return False, reason
     qty_raw = row.get("quantity")
     if qty_raw is None:
