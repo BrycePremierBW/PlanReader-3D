@@ -1,0 +1,28 @@
+{
+  "door_schedule": {
+    "source_sheets": ["DOOR SCHEDULES (BLOCK A)", "DOOR SCHEDULES (BLOCK B)"],
+    "source_pages": [28, 29],
+    "doors": [
+      {"code": "620", "description": "INTERNAL SINGLE HINGED DOOR", "height_mm": 2040, "width_mm": 620, "paint_treatment": "Paintable internal"},
+      {"code": "720", "description": "INTERNAL SINGLE HINGED DOOR", "height_mm": 2040, "width_mm": 720, "paint_treatment": "Paintable internal"},
+      {"code": "720 x 1000", "description": "INTERNAL SINGLE HINGED DOOR", "height_mm": 1000, "width_mm": 720, "paint_treatment": "Paintable internal/small access"},
+      {"code": "770", "description": "INTERNAL SINGLE HINGED DOOR", "height_mm": 2040, "width_mm": 770, "paint_treatment": "Paintable internal"},
+      {"code": "820", "description": "INTERNAL SINGLE HINGED DOOR", "height_mm": 2040, "width_mm": 820, "paint_treatment": "Paintable internal"},
+      {"code": "820 C/S", "description": "CAVITY SLIDING DOOR", "height_mm": 2040, "width_mm": 820, "paint_treatment": "Paintable internal"},
+      {"code": "820 ENTRY", "description": "ENTRY DOOR", "height_mm": 2040, "width_mm": 820, "paint_treatment": "Entry/front door"},
+      {"code": "870 ENTRY", "description": "ENTRY DOOR", "height_mm": 2040, "width_mm": 870, "paint_treatment": "Entry/front door"},
+      {"code": "PANEL LIFT", "description": "PANEL LIFT GARAGE DOOR", "height_mm": 2400, "width_mm": 3000, "paint_treatment": "Excluded factory finish"}
+    ]
+  },
+  "window_schedule": {
+    "source_sheets": ["WINDOW SCHEDULES (BLOCK A)", "WINDOW SCHEDULES (BLOCK B)"],
+    "source_pages": [30, 31],
+    "types": [
+      "SLIDING WINDOW",
+      "FIXED GLASS WINDOW",
+      "AWNING / FIXED GLASS WINDOW",
+      "LOUVRE WINDOW",
+      "SLIDING WINDOW - OBSCURE GLASS"
+    ]
+  }
+}

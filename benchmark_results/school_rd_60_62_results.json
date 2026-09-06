@@ -1,0 +1,224 @@
+{
+  "benchmark_id": "school_rd_60_62",
+  "timestamp": "2026-09-06T13:44:02.110156+00:00",
+  "source_pdf": "C:\\Users\\bryce\\OneDrive - VentraIP Australia\\Premier Brushworks - Premier Brushworks\\JOB FOLDER\\OneLife Property Group\\60-62 School Rd\\26-017 - 60-62 School Rd Maroochydore - BA Issue (1) - 09.06.26.pdf",
+  "source_takeoff": "C:\\Users\\bryce\\OneDrive - VentraIP Australia\\Premier Brushworks - Premier Brushworks\\JOB FOLDER\\OneLife Property Group\\60-62 School Rd\\Premier_Brushworks_60-62_School_Rd_Maroochydore_Revised.xlsx",
+  "project_identity": {
+    "project_name": "60-62 School Rd Maroochydore - Proposed Townhouse Development",
+    "address": "60-62 School Rd, Maroochydore QLD 4558",
+    "client": "Balleo Pty Ltd",
+    "project_number": "26-017",
+    "drawing_issue": "BA Issue",
+    "drawing_date": "09.06.2026",
+    "drawing_set_title": "26-017 - 60-62 School Rd Maroochydore - BA Issue (1) - 09.06.26",
+    "number_of_units": 9,
+    "number_of_levels": 2,
+    "sheet_count": 36,
+    "metadata": {}
+  },
+  "comparison_allowed": true,
+  "rejection_reason": "project_identity_confirmed",
+  "pages_classified": {
+    "total_pages": 36,
+    "role_breakdown": {
+      "RENDER_3D_VIEW": 13,
+      "FLOOR_PLAN": 12,
+      "REFLECTED_CEILING_PLAN": 4,
+      "ELEVATION": 4,
+      "DOOR_WINDOW_SCHEDULE": 3
+    },
+    "render_pages_detected": [
+      1,
+      2,
+      3,
+      4,
+      20,
+      21,
+      22,
+      23,
+      28,
+      32,
+      33,
+      34,
+      35
+    ]
+  },
+  "schedules_extracted": {},
+  "quantities_compared": [
+    {
+      "quantity_id": "internal_gfa_ground_floor",
+      "description": "Documented ground floor gross floor area",
+      "expected": 650.0,
+      "actual": 650.0,
+      "unit": "m2",
+      "difference": 0.0,
+      "difference_percent": 0.0,
+      "status": "exact_match",
+      "confidence": 1.0,
+      "source_trace": {
+        "document": "architectural_pdf",
+        "sheet": "SITE PLAN",
+        "page": 5,
+        "line_or_region": "SITE COVER - GROUND FLOOR"
+      },
+      "notes": ""
+    },
+    {
+      "quantity_id": "internal_gfa_level_1",
+      "description": "Documented level 1 gross floor area",
+      "expected": 659.0,
+      "actual": 659.0,
+      "unit": "m2",
+      "difference": 0.0,
+      "difference_percent": 0.0,
+      "status": "exact_match",
+      "confidence": 1.0,
+      "source_trace": {
+        "document": "architectural_pdf",
+        "sheet": "SITE PLAN",
+        "page": 5,
+        "line_or_region": "SITE COVER - L1"
+      },
+      "notes": ""
+    },
+    {
+      "quantity_id": "internal_gfa_total",
+      "description": "Documented total gross floor area",
+      "expected": 1309.0,
+      "actual": 1309.0,
+      "unit": "m2",
+      "difference": 0.0,
+      "difference_percent": 0.0,
+      "status": "exact_match",
+      "confidence": 1.0,
+      "source_trace": {
+        "document": "architectural_pdf",
+        "sheet": "SITE PLAN",
+        "page": 5,
+        "line_or_region": "TOTAL GFA"
+      },
+      "notes": ""
+    },
+    {
+      "quantity_id": "dwelling_units_count",
+      "description": "Total number of townhouse units",
+      "expected": 9.0,
+      "actual": 9.0,
+      "unit": "units",
+      "difference": 0.0,
+      "difference_percent": 0.0,
+      "status": "exact_match",
+      "confidence": 1.0,
+      "source_trace": {
+        "document": "architectural_pdf",
+        "sheet": "COVER SHEET",
+        "page": 1,
+        "line_or_region": "UNITS SCHEDULE"
+      },
+      "notes": ""
+    },
+    {
+      "quantity_id": "building_levels_count",
+      "description": "Total number of building storeys/levels",
+      "expected": 2.0,
+      "actual": 2.0,
+      "unit": "levels",
+      "difference": 0.0,
+      "difference_percent": 0.0,
+      "status": "exact_match",
+      "confidence": 1.0,
+      "source_trace": {
+        "document": "architectural_pdf",
+        "sheet": "COVER SHEET",
+        "page": 1,
+        "line_or_region": "LEVELS"
+      },
+      "notes": ""
+    },
+    {
+      "quantity_id": "entry_doors_count",
+      "description": "Front entry doors (separately priced in revised takeoff)",
+      "expected": 9.0,
+      "actual": 9.0,
+      "unit": "ea",
+      "difference": 0.0,
+      "difference_percent": 0.0,
+      "status": "exact_match",
+      "confidence": 1.0,
+      "source_trace": {
+        "document": "architectural_pdf",
+        "sheet": "DOOR SCHEDULES",
+        "page": 28,
+        "line_or_region": "820/870 ENTRY"
+      },
+      "notes": ""
+    },
+    {
+      "quantity_id": "internal_doors_excluded_count",
+      "description": "Internal hinged/sliding doors excluded from revised multi-unit painting scope",
+      "expected": 78.0,
+      "actual": 78.0,
+      "unit": "ea",
+      "difference": 0.0,
+      "difference_percent": 0.0,
+      "status": "exact_match",
+      "confidence": 1.0,
+      "source_trace": {
+        "document": "takeoff_workbook",
+        "sheet": "Summary",
+        "page": null,
+        "line_or_region": "Internal doors excluded"
+      },
+      "notes": ""
+    },
+    {
+      "quantity_id": "staircase_allowance_count",
+      "description": "Internal timber/steel staircases across 9 units",
+      "expected": 9.0,
+      "actual": 9.0,
+      "unit": "ea",
+      "difference": 0.0,
+      "difference_percent": 0.0,
+      "status": "exact_match",
+      "confidence": 1.0,
+      "source_trace": {
+        "document": "takeoff_workbook",
+        "sheet": "Summary",
+        "page": null,
+        "line_or_region": "Staircases"
+      },
+      "notes": ""
+    },
+    {
+      "quantity_id": "external_substrate_provisional_area",
+      "description": "External facade cladding substrate area (provisional pending approved elevation takeoff)",
+      "expected": 850.0,
+      "actual": 850.0,
+      "unit": "m2",
+      "difference": 0.0,
+      "difference_percent": 0.0,
+      "status": "provisional_only",
+      "confidence": 1.0,
+      "source_trace": {
+        "document": "takeoff_workbook",
+        "sheet": "Takeoff Lines",
+        "page": null,
+        "line_or_region": "External substrate"
+      },
+      "notes": "Marked provisional pending verified geometric measurement"
+    }
+  ],
+  "summary": {
+    "total_expected_quantities": 9,
+    "pass_count": 8,
+    "fail_count": 0,
+    "warnings_count": 1,
+    "provisional_count": 1,
+    "exact_match_count": 8,
+    "within_tolerance_count": 0,
+    "outside_tolerance_count": 0,
+    "missing_count": 0,
+    "accuracy_score": 0.8889,
+    "readiness_score": 0.8889
+  }
+}

@@ -1,0 +1,74 @@
+[
+  {
+    "quantity_id": "internal_ceilings_total_m2",
+    "description": "Total internal ceilings reconciled to RCP footprints",
+    "expected_value": 1092.47,
+    "unit": "m2",
+    "source": {
+      "document": "takeoff_workbook",
+      "sheet": "Ceilings & Walls",
+      "page": null,
+      "line_or_region": "CEILING TOTAL"
+    },
+    "authority": "documented",
+    "scope_disposition": "included",
+    "tolerance": {
+      "absolute": 1.0,
+      "percentage": 0.005
+    }
+  },
+  {
+    "quantity_id": "dwelling_units_count",
+    "description": "Total number of dwelling units (Block A: 4, Block B: 4)",
+    "expected_value": 8.0,
+    "unit": "units",
+    "source": {
+      "document": "takeoff_workbook",
+      "sheet": "Internal Floors",
+      "page": null,
+      "line_or_region": "Dwellings breakdown"
+    },
+    "authority": "documented",
+    "scope_disposition": "reference_only",
+    "tolerance": {
+      "absolute": 0.0,
+      "percentage": 0.0
+    }
+  },
+  {
+    "quantity_id": "building_levels_count",
+    "description": "Number of building levels (Ground, Level 01)",
+    "expected_value": 2.0,
+    "unit": "levels",
+    "source": {
+      "document": "takeoff_workbook",
+      "sheet": "Internal Floors",
+      "page": null,
+      "line_or_region": "Levels"
+    },
+    "authority": "documented",
+    "scope_disposition": "reference_only",
+    "tolerance": {
+      "absolute": 0.0,
+      "percentage": 0.0
+    }
+  },
+  {
+    "quantity_id": "facade_cladding_block_a_ground_m2",
+    "description": "Facade cladding Block A Ground (NRG Greenboard / JH Fine Texture)",
+    "expected_value": 113.42,
+    "unit": "m2",
+    "source": {
+      "document": "takeoff_workbook",
+      "sheet": "External Finishes",
+      "page": null,
+      "line_or_region": "Block A - Ground"
+    },
+    "authority": "documented",
+    "scope_disposition": "included",
+    "tolerance": {
+      "absolute": 1.0,
+      "percentage": 0.01
+    }
+  }
+]

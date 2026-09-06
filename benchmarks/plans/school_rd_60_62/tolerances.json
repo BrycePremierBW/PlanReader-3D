@@ -1,0 +1,28 @@
+{
+  "default": {
+    "absolute": 0.5,
+    "percentage": 0.01
+  },
+  "categories": {
+    "floor_area": {
+      "absolute": 1.0,
+      "percentage": 0.005
+    },
+    "door_count": {
+      "absolute": 0.0,
+      "percentage": 0.0
+    },
+    "window_count": {
+      "absolute": 0.0,
+      "percentage": 0.0
+    },
+    "stair_count": {
+      "absolute": 0.0,
+      "percentage": 0.0
+    },
+    "external_area": {
+      "absolute": 10.0,
+      "percentage": 0.05
+    }
+  }
+}

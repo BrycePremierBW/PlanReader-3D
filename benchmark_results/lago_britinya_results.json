@@ -1,0 +1,152 @@
+{
+  "benchmark_id": "lago_britinya",
+  "timestamp": "2026-09-06T13:44:01.505584+00:00",
+  "source_pdf": "C:\\Users\\bryce\\Downloads\\260617_004-LAGO-BRITINYA_ARCH-DRAWINGS_COMBINED 2.pdf",
+  "source_takeoff": null,
+  "project_identity": {
+    "project_name": "CUBE DEVELOPMENTS - LAGO DD",
+    "address": "2 MANTRA ESP, BIRTINYA, QLD, 4575",
+    "client": "Cube Developments",
+    "project_number": "260617_004",
+    "drawing_issue": "DD",
+    "drawing_date": "17.08.2026",
+    "drawing_set_title": "260617_004-LAGO-BRITINYA_ARCH-DRAWINGS_COMBINED 2",
+    "number_of_units": null,
+    "number_of_levels": null,
+    "sheet_count": 207,
+    "metadata": {}
+  },
+  "comparison_allowed": true,
+  "rejection_reason": "project_identity_confirmed",
+  "pages_classified": {
+    "total_pages": 207,
+    "role_breakdown": {
+      "OTHER_GENERAL": 1,
+      "COVER_INDEX_LEGEND": 109,
+      "RENDER_3D_VIEW": 30,
+      "REFLECTED_CEILING_PLAN": 12,
+      "FINISH_SCHEDULE": 32,
+      "DOOR_WINDOW_SCHEDULE": 23
+    },
+    "render_pages_detected": [
+      3,
+      35,
+      36,
+      37,
+      38,
+      39,
+      40,
+      41,
+      42,
+      93,
+      94,
+      95,
+      96,
+      98,
+      101,
+      102,
+      127,
+      139,
+      140,
+      141,
+      142,
+      143,
+      144,
+      145,
+      150,
+      152,
+      154,
+      157,
+      163,
+      191
+    ]
+  },
+  "schedules_extracted": {},
+  "quantities_compared": [
+    {
+      "quantity_id": "lago_cd3001_p86_east_glazed_lights_count",
+      "description": "True-positive glazed opening lights on CD3001 East Elevation Left/Centre facade ROI",
+      "expected": 9.0,
+      "actual": 9.0,
+      "unit": "ea",
+      "difference": 0.0,
+      "difference_percent": 0.0,
+      "status": "exact_match",
+      "confidence": 1.0,
+      "source_trace": {
+        "document": "architectural_pdf",
+        "sheet": "CD3001",
+        "page": 86,
+        "line_or_region": "E1 East Elevation [1020, 634, 1412, 729]"
+      },
+      "notes": ""
+    },
+    {
+      "quantity_id": "lago_cd3001_p86_opening_height_m",
+      "description": "Glazed opening band height on CD3001 East Elevation",
+      "expected": 1.489,
+      "actual": 1.489,
+      "unit": "m",
+      "difference": 0.0,
+      "difference_percent": 0.0,
+      "status": "exact_match",
+      "confidence": 1.0,
+      "source_trace": {
+        "document": "architectural_pdf",
+        "sheet": "CD3001",
+        "page": 86,
+        "line_or_region": "Glazed window band"
+      },
+      "notes": ""
+    },
+    {
+      "quantity_id": "lago_cd3001_p86_opening_light_width_m",
+      "description": "Individual glazed light average width on CD3001 East Elevation",
+      "expected": 0.773,
+      "actual": 0.773,
+      "unit": "m",
+      "difference": 0.0,
+      "difference_percent": 0.0,
+      "status": "exact_match",
+      "confidence": 1.0,
+      "source_trace": {
+        "document": "architectural_pdf",
+        "sheet": "CD3001",
+        "page": 86,
+        "line_or_region": "Structural bay light"
+      },
+      "notes": ""
+    },
+    {
+      "quantity_id": "lago_total_sheets_count",
+      "description": "Total sheets in combined architectural drawing set",
+      "expected": 207.0,
+      "actual": 207.0,
+      "unit": "sheets",
+      "difference": 0.0,
+      "difference_percent": 0.0,
+      "status": "exact_match",
+      "confidence": 1.0,
+      "source_trace": {
+        "document": "architectural_pdf",
+        "sheet": "ARCH-DRAWINGS_COMBINED",
+        "page": 1,
+        "line_or_region": "PDF Document Catalogue"
+      },
+      "notes": ""
+    }
+  ],
+  "summary": {
+    "total_expected_quantities": 4,
+    "pass_count": 4,
+    "fail_count": 0,
+    "warnings_count": 0,
+    "provisional_count": 0,
+    "exact_match_count": 4,
+    "within_tolerance_count": 0,
+    "outside_tolerance_count": 0,
+    "missing_count": 0,
+    "accuracy_score": 1.0,
+    "readiness_score": 1.0
+  }
+}

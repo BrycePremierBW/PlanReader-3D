@@ -39,6 +39,10 @@ def classify_sheet_role(title: str, text_content: str = "") -> Tuple[str, float,
     """Classify sheet role, confidence, discipline, and primary takeoff target from title block & page text."""
     combined = f"{title} {text_content}".lower()
 
+    # 0. Render / 3D Perspectives
+    if any(k in combined for k in ["artist impression", "3d elevation", "3d view", "perspective", "render", "visualisation"]):
+        return ("RENDER_3D_VIEW", 0.95, "ARCHITECTURAL", "NONE")
+
     # 1. Reflected Ceiling Plan
     if any(k in combined for k in ["reflected ceiling", "rcp", "ceiling plan"]):
         return ("REFLECTED_CEILING_PLAN", 0.95, "ARCHITECTURAL", "CEILING")

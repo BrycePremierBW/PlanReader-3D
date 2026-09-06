@@ -1,0 +1,164 @@
+[
+  {
+    "quantity_id": "internal_gfa_ground_floor",
+    "description": "Documented ground floor gross floor area",
+    "expected_value": 650.0,
+    "unit": "m2",
+    "source": {
+      "document": "architectural_pdf",
+      "sheet": "SITE PLAN",
+      "page": 5,
+      "line_or_region": "SITE COVER - GROUND FLOOR"
+    },
+    "authority": "documented",
+    "scope_disposition": "reference_only",
+    "tolerance": {
+      "absolute": 1.0,
+      "percentage": 0.005
+    }
+  },
+  {
+    "quantity_id": "internal_gfa_level_1",
+    "description": "Documented level 1 gross floor area",
+    "expected_value": 659.0,
+    "unit": "m2",
+    "source": {
+      "document": "architectural_pdf",
+      "sheet": "SITE PLAN",
+      "page": 5,
+      "line_or_region": "SITE COVER - L1"
+    },
+    "authority": "documented",
+    "scope_disposition": "reference_only",
+    "tolerance": {
+      "absolute": 1.0,
+      "percentage": 0.005
+    }
+  },
+  {
+    "quantity_id": "internal_gfa_total",
+    "description": "Documented total gross floor area",
+    "expected_value": 1309.0,
+    "unit": "m2",
+    "source": {
+      "document": "architectural_pdf",
+      "sheet": "SITE PLAN",
+      "page": 5,
+      "line_or_region": "TOTAL GFA"
+    },
+    "authority": "documented",
+    "scope_disposition": "reference_only",
+    "tolerance": {
+      "absolute": 1.0,
+      "percentage": 0.005
+    }
+  },
+  {
+    "quantity_id": "dwelling_units_count",
+    "description": "Total number of townhouse units",
+    "expected_value": 9.0,
+    "unit": "units",
+    "source": {
+      "document": "architectural_pdf",
+      "sheet": "COVER SHEET",
+      "page": 1,
+      "line_or_region": "UNITS SCHEDULE"
+    },
+    "authority": "documented",
+    "scope_disposition": "reference_only",
+    "tolerance": {
+      "absolute": 0.0,
+      "percentage": 0.0
+    }
+  },
+  {
+    "quantity_id": "building_levels_count",
+    "description": "Total number of building storeys/levels",
+    "expected_value": 2.0,
+    "unit": "levels",
+    "source": {
+      "document": "architectural_pdf",
+      "sheet": "COVER SHEET",
+      "page": 1,
+      "line_or_region": "LEVELS"
+    },
+    "authority": "documented",
+    "scope_disposition": "reference_only",
+    "tolerance": {
+      "absolute": 0.0,
+      "percentage": 0.0
+    }
+  },
+  {
+    "quantity_id": "entry_doors_count",
+    "description": "Front entry doors (separately priced in revised takeoff)",
+    "expected_value": 9.0,
+    "unit": "ea",
+    "source": {
+      "document": "architectural_pdf",
+      "sheet": "DOOR SCHEDULES",
+      "page": 28,
+      "line_or_region": "820/870 ENTRY"
+    },
+    "authority": "schedule_extracted",
+    "scope_disposition": "included",
+    "tolerance": {
+      "absolute": 0.0,
+      "percentage": 0.0
+    }
+  },
+  {
+    "quantity_id": "internal_doors_excluded_count",
+    "description": "Internal hinged/sliding doors excluded from revised multi-unit painting scope",
+    "expected_value": 78.0,
+    "unit": "ea",
+    "source": {
+      "document": "takeoff_workbook",
+      "sheet": "Summary",
+      "page": null,
+      "line_or_region": "Internal doors excluded"
+    },
+    "authority": "documented",
+    "scope_disposition": "excluded",
+    "tolerance": {
+      "absolute": 0.0,
+      "percentage": 0.0
+    }
+  },
+  {
+    "quantity_id": "staircase_allowance_count",
+    "description": "Internal timber/steel staircases across 9 units",
+    "expected_value": 9.0,
+    "unit": "ea",
+    "source": {
+      "document": "takeoff_workbook",
+      "sheet": "Summary",
+      "page": null,
+      "line_or_region": "Staircases"
+    },
+    "authority": "documented",
+    "scope_disposition": "included",
+    "tolerance": {
+      "absolute": 0.0,
+      "percentage": 0.0
+    }
+  },
+  {
+    "quantity_id": "external_substrate_provisional_area",
+    "description": "External facade cladding substrate area (provisional pending approved elevation takeoff)",
+    "expected_value": 850.0,
+    "unit": "m2",
+    "source": {
+      "document": "takeoff_workbook",
+      "sheet": "Takeoff Lines",
+      "page": null,
+      "line_or_region": "External substrate"
+    },
+    "authority": "provisional",
+    "scope_disposition": "provisional",
+    "tolerance": {
+      "absolute": 50.0,
+      "percentage": 0.10
+    }
+  }
+]

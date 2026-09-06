@@ -1,0 +1,10 @@
+{
+  "door_schedule": {
+    "source_sheet": "Doors & Frames",
+    "doors": [
+      {"code": "ID01a", "description": "INTERNAL HINGED DOOR", "width_m": 0.92, "qty_block_a_ground": 3, "qty_block_a_l1": 15},
+      {"code": "ID02a", "description": "INTERNAL HINGED DOOR", "width_m": 0.82, "qty_block_a_ground": 5, "qty_block_a_l1": 5},
+      {"code": "ID03a", "description": "CAVITY SLIDING DOOR", "width_m": 0.92, "qty_block_a_ground": 4, "qty_block_a_l1": 0}
+    ]
+  }
+}

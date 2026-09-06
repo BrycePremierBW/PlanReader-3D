@@ -1,0 +1,20 @@
+[
+  {
+    "quantity_id": "king_st_sheet_count",
+    "description": "Total sheets in construction drawing set",
+    "expected_value": 29.0,
+    "unit": "sheets",
+    "source": {
+      "document": "architectural_pdf",
+      "sheet": "COVER SHEET",
+      "page": 1,
+      "line_or_region": "Drawing index"
+    },
+    "authority": "documented",
+    "scope_disposition": "reference_only",
+    "tolerance": {
+      "absolute": 0.0,
+      "percentage": 0.0
+    }
+  }
+]

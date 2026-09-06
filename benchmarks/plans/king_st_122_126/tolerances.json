@@ -1,0 +1,12 @@
+{
+  "default": {
+    "absolute": 0.5,
+    "percentage": 0.01
+  },
+  "categories": {
+    "sheet_count": {
+      "absolute": 0.0,
+      "percentage": 0.0
+    }
+  }
+}
