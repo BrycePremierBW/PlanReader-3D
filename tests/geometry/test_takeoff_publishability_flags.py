@@ -140,6 +140,22 @@ def test_stale_revision_blocks_publication():
     assert any("stale" in r.lower() or "superseded" in r.lower() or "revision" in r.lower() for r in row.blocking_reasons)
 
 
+def test_unconfirmed_project_identity_blocks_schedule_extracted_publishability():
+    """Project identity that was never explicitly confirmed (None) also blocks, not just an explicit mismatch (False)."""
+    row = create_takeoff_output_row(
+        quantity_id="QTY-PUB-SCHED-UNVERIFIED",
+        description="Unverified Project Door Schedule Item",
+        value=4.0,
+        unit="ea",
+        source_type=TakeoffSourceType.SCHEDULE_EXTRACTED,
+        source_page=6,
+        source_sheet="WD-06",
+        project_identity_confirmed=None,
+    )
+    assert row.is_publishable is False
+    assert any("project identity not confirmed" in r.lower() for r in row.blocking_reasons)
+
+
 def test_approval_workflow_transitions_unapproved_to_publishable():
     """Approving a provisional model row transitions it to publishable user_approved."""
     draft = create_takeoff_output_row(

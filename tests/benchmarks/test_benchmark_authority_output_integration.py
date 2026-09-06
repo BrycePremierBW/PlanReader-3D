@@ -29,6 +29,7 @@ def test_benchmark_report_separates_publishable_provisional_and_blocked_rows():
             source_type=TakeoffSourceType.DOCUMENTED_DIMENSION,
             source_page=1,
             source_sheet="WD-01",
+            dimension_text_id="DIM-BENCH-1",
             benchmark_status="exact_match",
         ),
         # Provisional scaled geometry
