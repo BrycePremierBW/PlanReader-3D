@@ -290,3 +290,32 @@ def is_progress_eligible_row(row: Mapping[str, Any]) -> Tuple[bool, str]:
         return False, "ZERO_OR_INVALID_QUANTITY"
     return True, "ELIGIBLE"
 
+
+def is_jobhub_eligible_row(row: Mapping[str, Any]) -> Tuple[bool, str]:
+    """Determine whether a takeoff row is eligible for JobHub export / publication.
+
+    Ineligible rows:
+    - Excluded rows (EXCLUDED)
+    - Floor reference rows (FLOOR_REFERENCE)
+    - Unapproved or tampered model surfaces (e.g. 3D model surface has not received commercial approval)
+    - Non-positive or non-finite quantities (ZERO_OR_INVALID_QUANTITY)
+    """
+    if is_excluded_takeoff_row(row):
+        return False, "EXCLUDED"
+    if is_floor_reference_row(row):
+        return False, "FLOOR_REFERENCE"
+    if is_model_surface_row(row):
+        approved, reason = model_surface_authority(row)
+        if not approved:
+            return False, reason
+    qty_raw = row.get("quantity")
+    if qty_raw is None:
+        return False, "ZERO_OR_INVALID_QUANTITY"
+    try:
+        qty = float(qty_raw)
+    except (TypeError, ValueError):
+        return False, "ZERO_OR_INVALID_QUANTITY"
+    if not math.isfinite(qty) or qty <= 0.0:
+        return False, "ZERO_OR_INVALID_QUANTITY"
+    return True, "ELIGIBLE"
+

@@ -4253,47 +4253,63 @@ def ensure_jobhub_takeoff_tables(bridge: JobHubBridge) -> None:
 
 
 def push_takeoff_to_jobhub(workspace_id: int, bridge: JobHubBridge, created_by: str) -> Tuple[int, int]:
-    workspace = lquery("SELECT * FROM workspaces WHERE id=?", (workspace_id,))[0]
+    ws_rows = lquery("SELECT * FROM workspaces WHERE id=?", (workspace_id,))
+    if not ws_rows:
+        raise RuntimeError(f"Workspace #{workspace_id} not found.")
+    workspace = ws_rows[0]
     job_id = workspace.get("jobhub_job_id")
     if not job_id:
         raise RuntimeError("This workspace is not linked to a JobHub job.")
+    try:
+        job_id_int = int(job_id)
+        if job_id_int <= 0 or isinstance(job_id, bool):
+            raise ValueError
+    except (TypeError, ValueError, OverflowError):
+        raise RuntimeError(f"Invalid JobHub job ID '{job_id}' on workspace #{workspace_id}.")
     takeoff = dataframe_for_takeoff(workspace_id)
     if takeoff.empty:
         raise RuntimeError("There are no take-off rows to send.")
-    takeoff = takeoff_work_rows(takeoff)
+    from pb_takeoff_authority_v164 import is_jobhub_eligible_row
+    mask = takeoff.apply(lambda r: is_jobhub_eligible_row(r.to_dict())[0], axis=1)
+    takeoff = takeoff.loc[mask]
     if takeoff.empty:
         raise RuntimeError("There are no priced work rows to send (only floor-area measurement rows).")
+    ensure_shared_jobhub_schema(bridge)
     ensure_jobhub_takeoff_tables(bridge)
+    job_rows = bridge.query("SELECT id FROM jobs WHERE id=?", (job_id_int,))
+    if not job_rows:
+        raise RuntimeError(f"Job #{job_id_int} does not exist in JobHub.")
     docs = ", ".join(d["file_name"] for d in lquery("SELECT file_name FROM documents WHERE workspace_id=? ORDER BY id", (workspace_id,)))
     internal_mask = takeoff["section"].astype(str).str.lower().str.contains("internal|ceiling|door|joinery")
     external_mask = takeoff["section"].astype(str).str.lower().str.contains("external|facade|elevation|soffit|canopy")
-    m2_mask = takeoff["unit"].astype(str).eq("m²")
+    m2_mask = takeoff["unit"].map(_normalise_unit).eq("m²")
     interior = to_float(takeoff.loc[internal_mask & m2_mask, "quantity"].fillna(0).sum())
     exterior = to_float(takeoff.loc[external_mask & m2_mask, "quantity"].fillna(0).sum())
     total_hours = to_float(takeoff["labour_hours"].fillna(0).sum())
     total_litres = to_float(takeoff["paint_litres"].fillna(0).sum())
-    takeoff_no = f"PR-{workspace.get('job_no')}-{datetime.now().strftime('%Y%m%d-%H%M')}"
+    job_num = safe_name(workspace.get("job_no")) or "NOJOB"
+    takeoff_no = f"PR-{job_num}-{datetime.now().strftime('%Y%m%d-%H%M')}"
     if bridge.kind == "postgres":
         package_id = bridge.execute(
             """INSERT INTO painting_takeoff_packages(job_id,takeoff_no,takeoff_date,status,source_documents,interior_total_m2,exterior_total_m2,total_labour_hours,total_paint_litres,generated_method,assumptions,ai_notes,created_by,created_at,updated_at,notes)
                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id""",
-            (job_id,takeoff_no,datetime.now().date().isoformat(),"Draft from PlanReader",docs,interior,exterior,total_hours,total_litres,"PB PlanReader subscription method","Quantities require estimator review.",workspace.get("executive_summary",""),created_by,now_stamp(),now_stamp(),"3D geometry is conceptual unless marked measured."),
+            (job_id_int,takeoff_no,datetime.now().date().isoformat(),"Draft from PlanReader",docs,interior,exterior,total_hours,total_litres,"PB PlanReader subscription method","Quantities require estimator review.",workspace.get("executive_summary",""),created_by,now_stamp(),now_stamp(),"3D geometry is conceptual unless marked measured."),
             returning=True,
         )
     else:
         bridge.execute(
             """INSERT INTO painting_takeoff_packages(job_id,takeoff_no,takeoff_date,status,source_documents,interior_total_m2,exterior_total_m2,total_labour_hours,total_paint_litres,generated_method,assumptions,ai_notes,created_by,created_at,updated_at,notes)
                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (job_id,takeoff_no,datetime.now().date().isoformat(),"Draft from PlanReader",docs,interior,exterior,total_hours,total_litres,"PB PlanReader subscription method","Quantities require estimator review.",workspace.get("executive_summary",""),created_by,now_stamp(),now_stamp(),"3D geometry is conceptual unless marked measured."),
+            (job_id_int,takeoff_no,datetime.now().date().isoformat(),"Draft from PlanReader",docs,interior,exterior,total_hours,total_litres,"PB PlanReader subscription method","Quantities require estimator review.",workspace.get("executive_summary",""),created_by,now_stamp(),now_stamp(),"3D geometry is conceptual unless marked measured."),
         )
         package_id = bridge.query("SELECT id FROM painting_takeoff_packages WHERE takeoff_no=?", (takeoff_no,))[0]["id"]
     line_count = 0
     for _, row in takeoff.iterrows():
-        unit = str(row.get("unit") or "")
+        norm_unit = _normalise_unit(str(row.get("unit") or ""))
         qty = to_float(row.get("quantity"))
-        m2 = qty if unit == "m²" else 0.0
-        lm = qty if unit == "lm" else 0.0
-        count = qty if unit in {"No.", "item"} else 0.0
+        m2 = qty if norm_unit == "m²" else 0.0
+        lm = qty if norm_unit == "lm" else 0.0
+        count = qty if norm_unit in {"No.", "item"} else 0.0
         bridge.execute(
             """INSERT INTO painting_takeoff_lines(package_id,area_type,location_area,substrate,labour_category,m2,unit,quantity,coats,productivity_m2_per_hour,labour_hours,finish_type,element_count,lineal_metres,paint_litres,flags,notes,created_at)
                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
@@ -4304,7 +4320,7 @@ def push_takeoff_to_jobhub(workspace_id: int, bridge: JobHubBridge, created_by: 
                 str(row.get("substrate") or ""),
                 str(row.get("element") or ""),
                 m2,
-                unit,
+                norm_unit,
                 qty,
                 to_float(row.get("coats"), 0.0),
                 to_float(row.get("productivity_m2_per_hour"), 0.0),
@@ -4322,9 +4338,13 @@ def push_takeoff_to_jobhub(workspace_id: int, bridge: JobHubBridge, created_by: 
     return int(package_id), line_count
 
 
+
 def pull_takeoff_from_jobhub(workspace_id: int, bridge: JobHubBridge) -> int:
     """Import take-off rows from JobHub's ``job_takeoff_rows`` into this workspace."""
-    workspace = lquery("SELECT * FROM workspaces WHERE id=?", (workspace_id,))[0]
+    ws_rows = lquery("SELECT * FROM workspaces WHERE id=?", (workspace_id,))
+    if not ws_rows:
+        raise RuntimeError(f"Workspace #{workspace_id} not found.")
+    workspace = ws_rows[0]
     job_id = workspace.get("jobhub_job_id")
     if not job_id:
         raise RuntimeError("This workspace is not linked to a JobHub job.")
@@ -4669,7 +4689,10 @@ def _progress_package_readme(workspace: Dict[str, Any], takeoff: pd.DataFrame, p
 
 def progress_package_bytes(workspace_id: int) -> bytes:
     """Build the single 'progress marker' ZIP: 3D render + take-off + job documents."""
-    workspace = lquery("SELECT * FROM workspaces WHERE id=?", (workspace_id,))[0]
+    ws_rows = lquery("SELECT * FROM workspaces WHERE id=?", (workspace_id,))
+    if not ws_rows:
+        raise RuntimeError(f"Workspace #{workspace_id} not found.")
+    workspace = ws_rows[0]
     output = io.BytesIO()
     takeoff = dataframe_for_takeoff(workspace_id)
     pages = ldf(
@@ -4762,11 +4785,11 @@ def _sync_jobhub_takeoff_rows(bridge: JobHubBridge, job_id: int, takeoff: pd.Dat
     stamp = now_stamp()
     payloads = []
     for _, row in takeoff.iterrows():
-        unit = str(row.get("unit") or "")
+        norm_unit = _normalise_unit(str(row.get("unit") or "")) or str(row.get("unit") or "")
         qty = to_float(row.get("quantity"))
-        m2 = qty if unit == "m²" else 0.0
-        lm = qty if unit == "lm" else 0.0
-        count = qty if unit in {"No.", "item"} else 0.0
+        m2 = qty if norm_unit == "m²" else 0.0
+        lm = qty if norm_unit == "lm" else 0.0
+        count = qty if norm_unit in {"No.", "item"} else 0.0
         section = str(row.get("section") or "Internal walls and ceilings")
         internal_external = "Internal" if "internal" in section.lower() else ("External" if "external" in section.lower() else "Internal")
         payloads.append((
@@ -4812,17 +4835,32 @@ def push_progress_marker_to_jobhub(workspace_id: int, bridge: JobHubBridge, crea
     ``job_takeoff_rows`` table, records the marker in ``planreader_documents``
     when present, and keeps the existing draft take-off package history.
     """
-    workspace = lquery("SELECT * FROM workspaces WHERE id=?", (workspace_id,))[0]
+    ws_rows = lquery("SELECT * FROM workspaces WHERE id=?", (workspace_id,))
+    if not ws_rows:
+        raise RuntimeError(f"Workspace #{workspace_id} not found.")
+    workspace = ws_rows[0]
     job_id = workspace.get("jobhub_job_id")
     if not job_id:
         raise RuntimeError("Link this workspace to a JobHub job first (or create it as a linked job).")
+    try:
+        job_id_int = int(job_id)
+        if job_id_int <= 0 or isinstance(job_id, bool):
+            raise ValueError
+    except (TypeError, ValueError, OverflowError):
+        raise RuntimeError(f"Invalid JobHub job ID '{job_id}' on workspace #{workspace_id}.")
     takeoff = dataframe_for_takeoff(workspace_id)
     if takeoff.empty:
         raise RuntimeError("There are no take-off rows to send in the progress marker.")
     ensure_shared_jobhub_schema(bridge)
-    file_name = f"progress_marker_{safe_name(workspace.get('job_no'))}_{datetime.now().strftime('%Y%m%d_%H%M')}.zip"
+    ensure_jobhub_takeoff_tables(bridge)
+    job_rows = bridge.query("SELECT id FROM jobs WHERE id=?", (job_id_int,))
+    if not job_rows:
+        raise RuntimeError(f"Job #{job_id_int} does not exist in JobHub.")
+    job_num = safe_name(workspace.get("job_no")) or "NOJOB"
+    file_name = f"progress_marker_{job_num}_{datetime.now().strftime('%Y%m%d_%H%M')}.zip"
     blob_bytes = progress_package_bytes(workspace_id)
     stamp = now_stamp()
+    blob_recorded = False
     try:
         bridge.execute(
             """
@@ -4832,18 +4870,19 @@ def push_progress_marker_to_jobhub(workspace_id: int, bridge: JobHubBridge, crea
                 mime_type=excluded.mime_type, doc_type=excluded.doc_type, notes=excluded.notes,
                 blob_data=excluded.blob_data, created_at=excluded.created_at
             """,
-            (int(job_id), file_name, "application/zip", "Progress Marker",
+            (job_id_int, file_name, "application/zip", "Progress Marker",
              f"PB PlanReader progress marker: 3D render + take-off + job documents. Generated by {created_by}.",
              base64.b64encode(blob_bytes).decode("ascii"), stamp),
         )
+        blob_recorded = True
     except Exception:
-        pass
-    synced = _sync_jobhub_takeoff_rows(bridge, int(job_id), takeoff)
+        blob_recorded = False
+    synced = _sync_jobhub_takeoff_rows(bridge, job_id_int, takeoff)
     try:
         ensure_planreader_document_table(bridge)
         bridge.execute(
             "INSERT INTO planreader_documents(job_id,file_name,mime_type,storage_path,source_app,uploaded_by,uploaded_at,notes) VALUES(?,?,?,?,?,?,?,?)",
-            (int(job_id), file_name, "application/zip", "", "PlanReader", created_by, stamp,
+            (job_id_int, file_name, "application/zip", "", "PlanReader", created_by, stamp,
              "One-file progress marker package (3D render + take-off + documents)."),
         )
     except Exception:
@@ -4852,11 +4891,11 @@ def push_progress_marker_to_jobhub(workspace_id: int, bridge: JobHubBridge, crea
     return {
         "file_name": file_name,
         "size_bytes": len(blob_bytes),
-        "blob_recorded": True,
+        "blob_recorded": blob_recorded,
         "takeoff_rows_synced": synced,
         "package_id": int(package_id),
         "package_lines": int(line_count),
-        "job_id": int(job_id),
+        "job_id": job_id_int,
     }
 
 
@@ -4870,20 +4909,36 @@ def advisory_xact_lock_keys(job_id: int, preflight_fingerprint: str) -> Tuple[in
 
 def publish_job_to_jobhub(workspace_id: int, bridge: JobHubBridge, created_by: str, preflight_fingerprint: str = "", payload_hash: str = "") -> Dict[str, Any]:
     """Publish the final take-off and quotation to the shared JobHub job with partial-safe lifecycle and strict receipt verification."""
-    workspace = lquery("SELECT * FROM workspaces WHERE id=?", (workspace_id,))[0]
+    ws_rows = lquery("SELECT * FROM workspaces WHERE id=?", (workspace_id,))
+    if not ws_rows:
+        raise RuntimeError(f"Workspace #{workspace_id} not found.")
+    workspace = ws_rows[0]
     job_id = workspace.get("jobhub_job_id")
     if not job_id:
         raise RuntimeError("Link this workspace to a JobHub job before publishing.")
+    try:
+        job_id_int = int(job_id)
+        if job_id_int <= 0 or isinstance(job_id, bool):
+            raise ValueError
+    except (TypeError, ValueError, OverflowError):
+        raise RuntimeError(f"Invalid JobHub job ID '{job_id}' on workspace #{workspace_id}.")
     takeoff = dataframe_for_takeoff(workspace_id)
     if takeoff.empty:
         raise RuntimeError("There are no take-off rows to publish.")
-    takeoff = takeoff_work_rows(takeoff)
+    from pb_takeoff_authority_v164 import is_jobhub_eligible_row
+    mask = takeoff.apply(lambda r: is_jobhub_eligible_row(r.to_dict())[0], axis=1)
+    takeoff = takeoff.loc[mask]
     if takeoff.empty:
         raise RuntimeError("There are no commercially authorised take-off rows to publish.")
     ensure_shared_jobhub_schema(bridge)
     ensure_jobhub_takeoff_tables(bridge)
+
+    job_rows = bridge.query("SELECT id, status FROM jobs WHERE id=?", (job_id_int,))
+    if not job_rows:
+        raise RuntimeError(f"Job #{job_id_int} does not exist in JobHub.")
+
     stamp = now_stamp()
-    job_no = safe_name(workspace.get("job_no"))
+    job_no = safe_name(workspace.get("job_no")) or "NOJOB"
     quote_name = f"quotation_{job_no}_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
     quote_bytes = quote_workbook_bytes(workspace_id)
 
@@ -4900,14 +4955,15 @@ def publish_job_to_jobhub(workspace_id: int, bridge: JobHubBridge, created_by: s
         finally:
             c_meta.close()
 
-    takeoff_no = f"PR-{workspace.get('job_no')}-PUB-{preflight_fingerprint[:12]}"
+    job_num = safe_name(workspace.get("job_no")) or "NOJOB"
+    takeoff_no = f"PR-{job_num}-PUB-{preflight_fingerprint[:12]}"
     pkg_fp_note = f"Published by PB PlanReader. Preflight Fingerprint: {preflight_fingerprint} | Payload Hash: {payload_hash}"
     fp_pattern = f"%{preflight_fingerprint}%"
 
     docs = ", ".join(d["file_name"] for d in lquery("SELECT file_name FROM documents WHERE workspace_id=? ORDER BY id", (workspace_id,)))
     internal_mask = takeoff["section"].astype(str).str.lower().str.contains("internal|ceiling|door|joinery")
     external_mask = takeoff["section"].astype(str).str.lower().str.contains("external|facade|elevation|soffit|canopy")
-    m2_mask = takeoff["unit"].astype(str).eq("m²")
+    m2_mask = takeoff["unit"].map(_normalise_unit).eq("m²")
     interior = float(takeoff.loc[internal_mask & m2_mask, "quantity"].fillna(0).sum())
     exterior = float(takeoff.loc[external_mask & m2_mask, "quantity"].fillna(0).sum())
     total_hours = float(takeoff["labour_hours"].fillna(0).sum())
@@ -4918,12 +4974,12 @@ def publish_job_to_jobhub(workspace_id: int, bridge: JobHubBridge, created_by: s
 
         # 1. PostgreSQL Transaction-Scoped Advisory Lock (pg_try_advisory_xact_lock)
         if bridge.kind == "postgres":
-            key1, key2 = advisory_xact_lock_keys(int(job_id), preflight_fingerprint)
+            key1, key2 = advisory_xact_lock_keys(job_id_int, preflight_fingerprint)
             cur.execute("SELECT pg_try_advisory_xact_lock(%s, %s)", (key1, key2))
             lock_acquired = cur.fetchone()[0]
             if not lock_acquired:
                 raise RuntimeError(
-                    f"Package for preflight fingerprint {preflight_fingerprint[:12]}... is currently being published by a concurrent transaction on JobHub for job #{job_id}."
+                    f"Package for preflight fingerprint {preflight_fingerprint[:12]}... is currently being published by a concurrent transaction on JobHub for job #{job_id_int}."
                 )
         elif bridge.kind == "sqlite":
             try:
@@ -4941,14 +4997,21 @@ def publish_job_to_jobhub(workspace_id: int, bridge: JobHubBridge, created_by: s
                 if "cannot start a transaction" not in err_str:
                     raise
 
-        # 2. Duplicate Check within locked transaction
+        # 2. Duplicate Check and Stale Pending Cleanup within locked transaction
         query_sql = "SELECT id, status, notes FROM painting_takeoff_packages WHERE job_id=? AND (takeoff_no=? OR notes LIKE ?) ORDER BY id DESC"
-        existing = bridge.query(query_sql, (job_id, takeoff_no, f"%{preflight_fingerprint}%"), conn=conn)
+        existing = bridge.query(query_sql, (job_id_int, takeoff_no, fp_pattern), conn=conn)
         for pkg in existing:
             st = str(pkg.get("status") or "")
-            if st in ("Published", "Pending"):
+            if st == "Published":
                 raise RuntimeError(
-                    f"Package for preflight fingerprint {preflight_fingerprint[:12]}... is already {st.lower()} on JobHub for job #{job_id} (Package #{pkg.get('id')})."
+                    f"Package for preflight fingerprint {preflight_fingerprint[:12]}... is already published on JobHub for job #{job_id_int} (Package #{pkg.get('id')})."
+                )
+            elif st == "Pending":
+                stale_id = pkg.get("id")
+                bridge.execute(
+                    "UPDATE painting_takeoff_packages SET status='Failed', notes=COALESCE(notes, '') || ' | Cleaned up abandoned pending publication attempt', updated_at=? WHERE id=?",
+                    (stamp, stale_id),
+                    conn=conn,
                 )
 
         # 3. Atomic Package Reservation
@@ -4960,11 +5023,11 @@ def publish_job_to_jobhub(workspace_id: int, bridge: JobHubBridge, created_by: s
                        SELECT 1 FROM painting_takeoff_packages
                        WHERE job_id=? AND (takeoff_no=? OR notes LIKE ?) AND status IN ('Published', 'Pending')
                    ) RETURNING id""",
-                (job_id, takeoff_no, datetime.now().date().isoformat(), "Pending", docs, interior, exterior,
+                (job_id_int, takeoff_no, datetime.now().date().isoformat(), "Pending", docs, interior, exterior,
                  total_hours, total_litres, "PB PlanReader subscription method",
                  "Final quantities approved for pricing.", workspace.get("executive_summary", ""),
                  created_by, stamp, stamp, "Publish in progress...",
-                 job_id, takeoff_no, fp_pattern),
+                 job_id_int, takeoff_no, fp_pattern),
                 returning=True,
                 conn=conn
             )
@@ -4976,20 +5039,21 @@ def publish_job_to_jobhub(workspace_id: int, bridge: JobHubBridge, created_by: s
                        SELECT 1 FROM painting_takeoff_packages
                        WHERE job_id=? AND (takeoff_no=? OR notes LIKE ?) AND status IN ('Published', 'Pending')
                    )""",
-                (job_id, takeoff_no, datetime.now().date().isoformat(), "Pending", docs, interior, exterior,
+                (job_id_int, takeoff_no, datetime.now().date().isoformat(), "Pending", docs, interior, exterior,
                  total_hours, total_litres, "PB PlanReader subscription method",
                  "Final quantities approved for pricing.", workspace.get("executive_summary", ""),
                  created_by, stamp, stamp, "Publish in progress...",
-                 job_id, takeoff_no, fp_pattern),
+                 job_id_int, takeoff_no, fp_pattern),
                 conn=conn
             )
-            res = bridge.query("SELECT id FROM painting_takeoff_packages WHERE takeoff_no=? AND status='Pending'", (takeoff_no,), conn=conn)
+            res = bridge.query("SELECT id FROM painting_takeoff_packages WHERE takeoff_no=? AND status='Pending' ORDER BY id DESC LIMIT 1", (takeoff_no,), conn=conn)
             package_id = res[0]["id"] if res else None
 
         if not package_id:
-            raise RuntimeError(f"Package for preflight fingerprint {preflight_fingerprint[:12]}... is already in progress or published on JobHub for job #{job_id}.")
+            raise RuntimeError(f"Package for preflight fingerprint {preflight_fingerprint[:12]}... is already in progress or published on JobHub for job #{job_id_int}.")
 
         # Execute Consequential Operations within locked transaction connection
+        cur.execute("SAVEPOINT consequential_publish")
         try:
             bridge.execute(
                 """INSERT INTO job_document_blobs(job_id,file_name,mime_type,doc_type,notes,blob_data,created_at)
@@ -4997,7 +5061,7 @@ def publish_job_to_jobhub(workspace_id: int, bridge: JobHubBridge, created_by: s
                    ON CONFLICT(job_id, file_name) DO UPDATE SET
                        mime_type=excluded.mime_type, doc_type=excluded.doc_type, notes=excluded.notes,
                        blob_data=excluded.blob_data, created_at=excluded.created_at""",
-                (int(job_id), quote_name, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                (job_id_int, quote_name, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                  "Final quotation",
                  f"Priced per-level quotation generated by PB PlanReader ({created_by}).",
                  base64.b64encode(quote_bytes).decode("ascii"), stamp),
@@ -5012,26 +5076,26 @@ def publish_job_to_jobhub(workspace_id: int, bridge: JobHubBridge, created_by: s
                    ON CONFLICT(job_id, file_name) DO UPDATE SET
                        mime_type=excluded.mime_type, doc_type=excluded.doc_type, notes=excluded.notes,
                        blob_data=excluded.blob_data, created_at=excluded.created_at""",
-                (int(job_id), progress_name, "application/zip", "Progress Marker",
+                (job_id_int, progress_name, "application/zip", "Progress Marker",
                  f"Published take-off + 3D render + documents ({created_by}).",
                  base64.b64encode(progress_bytes).decode("ascii"), stamp),
                 conn=conn
             )
 
-            synced = _sync_jobhub_takeoff_rows(bridge, int(job_id), takeoff, conn=conn)
+            synced = _sync_jobhub_takeoff_rows(bridge, job_id_int, takeoff, conn=conn)
 
             line_count = 0
             for _, row in takeoff.iterrows():
-                unit = str(row.get("unit") or "")
+                norm_unit = _normalise_unit(str(row.get("unit") or "")) or str(row.get("unit") or "")
                 qty = to_float(row.get("quantity"))
-                m2 = qty if unit == "m²" else 0
-                lm = qty if unit == "lm" else 0
-                count = qty if unit in {"No.", "item"} else 0
+                m2 = qty if norm_unit == "m²" else 0.0
+                lm = qty if norm_unit == "lm" else 0.0
+                count = qty if norm_unit in {"No.", "item"} else 0.0
                 bridge.execute(
                     """INSERT INTO painting_takeoff_lines(package_id,area_type,location_area,substrate,labour_category,m2,unit,quantity,coats,productivity_m2_per_hour,labour_hours,finish_type,element_count,lineal_metres,paint_litres,flags,notes,created_at)
                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (package_id, row.get("section", ""), row.get("location", ""), row.get("substrate", ""), row.get("element", ""),
-                     m2, unit, qty, row.get("coats", 0), row.get("productivity_m2_per_hour", 0), row.get("labour_hours", 0),
+                     m2, norm_unit, qty, row.get("coats", 0), row.get("productivity_m2_per_hour", 0), row.get("labour_hours", 0),
                      row.get("finish_system", ""), count, lm, row.get("paint_litres", 0), row.get("confidence", ""),
                      f"{row.get('notes', '')} | Source: {row.get('source_reference', '')}", stamp),
                     conn=conn
@@ -5040,7 +5104,7 @@ def publish_job_to_jobhub(workspace_id: int, bridge: JobHubBridge, created_by: s
 
             bridge.execute(
                 "UPDATE jobs SET status=?, notes=COALESCE(notes, '') || ' | Published by PB PlanReader.' WHERE id=?",
-                ("Published", int(job_id)),
+                ("Published", job_id_int),
                 conn=conn
             )
 
@@ -5053,12 +5117,20 @@ def publish_job_to_jobhub(workspace_id: int, bridge: JobHubBridge, created_by: s
             conn.commit()
 
         except Exception as exc:
-            # Partial Failure Safety: Transition package to 'Failed'
+            # Partial Failure Safety: Roll back all consequential changes made after package reservation
             t_err = None
             try:
+                cur.execute("ROLLBACK TO SAVEPOINT consequential_publish")
+            except Exception:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+
+            try:
                 bridge.execute(
-                    "UPDATE painting_takeoff_packages SET status=?, notes=? WHERE id=?",
-                    ("Failed", f"Failed publish attempt: {exc}", package_id),
+                    "UPDATE painting_takeoff_packages SET status=?, notes=?, updated_at=? WHERE id=?",
+                    ("Failed", f"Failed publish attempt: {exc}", stamp, package_id),
                     conn=conn
                 )
                 conn.commit()
@@ -5074,7 +5146,7 @@ def publish_job_to_jobhub(workspace_id: int, bridge: JobHubBridge, created_by: s
         ensure_planreader_document_table(bridge)
         bridge.execute(
             "INSERT INTO planreader_documents(job_id,file_name,mime_type,storage_path,source_app,uploaded_by,uploaded_at,notes) VALUES(?,?,?,?,?,?,?,?)",
-            (int(job_id), quote_name, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "",
+            (job_id_int, quote_name, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "",
              "PlanReader", created_by, stamp, "Final priced quotation."),
         )
     except Exception:
@@ -5083,7 +5155,7 @@ def publish_job_to_jobhub(workspace_id: int, bridge: JobHubBridge, created_by: s
     return {
         "package_id": int(package_id),
         "package_lines": int(line_count),
-        "job_id": int(job_id),
+        "job_id": job_id_int,
         "quotation": quote_name,
         "progress_marker": progress_name,
         "takeoff_rows_synced": synced,
