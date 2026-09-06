@@ -4,18 +4,20 @@ from __future__ import annotations
 import json
 import math
 import re
+from collections.abc import Iterable, Sequence
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any
 
 import pandas as pd
+
 import pb_takeoff_v12 as v12
 
 PB_ACCURACY_VERSION = "2026.08.13-2"
-AUTO_SCALE: Dict[int, float] = {}
+AUTO_SCALE: dict[int, float] = {}
 REVIEWED = {"verified", "reviewed", "checked", "confirmed", "estimator verified", "manual verified", "manually verified", "approved"}
 ACTIVE = {"", "INCLUSION", "INCLUDED", "SEPARATE ITEM", "PROVISIONAL"}
-FLOOR_RE = re.compile(r"\b(floor\s*area|internal\s*floor|floor\s*m(?:2|²)|gross\s*floor|net+t?\s*floor)\b", re.I)
-ROLLUP_RE = re.compile(r"^\s*(?:(?:grand|sub)\s*)?totals?\b|^\s*(?:sum|average|base\s+totals)\b", re.I)
+FLOOR_RE = re.compile(r"\b(floor\s*area|internal\s*floor|floor\s*m(?:2|²)|gross\s*floor|net+t?\s*floor)\b", re.IGNORECASE)
+ROLLUP_RE = re.compile(r"^\s*(?:(?:grand|sub)\s*)?totals?\b|^\s*(?:sum|average|base\s+totals)\b", re.IGNORECASE)
 
 
 def clean(v: Any) -> str:
@@ -31,10 +33,31 @@ def schema(app: Any) -> None:
     try:
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         if "takeoff_rows" in tables:
+            if hasattr(app, "_ensure_takeoff_columns"):
+                app._ensure_takeoff_columns(conn)
             cols = {r[1] for r in conn.execute("PRAGMA table_info(takeoff_rows)")}
             for name, ddl in {
-                "ai_baseline_quantity": "REAL", "pre_map_quantity": "REAL",
-                "pre_map_quantity_status": "TEXT", "origin": "TEXT DEFAULT ''",
+                "finish_system": "TEXT",
+                "quantity_status": "TEXT",
+                "source_page": "TEXT",
+                "source_reference": "TEXT",
+                "inclusion_status": "TEXT",
+                "confidence": "TEXT",
+                "notes": "TEXT",
+                "row_role": "TEXT DEFAULT ''",
+                "commercial_authority_status": "TEXT DEFAULT ''",
+                "commercial_authority_source": "TEXT DEFAULT ''",
+                "commercial_authority_reviewed_by": "TEXT DEFAULT ''",
+                "commercial_authority_reviewed_at": "TEXT DEFAULT ''",
+                "commercial_authority_fingerprint": "TEXT DEFAULT ''",
+                "coats": "REAL DEFAULT 2",
+                "coverage_m2_per_litre": "REAL DEFAULT 12",
+                "productivity_m2_per_hour": "REAL DEFAULT 8",
+                "rate_per_unit": "REAL DEFAULT 0",
+                "ai_baseline_quantity": "REAL",
+                "pre_map_quantity": "REAL",
+                "pre_map_quantity_status": "TEXT",
+                "origin": "TEXT DEFAULT ''",
             }.items():
                 if name not in cols:
                     conn.execute(f"ALTER TABLE takeoff_rows ADD COLUMN {name} {ddl}")
@@ -47,15 +70,29 @@ def schema(app: Any) -> None:
                            AND LOWER(COALESCE(location,'')) LIKE '%floor area%'
                            AND LOWER(COALESCE(notes,'')) LIKE '%auto-detected%'""")
         if "pages" in tables:
+            if hasattr(app, "_ensure_pages_columns"):
+                app._ensure_pages_columns(conn)
             cols = {r[1] for r in conn.execute("PRAGMA table_info(pages)")}
-            if "scale_method" not in cols:
-                conn.execute("ALTER TABLE pages ADD COLUMN scale_method TEXT DEFAULT ''")
-            if "scale_verified" not in cols:
-                conn.execute("ALTER TABLE pages ADD COLUMN scale_verified INTEGER DEFAULT 0")
+            for name, ddl in {
+                "render_zoom": "REAL",
+                "scale_method": "TEXT DEFAULT ''",
+                "scale_verified": "INTEGER DEFAULT 0",
+            }.items():
+                if name not in cols:
+                    conn.execute(f"ALTER TABLE pages ADD COLUMN {name} {ddl}")
         if "measurement_lines" in tables:
+            if hasattr(app, "_ensure_measurement_columns"):
+                app._ensure_measurement_columns(conn)
             cols = {r[1] for r in conn.execute("PRAGMA table_info(measurement_lines)")}
-            if "measurement_basis" not in cols:
-                conn.execute("ALTER TABLE measurement_lines ADD COLUMN measurement_basis TEXT DEFAULT ''")
+            for name, ddl in {
+                "kind": "TEXT DEFAULT 'line'",
+                "points": "TEXT",
+                "area_m2": "REAL DEFAULT 0",
+                "perimeter_m": "REAL DEFAULT 0",
+                "measurement_basis": "TEXT DEFAULT ''",
+            }.items():
+                if name not in cols:
+                    conn.execute(f"ALTER TABLE measurement_lines ADD COLUMN {name} {ddl}")
         conn.commit()
     finally:
         conn.close()
@@ -90,13 +127,13 @@ def level_sort_key(v: str) -> float:
 def scope_of(v: Any) -> str:
     text, low, parts = clean(v), clean(v).lower(), []
     for p in [r"\bunits?\s*[#:-]?\s*[a-z0-9]+", r"\b(?:apartment|apt|townhouse|villa|lot)\s*[#:-]?\s*[a-z0-9]+", r"\b(?:block|building|wing|stage)\s*[#:-]?\s*[a-z0-9]+"]:
-        m = re.search(p, low, re.I)
+        m = re.search(p, low, re.IGNORECASE)
         if m: parts.append(clean(m.group()).title())
     parts.append(level_of(text))
     return " | ".join(dict.fromkeys(parts))
 
 
-def is_ai(row: Dict[str, Any]) -> bool:
+def is_ai(row: dict[str, Any]) -> bool:
     if clean(row.get("origin")).lower() == "ai": return True
     text = " ".join(clean(row.get(k)) for k in ("source_reference", "notes", "confidence")).lower()
     return any(x in text for x in ("ai draft", "ai plan review", "ai-generated", "ai generated"))
@@ -106,7 +143,7 @@ def mapped_ids(app: Any, wid: int) -> set[int]:
     return {int(r["takeoff_row_id"]) for r in app.lquery("SELECT DISTINCT takeoff_row_id FROM measurement_lines WHERE workspace_id=? AND takeoff_row_id IS NOT NULL", (wid,))}
 
 
-def floor_rows(app: Any, df: pd.DataFrame) -> List[Dict[str, Any]]:
+def floor_rows(app: Any, df: pd.DataFrame) -> list[dict[str, Any]]:
     if df.empty or "row_role" not in df.columns: return []
     wid = int(df.iloc[0]["workspace_id"]) if "workspace_id" in df.columns else 0
     mapped, chosen = mapped_ids(app, wid) if wid else set(), {}
@@ -120,11 +157,11 @@ def floor_rows(app: Any, df: pd.DataFrame) -> List[Dict[str, Any]]:
     return [v[1] for v in chosen.values()]
 
 
-def floor_by_scope(app: Any, df: pd.DataFrame) -> Dict[str, float]:
+def floor_by_scope(app: Any, df: pd.DataFrame) -> dict[str, float]:
     return {scope_of(r.get("location")): max(0.0, app.to_float(r.get("quantity"))) for r in floor_rows(app, df)}
 
 
-def floor_for_scope(floors: Dict[str, float], scope: str) -> float:
+def floor_for_scope(floors: dict[str, float], scope: str) -> float:
     if scope in floors: return floors[scope]
     level = scope.split(" | ")[-1]
     vals = [v for k,v in floors.items() if k.split(" | ")[-1] == level and v > 0]
@@ -138,12 +175,12 @@ def dataframe_for_takeoff(app: Any, wid: int) -> pd.DataFrame:
     df = app.commercial_takeoff_rows(df).copy()
     if df.empty: return df
     basis, floors = clean(app.workspace_setting(wid, "internal_pricing_basis", "wall_m2")).lower(), floor_by_scope(app, df)
-    groups: Dict[str, List[int]] = {}
+    groups: dict[str, list[int]] = {}
     if basis == "floor_m2":
         for idx,row in df.iterrows():
             if clean(row.get("row_role")) != "floor_area" and app._normalise_unit(row.get("unit")) == "m²" and app.is_internal_wall_row(row.get("section"), row.get("element")):
                 groups.setdefault(scope_of(row.get("location")), []).append(int(idx))
-    allocated: Dict[int,float] = {}
+    allocated: dict[int,float] = {}
     for scope, idxs in groups.items():
         f = floor_for_scope(floors, scope)
         weights = [max(0.0, app.to_float(df.loc[i,"quantity"])) for i in idxs]; total = sum(weights)
@@ -176,7 +213,7 @@ def per_level_summary(app: Any, wid: int) -> pd.DataFrame:
     df = dataframe_for_takeoff(app,wid); cols=["level","rows","m2","floor_m2","lm","count","paint_litres","labour_hours","value_ex_gst"]
     if df.empty: return pd.DataFrame(columns=cols)
     work=app.takeoff_work_rows(df.copy()); work["level"]=[level_of(x) for x in work["location"]]
-    fm: Dict[str,float]={}
+    fm: dict[str,float]={}
     for r in floor_rows(app,df): fm[level_of(r.get("location"))]=fm.get(level_of(r.get("location")),0)+max(0.0,app.to_float(r.get("quantity")))
     out=[]
     for lvl in set(work["level"].tolist())|set(fm):
@@ -185,7 +222,7 @@ def per_level_summary(app: Any, wid: int) -> pd.DataFrame:
     r=pd.DataFrame(out,columns=cols); r["_sort"]=r["level"].map(level_sort_key); return r.sort_values(["_sort","level"]).drop(columns="_sort").reset_index(drop=True)
 
 
-def actual_zoom(app: Any, page: Dict[str, Any]) -> float:
+def actual_zoom(app: Any, page: dict[str, Any]) -> float:
     ctx=dict(page); pid=int(page.get("id") or 0)
     if pid:
         rows=app.lquery("SELECT p.page_no,p.width_px,p.height_px,d.path FROM pages p JOIN documents d ON d.id=p.document_id WHERE p.id=?",(pid,))
@@ -206,7 +243,7 @@ def actual_zoom(app: Any, page: Dict[str, Any]) -> float:
     return 1.7
 
 
-def auto_scale(app: Any, page: Dict[str, Any]) -> Optional[Dict[str,Any]]:
+def auto_scale(app: Any, page: dict[str, Any]) -> dict[str, Any] | None:
     text,source=str(page.get("extracted_text") or ""),clean(page.get("scale_text")); m=app._SCALE_RATIO_RE.search(source) or app._SCALE_RATIO_RE.search(text) or app._SCALE_IN_RE.search(text)
     if not m: return None
     ratio=int(m.group(1));
@@ -216,7 +253,7 @@ def auto_scale(app: Any, page: Dict[str, Any]) -> Optional[Dict[str,Any]]:
     return {"ratio":ratio,"px_per_m":round(px,3),"source":m.group(0).strip(),"render_zoom":round(z,6)}
 
 
-def geom(app: Any, line: Dict[str,Any]) -> Tuple[float,float,float]:
+def geom(app: Any, line: dict[str,Any]) -> tuple[float,float,float]:
     w,h,ppm=map(lambda x:max(0.0,app.to_float(x)),(line.get("width_px"),line.get("height_px"),line.get("px_per_m")))
     if not w or not h or not ppm: return 0.0,0.0,0.0
     if clean(line.get("kind")).lower()!="polygon":
@@ -232,13 +269,13 @@ def geom(app: Any, line: Dict[str,Any]) -> Tuple[float,float,float]:
     return 0.0,area,per
 
 
-def basis(line: Dict[str,Any]) -> str:
+def basis(line: dict[str,Any]) -> str:
     b=clean(line.get("measurement_basis")).lower(); notes=clean(line.get("notes")).lower()
     if b: return b
     return "footprint_perimeter_height" if "auto-detected envelope" in notes or "footprint perimeter" in notes else "direct"
 
 
-def measured_qty(app: Any,row:Dict[str,Any],lines:Sequence[Dict[str,Any]]) -> Tuple[float,int,int]:
+def measured_qty(app: Any,row:dict[str,Any],lines:Sequence[dict[str,Any]]) -> tuple[float,int,int]:
     u=app.normalise_line_unit(row.get("unit")); height=max(.1,app.to_float(app.workspace_setting(int(row.get("workspace_id") or 0),"default_wall_height_m",2.7),2.7)); total=n=bad=0
     for ln in lines:
         kind="polygon" if clean(ln.get("kind")).lower()=="polygon" else "line"; length,area,per=geom(app,ln)
@@ -257,7 +294,7 @@ def capture_pre(app:Any,base_exec:Any,wid:int,ids:Iterable[int]) -> None:
         if r and r[0].get("pre_map_quantity") is None: base_exec("UPDATE takeoff_rows SET pre_map_quantity=?,pre_map_quantity_status=? WHERE id=?",(app.to_float(r[0].get("quantity")),clean(r[0].get("quantity_status")),rid))
 
 
-def recompute(app:Any,base_exec:Any,wid:int,ids:Iterable[int]) -> Dict[int,float]:
+def recompute(app:Any,base_exec:Any,wid:int,ids:Iterable[int]) -> dict[int,float]:
     out={}; schema(app)
     for rid in {int(x) for x in ids if x}:
         rr=app.lquery("SELECT * FROM takeoff_rows WHERE id=? AND workspace_id=?",(rid,wid))
@@ -273,7 +310,7 @@ def recompute(app:Any,base_exec:Any,wid:int,ids:Iterable[int]) -> Dict[int,float
     return out
 
 
-def save_lines(app:Any,base_exec:Any,wid:int,pid:int,lines:Sequence[Dict[str,Any]]) -> Dict[str,Any]:
+def save_lines(app:Any,base_exec:Any,wid:int,pid:int,lines:Sequence[dict[str,Any]]) -> dict[str,Any]:
     schema(app); old={int(r["takeoff_row_id"]) for r in app.lquery("SELECT DISTINCT takeoff_row_id FROM measurement_lines WHERE page_id=? AND takeoff_row_id IS NOT NULL",(pid,))}; new={int(x.get("takeoff_row_id")) for x in lines if x.get("takeoff_row_id")}; capture_pre(app,base_exec,wid,new); base_exec("DELETE FROM measurement_lines WHERE page_id=?",(pid,)); saved=0
     for x in lines:
         rid=int(x.get("takeoff_row_id") or 0) or None; pts=x.get("points") or []; pts=json.dumps([[round(app.to_float(p[0]),3),round(app.to_float(p[1]),3)] for p in pts]) if isinstance(pts,(list,tuple)) else str(pts)
@@ -290,7 +327,7 @@ def guarded_exec(app:Any,base_exec:Any):
             if before and ids: recompute(app,base_exec,int(before[0]["workspace_id"]),ids)
             return result
         if n.startswith("delete from measurement_lines where page_id=") and p:
-            pid=int(p[0]); rows=app.lquery("SELECT workspace_id,takeoff_row_id FROM measurement_lines WHERE page_id=? AND takeoff_row_id IS NOT NULL",(pid,)); result=base_exec(sql,p); groups:Dict[int,set[int]]={}
+            pid=int(p[0]); rows=app.lquery("SELECT workspace_id,takeoff_row_id FROM measurement_lines WHERE page_id=? AND takeoff_row_id IS NOT NULL",(pid,)); result=base_exec(sql,p); groups:dict[int,set[int]]={}
             for r in rows: groups.setdefault(int(r["workspace_id"]),set()).add(int(r["takeoff_row_id"]))
             for wid,ids in groups.items(): recompute(app,base_exec,wid,ids)
             return result
@@ -308,7 +345,7 @@ def mapper_row(app:Any,wid:int,section:str,element:str,location:str,substrate:st
     return app.lexecute("""INSERT INTO takeoff_rows(workspace_id,section,element,location,substrate,finish_system,quantity,unit,quantity_status,source_page,source_reference,inclusion_status,coats,coverage_m2_per_litre,productivity_m2_per_hour,rate_per_unit,confidence,notes,row_role,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",(wid,section,element,location,substrate,finish,0,u,"To measure",source,"","INCLUSION",0 if role else (3 if u=="m²" else 2),0 if role else 12,0 if role else 8,rate,"To review",f"Auto-detected from {source}.",role,app.now_stamp(),app.now_stamp()))
 
 
-def auto_map(app:Any,wid:int,pid:int,ppm:float)->List[Dict[str,Any]]:
+def auto_map(app:Any,wid:int,pid:int,ppm:float)->list[dict[str,Any]]:
     rows=app.takeoff_rows_for_mapper(wid); pos=app._line_grid_positions(len(rows)); page=app.lquery("SELECT width_px FROM pages WHERE id=?",(pid,)); iw=int(page[0].get("width_px") or 1000) if page else 1000; out=[]
     for i,(r,(x1,y1,x2,y2)) in enumerate(zip(rows,pos)):
         u=app.normalise_line_unit(r.get("unit")); base={"id":f"auto_{i}","takeoff_row_id":int(r["id"]),"label":r.get("label"),"unit":u,"colour":r.get("colour"),"quantity_status":"Placeholder","moved":0}
@@ -320,7 +357,7 @@ def auto_map(app:Any,wid:int,pid:int,ppm:float)->List[Dict[str,Any]]:
     return out
 
 
-def auto_envelope(app:Any,wid:int,page:Dict[str,Any],ppm:float,level:str)->List[Dict[str,Any]]:
+def auto_envelope(app:Any,wid:int,page:dict[str,Any],ppm:float,level:str)->list[dict[str,Any]]:
     ds=app.auto_detect_building_envelope(str(page.get("image_path") or "")); out=[]
     if not ds:return out
     ext=mapper_row(app,wid,"External","External walls / cladding",f"{level} · external envelope","Render","Exterior acrylic","m²",page.get("page_label","")); flr=mapper_row(app,wid,"Internal","Floor area",f"{level} · floor area","Concrete floor","","m²",page.get("page_label","")); w,h=int(page.get("width_px") or 1000),int(page.get("height_px") or 1000); wall=max(.1,app.to_float(app.workspace_setting(wid,"default_wall_height_m",2.7),2.7))
@@ -331,7 +368,7 @@ def auto_envelope(app:Any,wid:int,page:Dict[str,Any],ppm:float,level:str)->List[
 
 
 def parse_file(app:Any):
-    def parse(upload:Any,mapping:Optional[Dict[int,str]]=None,raw_headers:Optional[List[str]]=None,body:Optional[List[List[Any]]]=None):
+    def parse(upload:Any,mapping:dict[int, str] | None=None,raw_headers:list[str] | None=None,body:list[list[Any]] | None=None):
         name=clean(getattr(upload,"name","takeoff")); warnings=[]
         if raw_headers is None or body is None: raw_headers,body,*_=app.detect_takeoff_columns(upload)
         if mapping is None:
@@ -383,7 +420,7 @@ def parse_file(app:Any):
 
 
 def import_ai(app:Any,base:Any):
-    def run(wid:int,data:Dict[str,Any]):
+    def run(wid:int,data:dict[str,Any]):
         schema(app); before=app.lquery("SELECT COALESCE(MAX(id),0) id FROM takeoff_rows WHERE workspace_id=?",(wid,)); bid=int(before[0]["id"] or 0); counts=base(wid,data); created=app.lquery("SELECT * FROM takeoff_rows WHERE workspace_id=? AND id>? ORDER BY id",(wid,bid))
         for row,source in zip(created,list(data.get("takeoff_rows") or [])):
             q=max(0.0,app.to_float(source.get("quantity",row.get("quantity")))); st=clean(row.get("quantity_status")); st="Provisional measured" if q>0 and st.lower()=="measured" else st; note=f"{clean(row.get('notes'))} · AI draft — verify against the mapped drawing or schedule before final publish.".strip(" ·"); app.lexecute("UPDATE takeoff_rows SET origin='AI',ai_baseline_quantity=?,quantity_status=?,notes=?,rate_per_unit=CASE WHEN row_role='floor_area' THEN 0 ELSE rate_per_unit END WHERE id=?",(q,st,note,row["id"]))
@@ -405,7 +442,7 @@ def reconcile(app:Any,wid:int)->pd.DataFrame:
     return pd.DataFrame(out,columns=cols)
 
 
-def issues(app:Any,wid:int)->List[Dict[str,Any]]:
+def issues(app:Any,wid:int)->list[dict[str,Any]]:
     schema(app); out=[]
     def add(sev,code,msg,rid="",source=""):out.append({"severity":sev,"code":code,"row_id":rid,"source":clean(source),"message":msg})
     df=app.ldf("SELECT * FROM takeoff_rows WHERE workspace_id=? ORDER BY id",(wid,))
@@ -427,7 +464,7 @@ def issues(app:Any,wid:int)->List[Dict[str,Any]]:
             if bad:add("Warning","INCOMPATIBLE_SHAPE",f"Row #{rid} has {bad} incompatible saved shape(s).",rid,r.get("source_reference"))
             if any("auto-detected" in clean(x.get("notes")).lower() or basis(x)=="footprint_perimeter_height" for x in lines) and clean(r.get("confidence")).lower() not in REVIEWED:add("Critical","AUTO_GEOMETRY_UNVERIFIED",f"Row #{rid} uses auto-detected/gross geometry; adjust for the issued drawing/openings and set confidence Verified.",rid,r.get("source_reference"))
     if clean(app.workspace_setting(wid,"internal_pricing_basis","wall_m2")).lower()=="floor_m2":
-        floors=floor_by_scope(app,df); rates:Dict[str,set[float]]={}
+        floors=floor_by_scope(app,df); rates:dict[str,set[float]]={}
         for r in work.to_dict("records"):
             if (app._normalise_unit(r.get("unit")) or r.get("unit"))=="m²" and app.is_internal_wall_row(r.get("section"),r.get("element")):
                 scope=scope_of(r.get("location"));

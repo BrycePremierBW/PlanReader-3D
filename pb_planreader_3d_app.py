@@ -1,26 +1,10 @@
 from __future__ import annotations
-import html
-from pb_commercial_export_preflight_v163 import derive_export_preflight, verify_toctou_and_publish_jobhub
-from pb_takeoff_authority_v164 import (
-    AUTHORITY_APPROVED,
-    AUTHORITY_FINGERPRINT_FIELD,
-    AUTHORITY_REVIEW_REQUIRED,
-    AUTHORITY_REVIEWED_AT_FIELD,
-    AUTHORITY_REVIEWED_BY_FIELD,
-    AUTHORITY_SOURCE_FIELD,
-    AUTHORITY_STATUS_FIELD,
-    approve_model_surface_row,
-    is_commercial_floor_reference_row,
-    is_floor_reference_row,
-    is_model_surface_row,
-    model_surface_authority,
-    takeoff_row_publishability,
-)
 
 import base64
 import csv
 import gc
 import hashlib
+import html
 import io
 import json
 import math
@@ -33,17 +17,17 @@ import shutil
 import sqlite3
 import subprocess
 import sys
-import tempfile
 import textwrap
 import threading
 import time
 import zipfile
+from collections.abc import Callable, Iterable, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -51,6 +35,25 @@ import plotly.graph_objects as go
 import requests
 import streamlit as st
 from PIL import Image, ImageDraw, ImageFont
+
+from pb_commercial_export_preflight_v163 import (
+    derive_export_preflight,
+    verify_toctou_and_publish_jobhub,
+)
+from pb_takeoff_authority_v164 import (
+    AUTHORITY_APPROVED,
+    AUTHORITY_FINGERPRINT_FIELD,
+    AUTHORITY_REVIEW_REQUIRED,
+    AUTHORITY_REVIEWED_AT_FIELD,
+    AUTHORITY_REVIEWED_BY_FIELD,
+    AUTHORITY_SOURCE_FIELD,
+    AUTHORITY_STATUS_FIELD,
+    approve_model_surface_row,
+    is_commercial_floor_reference_row,
+    is_model_surface_row,
+    model_surface_authority,
+    takeoff_row_publishability,
+)
 
 try:
     import fitz  # PyMuPDF
@@ -80,7 +83,9 @@ def _patch_image_to_url_compat() -> bool:
     """
     try:
         import streamlit.elements.image as st_image_module
-        from streamlit.elements.lib.image_utils import image_to_url as _modern_image_to_url
+        from streamlit.elements.lib.image_utils import (
+            image_to_url as _modern_image_to_url,
+        )
         from streamlit.elements.lib.layout_utils import LayoutConfig
 
         def _image_to_url(image, width, clamp, channels, output_format, image_id):
@@ -116,19 +121,8 @@ except Exception:
 try:
     from pb_planreader_offline import (
         analyze_page_offline,
-        generate_takeoff_offline,
-        extract_text_offline,
-        detect_walls,
-        detect_dimensions,
-        detect_scale,
-        detect_rooms,
-        detect_materials,
-        detect_colours,
-        classify_page_offline,
         generate_report,
         wall_length_real_m,
-        real_metres_per_page_mm,
-        PDF_PT_TO_MM,
     )
     OFFLINE_READER_AVAILABLE = True
 except Exception:
@@ -613,6 +607,7 @@ def _ensure_measurement_columns(conn: sqlite3.Connection) -> None:
         "points": "TEXT",
         "area_m2": "REAL DEFAULT 0",
         "perimeter_m": "REAL DEFAULT 0",
+        "measurement_basis": "TEXT DEFAULT ''",
     }
     for name, ddl in wanted.items():
         if name not in existing:
@@ -620,19 +615,34 @@ def _ensure_measurement_columns(conn: sqlite3.Connection) -> None:
 
 
 def _ensure_takeoff_columns(conn: sqlite3.Connection) -> None:
-    """Migrate take-off rows to carry role and commercial-authority evidence.
+    """Migrate take-off rows to carry role, commercial-authority evidence, rates, and baseline quantities.
 
     ``row_role`` marks measurement rows such as per-level internal floor areas
     (``floor_area``) that drive floor-m² pricing but are not themselves priced.
     """
     existing = {row[1] for row in conn.execute("PRAGMA table_info(takeoff_rows)").fetchall()}
     wanted = {
+        "finish_system": "TEXT",
+        "quantity_status": "TEXT",
+        "source_page": "TEXT",
+        "source_reference": "TEXT",
+        "inclusion_status": "TEXT",
+        "confidence": "TEXT",
+        "notes": "TEXT",
         "row_role": "TEXT DEFAULT ''",
         "commercial_authority_status": "TEXT DEFAULT ''",
         "commercial_authority_source": "TEXT DEFAULT ''",
         "commercial_authority_reviewed_by": "TEXT DEFAULT ''",
         "commercial_authority_reviewed_at": "TEXT DEFAULT ''",
         "commercial_authority_fingerprint": "TEXT DEFAULT ''",
+        "coats": "REAL DEFAULT 2",
+        "coverage_m2_per_litre": "REAL DEFAULT 12",
+        "productivity_m2_per_hour": "REAL DEFAULT 8",
+        "rate_per_unit": "REAL DEFAULT 0",
+        "ai_baseline_quantity": "REAL",
+        "pre_map_quantity": "REAL",
+        "pre_map_quantity_status": "TEXT",
+        "origin": "TEXT DEFAULT ''",
     }
     for name, ddl in wanted.items():
         if name not in existing:
@@ -640,7 +650,7 @@ def _ensure_takeoff_columns(conn: sqlite3.Connection) -> None:
 
 
 def _ensure_pages_columns(conn: sqlite3.Connection) -> None:
-    """Migrate existing ``pages`` tables to carry the PDF render zoom.
+    """Migrate existing ``pages`` tables to carry PDF render zoom and scale verification.
 
     ``render_zoom`` records the zoom a page image was rasterised at, so the
     detected drawing scale can be converted to pixels-per-metre exactly
@@ -649,11 +659,17 @@ def _ensure_pages_columns(conn: sqlite3.Connection) -> None:
     to that in ``auto_detect_scale``.
     """
     existing = {row[1] for row in conn.execute("PRAGMA table_info(pages)").fetchall()}
-    if "render_zoom" not in existing:
-        conn.execute("ALTER TABLE pages ADD COLUMN render_zoom REAL")
+    wanted = {
+        "render_zoom": "REAL",
+        "scale_method": "TEXT DEFAULT ''",
+        "scale_verified": "INTEGER DEFAULT 0",
+    }
+    for name, ddl in wanted.items():
+        if name not in existing:
+            conn.execute(f"ALTER TABLE pages ADD COLUMN {name} {ddl}")
 
 
-def lquery(sql: str, params: Sequence[Any] = ()) -> List[Dict[str, Any]]:
+def lquery(sql: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
     conn = local_connect()
     try:
         rows = conn.execute(sql, tuple(params)).fetchall()
@@ -734,7 +750,7 @@ class JobHubBridge:
             finally:
                 conn.close()
 
-    def table_names(self) -> List[str]:
+    def table_names(self) -> list[str]:
         with self.connect() as conn:
             cur = conn.cursor()
             if self.kind == "postgres":
@@ -743,7 +759,7 @@ class JobHubBridge:
             cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
             return [str(r[0]) for r in cur.fetchall()]
 
-    def columns(self, table: str) -> List[str]:
+    def columns(self, table: str) -> list[str]:
         safe = re.sub(r"[^A-Za-z0-9_]", "", table)
         with self.connect() as conn:
             cur = conn.cursor()
@@ -756,7 +772,7 @@ class JobHubBridge:
             cur.execute(f"PRAGMA table_info({safe})")
             return [str(r[1]) for r in cur.fetchall()]
 
-    def query(self, sql: str, params: Sequence[Any] = (), conn: Optional[Any] = None) -> List[Dict[str, Any]]:
+    def query(self, sql: str, params: Sequence[Any] = (), conn: Any | None = None) -> list[dict[str, Any]]:
         if conn is not None:
             if self.kind == "postgres":
                 cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -768,7 +784,7 @@ class JobHubBridge:
         with self.connect() as conn_obj:
             return self.query(sql, params, conn=conn_obj)
 
-    def execute(self, sql: str, params: Sequence[Any] = (), returning: bool = False, conn: Optional[Any] = None) -> Any:
+    def execute(self, sql: str, params: Sequence[Any] = (), returning: bool = False, conn: Any | None = None) -> Any:
         if conn is not None:
             cur = conn.cursor()
             cur.execute(sql.replace("?", "%s") if self.kind == "postgres" else sql, tuple(params))
@@ -782,7 +798,7 @@ class JobHubBridge:
             conn_obj.commit()
             return res
 
-    def discover_documents_for_job(self, job_id: int) -> List[Dict[str, Any]]:
+    def discover_documents_for_job(self, job_id: int) -> list[dict[str, Any]]:
         """Scan the common JobHub document/attachment tables in a single connection.
 
         Opening a separate connection per table used to spike connection counts
@@ -799,7 +815,7 @@ class JobHubBridge:
             "attachments",
             "files",
         ]
-        records: List[Dict[str, Any]] = []
+        records: list[dict[str, Any]] = []
         with self.connect() as conn:
             if self.kind == "postgres":
                 cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -846,7 +862,7 @@ class JobHubBridge:
                     records.append(record)
         return records
 
-    def fetch_document_blob(self, table: str, record_id: int) -> Optional[Any]:
+    def fetch_document_blob(self, table: str, record_id: int) -> Any | None:
         """Return a single document's file bytes (or None if absent).
 
         Binary columns come back as ``bytes``; text columns (e.g. base64 stored
@@ -875,7 +891,7 @@ class JobHubBridge:
                 return value
             return None
 
-    def _columns_for_connection(self, cur, table: str) -> List[str]:
+    def _columns_for_connection(self, cur, table: str) -> list[str]:
         safe = re.sub(r"[^A-Za-z0-9_]", "", table)
         if self.kind == "postgres":
             cur.execute(
@@ -887,7 +903,7 @@ class JobHubBridge:
         return [str(r[1]) for r in cur.fetchall()]
 
 
-def get_jobhub_bridge() -> Optional[JobHubBridge]:
+def get_jobhub_bridge() -> JobHubBridge | None:
     if JOBHUB_DATABASE_URL:
         return JobHubBridge("postgres", JOBHUB_DATABASE_URL)
     if JOBHUB_DB_PATH and Path(JOBHUB_DB_PATH).exists():
@@ -895,7 +911,7 @@ def get_jobhub_bridge() -> Optional[JobHubBridge]:
     return None
 
 
-def fetch_jobhub_jobs(bridge: JobHubBridge) -> List[Dict[str, Any]]:
+def fetch_jobhub_jobs(bridge: JobHubBridge) -> list[dict[str, Any]]:
     tables = set(bridge.table_names())
     if "jobs" not in tables:
         return []
@@ -918,7 +934,7 @@ def fetch_jobhub_jobs(bridge: JobHubBridge) -> List[Dict[str, Any]]:
     return bridge.query(f"SELECT {', '.join(fields)} FROM jobs j {join} ORDER BY j.id DESC")
 
 
-def authenticate_jobhub_user(bridge: JobHubBridge, username: str, password: str) -> Optional[Dict[str, Any]]:
+def authenticate_jobhub_user(bridge: JobHubBridge, username: str, password: str) -> dict[str, Any] | None:
     if "app_users" not in set(bridge.table_names()):
         return None
     cols = set(bridge.columns("app_users"))
@@ -971,7 +987,7 @@ def ensure_planreader_document_table(bridge: JobHubBridge) -> None:
     bridge.execute(sql)
 
 
-def discover_jobhub_document_records(bridge: JobHubBridge, job_id: int) -> List[Dict[str, Any]]:
+def discover_jobhub_document_records(bridge: JobHubBridge, job_id: int) -> list[dict[str, Any]]:
     """Discover JobHub document records in a single connection, retrying once.
 
     The old implementation opened a new connection for the table probe plus one
@@ -986,11 +1002,11 @@ def discover_jobhub_document_records(bridge: JobHubBridge, job_id: int) -> List[
         return bridge.discover_documents_for_job(job_id)
 
 
-def copy_jobhub_document_to_workspace(record: Dict[str, Any], workspace_id: int) -> Tuple[bool, str]:
+def copy_jobhub_document_to_workspace(record: dict[str, Any], workspace_id: int) -> tuple[bool, str]:
     out_dir = workspace_path(workspace_id) / "documents"
     file_name = safe_name(record.get("file_name") or f"jobhub_document_{record.get('record_id')}")
     mime_type = str(record.get("mime_type") or mimetypes.guess_type(file_name)[0] or "application/octet-stream")
-    data: Optional[bytes] = None
+    data: bytes | None = None
     source_path = str(record.get("storage_path") or "").strip()
     source_url = str(record.get("file_url") or "").strip()
     blob = record.get("file_blob")
@@ -1054,7 +1070,7 @@ def copy_jobhub_document_to_workspace(record: Dict[str, Any], workspace_id: int)
 # -----------------------------------------------------------------------------
 
 
-def open_jobhub_workspace(job: Dict[str, Any]) -> int:
+def open_jobhub_workspace(job: dict[str, Any]) -> int:
     existing = lquery("SELECT id FROM workspaces WHERE jobhub_job_id=?", (int(job["id"]),))
     if existing:
         workspace_id = int(existing[0]["id"])
@@ -1106,7 +1122,7 @@ def create_standalone_workspace(job_no: str, job_name: str, builder: str, addres
     return workspace_id
 
 
-def classify_page(text: str, file_name: str, page_no: int) -> Tuple[str, str]:
+def classify_page(text: str, file_name: str, page_no: int) -> tuple[str, str]:
     lower = f"{file_name} {text}".lower()
     page_type = "Other"
     patterns = [
@@ -1133,7 +1149,7 @@ def classify_page(text: str, file_name: str, page_no: int) -> Tuple[str, str]:
     return page_type, label
 
 
-def placeholder_image(title: str, body: str, target: Path) -> Tuple[int, int]:
+def placeholder_image(title: str, body: str, target: Path) -> tuple[int, int]:
     width, height = 1400, 1000
     img = Image.new("RGB", (width, height), "white")
     draw = ImageDraw.Draw(img)
@@ -1187,7 +1203,7 @@ _COUNT_UNITS = {"no", "no.", "ea", "each", "count", "1", "door", "doors"}
 
 def line_colour_for(section: Any, element: Any) -> str:
     """Pick a stable colour for a take-off row's measurement line."""
-    key = f"{str(section or '')} {str(element or '')}".lower()
+    key = f"{section or ''!s} {element or ''!s}".lower()
     for word, colour in _LINE_COLOUR_KEYWORDS:
         if word in key:
             return colour
@@ -1216,7 +1232,7 @@ _SCALE_RATIO_RE = re.compile(r"(?:^|[^\d])1\s*[:/]\s*(\d{2,4})(?![:\d])")
 _SCALE_IN_RE = re.compile(r"\b1\s*in\s*(\d{2,4})\b", re.IGNORECASE)
 
 
-def auto_detect_scale(page: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def auto_detect_scale(page: dict[str, Any]) -> dict[str, Any] | None:
     """Estimate pixels-per-metre from a drawing scale annotation (e.g. 1:100).
 
     Pages are rasterised from PDF points at ``render_zoom`` (capped so a page's
@@ -1240,7 +1256,7 @@ def auto_detect_scale(page: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return {"ratio": ratio, "px_per_m": round(px_per_m, 3), "source": match.group(0).strip()}
 
 
-def scale_gate_issues(workspace_id: int, conn: Optional[Any] = None) -> List[Dict[str, Any]]:
+def scale_gate_issues(workspace_id: int, conn: Any | None = None) -> list[dict[str, Any]]:
     """Pages that feed the take-off but do not have a calibrated scale yet.
 
     Delegates to the authoritative MultiPageScaleRegistry (pb_multi_page_scale_v170)
@@ -1258,7 +1274,7 @@ def scale_gate_issues(workspace_id: int, conn: Optional[Any] = None) -> List[Dic
         row_sources = {str(x[0]).strip() for x in cur.fetchall() if x[0] and str(x[0]).strip()}
         cur.execute("SELECT DISTINCT page_id FROM mapped_zones WHERE workspace_id=?", (workspace_id,))
         zone_page_ids = {int(x[0]) for x in cur.fetchall() if x[0] is not None}
-        issues: List[Dict[str, Any]] = []
+        issues: list[dict[str, Any]] = []
         cur.execute("SELECT id,page_label,page_type,px_per_m FROM pages WHERE workspace_id=? AND selected=1", (workspace_id,))
         for p_id, p_label, p_type, p_px in cur.fetchall():
             if to_float(p_px) > 0:
@@ -1281,7 +1297,7 @@ def scale_gate_blocked(workspace_id: int) -> bool:
     return bool(scale_gate_issues(workspace_id))
 
 
-def _line_grid_positions(count: int) -> List[Tuple[float, float, float, float]]:
+def _line_grid_positions(count: int) -> list[tuple[float, float, float, float]]:
     """Spread ``count`` horizontal line segments across the page in a grid."""
     if count <= 0:
         return []
@@ -1301,7 +1317,7 @@ def _line_grid_positions(count: int) -> List[Tuple[float, float, float, float]]:
     return out
 
 
-def takeoff_rows_for_mapper(workspace_id: int) -> List[Dict[str, Any]]:
+def takeoff_rows_for_mapper(workspace_id: int) -> list[dict[str, Any]]:
     """Take-off rows offered as draw targets in the line mapper.
 
     Each row becomes a draw target: a lineal-metre row wants line(s), an area
@@ -1309,7 +1325,7 @@ def takeoff_rows_for_mapper(workspace_id: int) -> List[Dict[str, Any]]:
     (e.g. counts) are excluded from drawing.
     """
     rows = ldf("SELECT * FROM takeoff_rows WHERE workspace_id=? ORDER BY section, element, location, id", (workspace_id,))
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for r in rows.itertuples(index=False):
         unit = normalise_line_unit(r.unit)
         if unit not in {"m", "m2"}:
@@ -1333,7 +1349,7 @@ def takeoff_rows_for_mapper(workspace_id: int) -> List[Dict[str, Any]]:
     return out
 
 
-def auto_map_measurements(workspace_id: int, page_id: int, px_per_m: float) -> List[Dict[str, Any]]:
+def auto_map_measurements(workspace_id: int, page_id: int, px_per_m: float) -> list[dict[str, Any]]:
     """Build a measurement shape for every take-off row on this page.
 
     Shapes are created empty and centred - the user clicks on the plan to draw
@@ -1344,7 +1360,7 @@ def auto_map_measurements(workspace_id: int, page_id: int, px_per_m: float) -> L
     rows = ldf("SELECT * FROM takeoff_rows WHERE workspace_id=? ORDER BY id", (workspace_id,))
     pages = lquery("SELECT width_px,height_px FROM pages WHERE id=?", (page_id,))
     img_w = int(pages[0].get("width_px") or 1000) if pages else 1000
-    lines: List[Dict[str, Any]] = []
+    lines: list[dict[str, Any]] = []
     positions = _line_grid_positions(len(rows))
     pxpm = to_float(px_per_m)
     for i, (r, (x1, y1, x2, y2)) in enumerate(zip(rows.itertuples(index=False), positions)):
@@ -1395,7 +1411,7 @@ def auto_map_measurements(workspace_id: int, page_id: int, px_per_m: float) -> L
     return lines
 
 
-def save_measurement_lines(workspace_id: int, page_id: int, lines: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
+def save_measurement_lines(workspace_id: int, page_id: int, lines: Sequence[dict[str, Any]]) -> dict[str, Any]:
     """Persist drawn measurement shapes; sync take-off quantities.
 
     Shapes are stored as-is in ``measurement_lines``. After saving, each
@@ -1446,7 +1462,7 @@ def save_measurement_lines(workspace_id: int, page_id: int, lines: Sequence[Dict
     # Aggregate per take-off row so multiple shapes on the same row SUM to the
     # row quantity (a wall drawn as several segments, or a floor as several
     # polygons), matching the documented "sum line lengths / sum polygon areas".
-    agg: Dict[int, Dict[str, float]] = {}
+    agg: dict[int, dict[str, float]] = {}
     for ln in lines or []:
         row_id = ln.get("takeoff_row_id")
         if row_id is not None:
@@ -1495,7 +1511,7 @@ def save_measurement_lines(workspace_id: int, page_id: int, lines: Sequence[Dict
 WALL_HEIGHT_M = 2.7
 
 
-def auto_detect_building_envelope(image_path: Any, min_area_pct: float = 0.4, max_contours: int = 3) -> List[Dict[str, Any]]:
+def auto_detect_building_envelope(image_path: Any, min_area_pct: float = 0.4, max_contours: int = 3) -> list[dict[str, Any]]:
     """Detect the outer building envelope(s) on a plan page.
 
     The detector is iterative: it tests several dark-line thresholds and a
@@ -1523,8 +1539,8 @@ def auto_detect_building_envelope(image_path: Any, min_area_pct: float = 0.4, ma
         return []
     gray = np.asarray(img, dtype=np.uint8)
     min_px = (min_area_pct / 100.0) * w * h
-    results: List[Dict[str, Any]] = []
-    tried: List[Tuple[int, int]] = []
+    results: list[dict[str, Any]] = []
+    tried: list[tuple[int, int]] = []
     thresholds = _envelope_thresholds(gray)
     for thr_val in thresholds:
         dark = gray < thr_val
@@ -1566,7 +1582,7 @@ def auto_detect_building_envelope(image_path: Any, min_area_pct: float = 0.4, ma
             break
     results.sort(key=lambda d: -d["area_pct"])
     # de-duplicate near-identical outlines produced by adjacent thresholds
-    deduped: List[Dict[str, Any]] = []
+    deduped: list[dict[str, Any]] = []
     for r in results:
         if deduped and abs(deduped[-1]["area_pct"] - r["area_pct"]) <= 2.0:
             continue
@@ -1577,10 +1593,10 @@ def auto_detect_building_envelope(image_path: Any, min_area_pct: float = 0.4, ma
 _ENVELOPE_CLOSE_LADDER = (9, 21, 45, 81, 121, 181)
 
 
-def _envelope_thresholds(gray: np.ndarray) -> List[int]:
+def _envelope_thresholds(gray: np.ndarray) -> list[int]:
     """A small ladder of dark-line thresholds, from conservative to permissive."""
     vals = [float(np.percentile(gray, p)) for p in (55, 70, 82, 90)]
-    out: List[int] = []
+    out: list[int] = []
     for v in vals:
         if v < 6 or v > 245:
             continue
@@ -1645,7 +1661,7 @@ def _flood_background(fg: np.ndarray, max_iter: int = 4000) -> np.ndarray:
 _DIR8 = ((0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -1), (1, -1), (1, 0), (1, 1))
 
 
-def _moore_outline(mask: np.ndarray) -> List[Tuple[float, float]]:
+def _moore_outline(mask: np.ndarray) -> list[tuple[float, float]]:
     """Trace the outer boundary of the foreground region (Moore neighbour trace).
 
     Returns a closed polygon of (x, y) pixel coordinates.
@@ -1655,7 +1671,7 @@ def _moore_outline(mask: np.ndarray) -> List[Tuple[float, float]]:
         return []
     order = np.lexsort((xs, ys))
     start = (int(ys[order[0]]), int(xs[order[0]]))
-    boundary: List[Tuple[float, float]] = [(float(start[1]), float(start[0]))]
+    boundary: list[tuple[float, float]] = [(float(start[1]), float(start[0]))]
     prev = (start[0], start[1] - 1)
     cur = start
     moved = False
@@ -1698,7 +1714,7 @@ def _point_line_dist(p: Sequence[float], a: Sequence[float], b: Sequence[float])
     return abs(dy * x0 - dx * y0 + x2 * y1 - y2 * x1) / math.hypot(dx, dy)
 
 
-def _rdp_simplify(points: Sequence[Sequence[float]], epsilon: float) -> List[Tuple[float, float]]:
+def _rdp_simplify(points: Sequence[Sequence[float]], epsilon: float) -> list[tuple[float, float]]:
     """Ramer-Douglas-Peucker line simplification on an open polygon chain."""
     pts = [(float(p[0]), float(p[1])) for p in points]
     if len(pts) <= 2:
@@ -1716,7 +1732,7 @@ def _rdp_simplify(points: Sequence[Sequence[float]], epsilon: float) -> List[Tup
     return [start, end]
 
 
-def _rough_polygon(outline: List[Tuple[float, float]]) -> List[Tuple[float, float]]:
+def _rough_polygon(outline: list[tuple[float, float]]) -> list[tuple[float, float]]:
     """Fallback: axis-aligned bounding box of a traced outline."""
     if not outline:
         return []
@@ -1726,7 +1742,7 @@ def _rough_polygon(outline: List[Tuple[float, float]]) -> List[Tuple[float, floa
     return [(x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0)]
 
 
-def _polygon_px(shape: Dict[str, Any], width_px: int, height_px: int) -> List[Tuple[float, float]]:
+def _polygon_px(shape: dict[str, Any], width_px: int, height_px: int) -> list[tuple[float, float]]:
     pts = shape.get("points") or []
     if isinstance(pts, str):
         try:
@@ -1739,7 +1755,7 @@ def _polygon_px(shape: Dict[str, Any], width_px: int, height_px: int) -> List[Tu
     ]
 
 
-def auto_detect_envelope_shapes(workspace_id: int, page: Dict[str, Any], px_per_m: float, level: str) -> List[Dict[str, Any]]:
+def auto_detect_envelope_shapes(workspace_id: int, page: dict[str, Any], px_per_m: float, level: str) -> list[dict[str, Any]]:
     """Create drawable measurement shapes for the detected building envelope.
 
     For every detected outline a polygon is created for two take-off rows:
@@ -1767,7 +1783,7 @@ def auto_detect_envelope_shapes(workspace_id: int, page: Dict[str, Any], px_per_
     pxpm = to_float(px_per_m)
     w_px = int(page.get("width_px") or 1000)
     h_px = int(page.get("height_px") or 1000)
-    shapes: List[Dict[str, Any]] = []
+    shapes: list[dict[str, Any]] = []
     for i, det in enumerate(detections):
         pts = det["points"]
         px_pts = [(p[0] / 100.0 * w_px, p[1] / 100.0 * h_px) for p in pts]
@@ -1818,7 +1834,7 @@ def _ensure_mapper_row(workspace_id: int, section: str, element: str, location: 
     )
 
 
-def render_measurement_overlay(page: Dict[str, Any], lines: Sequence[Dict[str, Any]]) -> Optional[Image.Image]:
+def render_measurement_overlay(page: dict[str, Any], lines: Sequence[dict[str, Any]]) -> Image.Image | None:
     """Static PNG snapshot of the measurement lines drawn on the page."""
     path = Path(str(page.get("image_path") or ""))
     if not path.exists():
@@ -1919,7 +1935,7 @@ class _RenderWorkerSession:
         finally:
             self._queue.put("__EOF__")
 
-    def render(self, page_no: int, zoom: float, out_path: str, timeout: float) -> Tuple[bool, int, int, str]:
+    def render(self, page_no: int, zoom: float, out_path: str, timeout: float) -> tuple[bool, int, int, str]:
         if not self._alive:
             return False, 0, 0, "render worker is not running"
         if self._proc.poll() is not None:
@@ -1989,19 +2005,19 @@ class _RenderWorkerSession:
 
 def _render_pdf_pages_in_worker(
     pdf_path: str,
-    jobs: Sequence[Tuple[int, float, str]],
+    jobs: Sequence[tuple[int, float, str]],
     timeout: float = _RENDER_PAGE_TIMEOUT_SEC,
-    progress_cb: Optional[Callable[[int, int, int], None]] = None,
-) -> List[Tuple[int, bool, int, int, str]]:
+    progress_cb: Callable[[int, int, int], None] | None = None,
+) -> list[tuple[int, bool, int, int, str]]:
     """Render a batch of PDF pages through one persistent child process.
 
     Returns one ``(page_no, ok, width, height, error)`` entry per job, in
     order. A failed or timed-out attempt is retried once at half zoom; if the
     worker dies it is respawned for the retry and all remaining pages.
     """
-    results: List[Tuple[int, bool, int, int, str]] = []
+    results: list[tuple[int, bool, int, int, str]] = []
     total = len(jobs)
-    session: Optional[_RenderWorkerSession] = None
+    session: _RenderWorkerSession | None = None
     try:
         for idx, (page_no, zoom, out_path) in enumerate(jobs):
             ok, width, height, error = False, 0, 0, ""
@@ -2029,7 +2045,7 @@ def _render_pdf_pages_in_worker(
 
 def _render_pdf_page_safely(
     pdf_path: str, page_no: int, zoom: float, out_path: str
-) -> Tuple[bool, int, int, str]:
+) -> tuple[bool, int, int, str]:
     """Render one PDF page in a child process so MuPDF crashes cannot kill the app."""
     results = _render_pdf_pages_in_worker(pdf_path, [(page_no, zoom, out_path)])
     ok, width, height, error = results[0][1], results[0][2], results[0][3], results[0][4]
@@ -2049,7 +2065,7 @@ def _ai_page_bytes(path: Path, max_long_edge: int = _AI_IMAGE_LONG_EDGE_PX) -> b
         return buf.getvalue()
 
 
-def index_document_pages(document_id: int) -> Tuple[int, str]:
+def index_document_pages(document_id: int) -> tuple[int, str]:
     """Register a document's pages cheaply: PDFs list pages with extracted
     text and classification but render nothing, so huge files never touch the
     pixmap pipeline. Single-page image/office files are processed immediately
@@ -2069,7 +2085,7 @@ def index_document_pages(document_id: int) -> Tuple[int, str]:
     if fitz is None:
         raise RuntimeError("PyMuPDF is not installed; PDFs cannot be processed.")
     pdf = fitz.open(path)
-    extracted: List[str] = []
+    extracted: list[str] = []
     count = 0
     for index, page in enumerate(pdf):
         page_no = index + 1
@@ -2094,9 +2110,9 @@ def index_document_pages(document_id: int) -> Tuple[int, str]:
 def process_document(
     document_id: int,
     force: bool = False,
-    page_ids: Optional[Sequence[int]] = None,
-    progress_cb: Optional[Callable[[int, int, int], None]] = None,
-) -> Tuple[int, str]:
+    page_ids: Sequence[int] | None = None,
+    progress_cb: Callable[[int, int, int], None] | None = None,
+) -> tuple[int, str]:
     """Render a document's page images. When page_ids is given, only those PDF
     pages are rendered; existing page rows are updated in place.
     """
@@ -2117,7 +2133,7 @@ def process_document(
     workspace_id = int(doc["workspace_id"])
     pages_dir = workspace_path(workspace_id) / "pages"
     suffix = path.suffix.lower()
-    extracted_all: List[str] = []
+    extracted_all: list[str] = []
     created = 0
     if force and page_ids is None:
         for row in lquery("SELECT image_path FROM pages WHERE document_id=?", (document_id,)):
@@ -2130,7 +2146,7 @@ def process_document(
     if suffix == ".pdf":
         if fitz is None:
             raise RuntimeError("PyMuPDF is not installed; PDFs cannot be processed.")
-        jobs: List[Tuple[int, float, str, str, str, str]] = []
+        jobs: list[tuple[int, float, str, str, str, str]] = []
         pdf = fitz.open(path)
         for index, page in enumerate(pdf):
             page_no = index + 1
@@ -2153,7 +2169,7 @@ def process_document(
             progress_cb,
         )
         result_by_page = {r[0]: r for r in results}
-        failures: List[str] = []
+        failures: list[str] = []
         for page_no, zoom, image_path, text, page_type, label in jobs:
             _pno, ok, width, height, render_error = result_by_page[page_no]
             if not ok:
@@ -2201,7 +2217,7 @@ def process_document(
         )
         created = 1
     elif suffix in {".xlsx", ".xls", ".csv"}:
-        blocks: List[str] = []
+        blocks: list[str] = []
         if suffix == ".csv":
             frame = pd.read_csv(path)
             blocks.append(frame.head(300).to_csv(index=False))
@@ -2690,7 +2706,7 @@ def image_data_url(path: Path) -> str:
     return f"data:image/png;base64,{data}"
 
 
-def ai_schema() -> Dict[str, Any]:
+def ai_schema() -> dict[str, Any]:
     takeoff_props = {
         "section": {"type": "string"},
         "element": {"type": "string"},
@@ -2775,13 +2791,13 @@ def ai_schema() -> Dict[str, Any]:
     }
 
 
-def _openai_generate(api_key: str, model: str, prompt: str, blocks: List[Tuple[str, str]], schema: Dict[str, Any], schema_name: str) -> Dict[str, Any]:
+def _openai_generate(api_key: str, model: str, prompt: str, blocks: list[tuple[str, str]], schema: dict[str, Any], schema_name: str) -> dict[str, Any]:
     if OpenAI is None:
         raise RuntimeError("The openai Python package is not installed.")
     if not api_key:
         raise RuntimeError("OpenAI API key is not configured.")
     client = OpenAI(api_key=api_key)
-    content: List[Dict[str, Any]] = [{"type": "input_text", "text": prompt}]
+    content: list[dict[str, Any]] = [{"type": "input_text", "text": prompt}]
     for kind, value in blocks:
         if kind == "text":
             content.append({"type": "input_text", "text": value})
@@ -2800,14 +2816,14 @@ def _openai_generate(api_key: str, model: str, prompt: str, blocks: List[Tuple[s
         fallback_content = [{"type": "input_text", "text": fallback_prompt}] + content[1:]
         response = client.responses.create(model=model, input=[{"role": "user", "content": fallback_content}])
         raw = response.output_text
-        match = re.search(r"\{.*\}", raw, re.S)
+        match = re.search(r"\{.*\}", raw, re.DOTALL)
         if not match:
             raise RuntimeError(f"Structured output failed: {structured_error}; fallback did not return JSON.")
         data = json.loads(match.group(0))
     return data
 
 
-def _extract_json_from_text(text: str) -> Dict[str, Any]:
+def _extract_json_from_text(text: str) -> dict[str, Any]:
     """Return the first complete JSON object in ``text``.
 
     Tolerates markdown code fences and any trailing prose the model may add,
@@ -2854,7 +2870,7 @@ def _extract_json_from_text(text: str) -> Dict[str, Any]:
 
 def _retry_after_seconds(text: str, default: float = 30.0) -> float:
     """Read the provider's 'Please retry in Xs' hint from a rate-limit body."""
-    match = re.search(r"retry in\s+([\d.]+)\s*s", str(text or ""), re.I)
+    match = re.search(r"retry in\s+([\d.]+)\s*s", str(text or ""), re.IGNORECASE)
     if match:
         try:
             return min(float(match.group(1)), 120.0)
@@ -2863,10 +2879,10 @@ def _retry_after_seconds(text: str, default: float = 30.0) -> float:
     return default
 
 
-def _gemini_generate(api_key: str, model: str, prompt: str, blocks: List[Tuple[str, str]], schema: Dict[str, Any], schema_name: str) -> Dict[str, Any]:
+def _gemini_generate(api_key: str, model: str, prompt: str, blocks: list[tuple[str, str]], schema: dict[str, Any], schema_name: str) -> dict[str, Any]:
     if not api_key:
         raise RuntimeError("Google Gemini API key is not configured.")
-    parts: List[Dict[str, Any]] = []
+    parts: list[dict[str, Any]] = []
     if prompt:
         parts.append({"text": prompt})
     for kind, value in blocks:
@@ -2919,7 +2935,7 @@ def _gemini_generate(api_key: str, model: str, prompt: str, blocks: List[Tuple[s
     raise RuntimeError(f"Gemini could not return valid JSON after retries: {last_error}")
 
 
-def run_ai_structured(provider: str, api_key: str, model: str, prompt: str, blocks: List[Tuple[str, str]], schema: Dict[str, Any], schema_name: str) -> Dict[str, Any]:
+def run_ai_structured(provider: str, api_key: str, model: str, prompt: str, blocks: list[tuple[str, str]], schema: dict[str, Any], schema_name: str) -> dict[str, Any]:
     if provider == "Google Gemini":
         return _gemini_generate(api_key, model, prompt, blocks, schema, schema_name)
     return _openai_generate(api_key, model, prompt, blocks, schema, schema_name)
@@ -2941,7 +2957,7 @@ def _ai_error_hint(exc: Exception) -> str:
     return msg
 
 
-def run_ai_plan_read(workspace_id: int, page_ids: Sequence[int], api_key: str, model: str, provider: str = "OpenAI") -> Dict[str, Any]:
+def run_ai_plan_read(workspace_id: int, page_ids: Sequence[int], api_key: str, model: str, provider: str = "OpenAI") -> dict[str, Any]:
     if not page_ids:
         raise RuntimeError("Select at least one page.")
     pages = lquery(
@@ -2965,7 +2981,7 @@ Required method:
 
 Return structured data only. References must name the drawing/page or visible note that supports each item.
 """
-    blocks: List[Tuple[str, str]] = []
+    blocks: list[tuple[str, str]] = []
     for page in pages:
         text_excerpt = str(page.get("extracted_text") or "")[:12000]
         blocks.append(("text", f"SOURCE PAGE: {page.get('file_name')} · {page.get('page_label')} · page {page.get('page_no')} · classified {page.get('page_type')}\nEXTRACTED TEXT:\n{text_excerpt}"))
@@ -2981,7 +2997,7 @@ Return structured data only. References must name the drawing/page or visible no
     return data
 
 
-def render_ai_schema() -> Dict[str, Any]:
+def render_ai_schema() -> dict[str, Any]:
     facade_props = {
         "face": {"type": "string"},
         "main_material": {"type": "string"},
@@ -3049,7 +3065,7 @@ def render_ai_schema() -> Dict[str, Any]:
     }
 
 
-def run_ai_render_read(workspace_id: int, page_ids: Sequence[int], api_key: str, model: str, provider: str = "OpenAI") -> Dict[str, Any]:
+def run_ai_render_read(workspace_id: int, page_ids: Sequence[int], api_key: str, model: str, provider: str = "OpenAI") -> dict[str, Any]:
     """Read render / artist's impression images and extract building form for the 3D model.
 
     Uses the render as a secondary evidence source: form, storeys, roof, per-facade
@@ -3090,7 +3106,7 @@ Required method:
 
 Return structured data only. References must name the render page that supports each item.
 """
-    blocks: List[Tuple[str, str]] = []
+    blocks: list[tuple[str, str]] = []
     for page in pages:
         blocks.append(("text", f"RENDER PAGE: {page.get('file_name')} · {page.get('page_label')} · classified {page.get('page_type')}"))
         image_path = Path(str(page.get("image_path") or ""))
@@ -3105,7 +3121,7 @@ Return structured data only. References must name the render page that supports 
     return data
 
 
-def apply_render_to_model(workspace_id: int, data: Dict[str, Any], mode: str = "merge") -> Dict[str, int]:
+def apply_render_to_model(workspace_id: int, data: dict[str, Any], mode: str = "merge") -> dict[str, int]:
     """Apply a render analysis to the 3D model.
 
     mode='merge' keeps any existing measured masses and only adds missing pieces.
@@ -3128,7 +3144,7 @@ def apply_render_to_model(workspace_id: int, data: Dict[str, Any], mode: str = "
         existing = lquery("SELECT * FROM model_masses WHERE workspace_id=? ORDER BY id", (workspace_id,))
         measured_existing = {int(m["id"]): m for m in existing if str(m.get("confidence") or "").lower() in {"measured", "verified"}}
 
-    mass_id_by_label: Dict[str, int] = {}
+    mass_id_by_label: dict[str, int] = {}
     for row in data.get("model_masses", []):
         label = str(row.get("label") or "Building mass").strip() or "Building mass"
         finish = str(row.get("finish") or "").strip()
@@ -3179,7 +3195,7 @@ def apply_render_to_model(workspace_id: int, data: Dict[str, Any], mode: str = "
     return counts
 
 
-def import_ai_result(workspace_id: int, data: Dict[str, Any]) -> Dict[str, int]:
+def import_ai_result(workspace_id: int, data: dict[str, Any]) -> dict[str, int]:
     counts = {"takeoff": 0, "registers": 0, "masses": 0, "openings": 0}
     if data.get("executive_summary"):
         lexecute("UPDATE workspaces SET executive_summary=?,drawing_issue=?,updated_at=? WHERE id=?", (str(data.get("executive_summary")), str(data.get("drawing_issue") or ""), now_stamp(), workspace_id))
@@ -3222,7 +3238,7 @@ def import_ai_result(workspace_id: int, data: Dict[str, Any]) -> Dict[str, int]:
             ),
         )
         counts["registers"] += 1
-    mass_label_to_id: Dict[str, int] = {}
+    mass_label_to_id: dict[str, int] = {}
     for row in data.get("model_masses", []):
         mass_id = lexecute(
             """INSERT INTO model_masses(workspace_id,label,level_name,x,y,z,width,depth,height,finish,source_reference,confidence,notes,created_at)
@@ -3346,8 +3362,8 @@ def copy_takeoff_rows_to_level(workspace_id: int, row_ids: Sequence[int], target
     return created
 
 
-def _quote_settings(workspace_id: int) -> Dict[str, Any]:
-    def f(key: str, default: float, min_val: Optional[float] = None) -> float:
+def _quote_settings(workspace_id: int) -> dict[str, Any]:
+    def f(key: str, default: float, min_val: float | None = None) -> float:
         val = to_float(workspace_setting(workspace_id, key, default), default)
         if not math.isfinite(val):
             return default
@@ -3432,9 +3448,9 @@ def is_internal_wall_row(section: Any, element: Any) -> bool:
     return "wall" in elm
 
 
-def floor_area_by_level(takeoff: pd.DataFrame) -> Dict[str, float]:
+def floor_area_by_level(takeoff: pd.DataFrame) -> dict[str, float]:
     """Per-level internal floor area (m²) from rows tagged ``floor_area``."""
-    out: Dict[str, float] = {}
+    out: dict[str, float] = {}
     if takeoff.empty or "row_role" not in takeoff.columns:
         return out
     floor = takeoff.loc[
@@ -3452,18 +3468,18 @@ def pricing_scope_of(location: Any) -> str:
     """Derive scope key (e.g. 'Unit 1 | Level 1' or 'Level 1') for floor-area pricing isolation."""
     text = str(location or "").strip()
     low = text.lower()
-    parts: List[str] = []
+    parts: list[str] = []
     for p in [r"\bunits?\s*[#:-]?\s*[a-z0-9]+", r"\b(?:apartment|apt|townhouse|villa|lot)\s*[#:-]?\s*[a-z0-9]+", r"\b(?:block|building|wing|stage)\s*[#:-]?\s*[a-z0-9]+"]:
-        m = re.search(p, low, re.I)
+        m = re.search(p, low, re.IGNORECASE)
         if m:
             parts.append(re.sub(r"\s+", " ", m.group()).strip().title())
     parts.append(level_of(text))
     return " | ".join(dict.fromkeys(parts))
 
 
-def floor_area_by_scope(takeoff: pd.DataFrame) -> Dict[str, float]:
+def floor_area_by_scope(takeoff: pd.DataFrame) -> dict[str, float]:
     """Per-scope internal floor area (m²) from commercial floor rows."""
-    out: Dict[str, float] = {}
+    out: dict[str, float] = {}
     if takeoff.empty or "row_role" not in takeoff.columns:
         return out
     floor = takeoff.loc[
@@ -3477,7 +3493,7 @@ def floor_area_by_scope(takeoff: pd.DataFrame) -> Dict[str, float]:
     return out
 
 
-def floor_for_scope(floors: Dict[str, float], scope: str) -> float:
+def floor_for_scope(floors: dict[str, float], scope: str) -> float:
     """Select appropriate floor area for scope or fall back to level-wide floor area."""
     if scope in floors:
         return floors[scope]
@@ -3515,7 +3531,7 @@ def per_level_summary(workspace_id: int) -> pd.DataFrame:
             continue
         out.append({
             "level": str(level),
-            "rows": int(len(work_group)),
+            "rows": len(work_group),
             "m2": to_float(work_group.loc[work_group["unit"].map(_normalise_unit).eq("m²"), "quantity"].sum()),
             "floor_m2": to_float(floor_m2_val),
             "lm": to_float(work_group.loc[work_group["unit"].map(_normalise_unit).eq("lm"), "quantity"].sum()),
@@ -3588,7 +3604,7 @@ def quote_workbook_bytes(workspace_id: int) -> bytes:
             grand,
         ],
     })
-    sheets: List[Tuple[str, pd.DataFrame]] = [
+    sheets: list[tuple[str, pd.DataFrame]] = [
         ("Quote Header", header),
         ("Per-Level Summary", levels),
         ("Totals", totals),
@@ -3637,10 +3653,17 @@ def quote_pdf_bytes(workspace_id: int) -> bytes:
     grand = to_float(subtotal_ex + gst_amount)
 
     from reportlab.lib import colors
-    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
     from reportlab.lib.units import mm
-    from reportlab.platypus import HRFlowable, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    from reportlab.platypus import (
+        HRFlowable,
+        Paragraph,
+        SimpleDocTemplate,
+        Spacer,
+        Table,
+        TableStyle,
+    )
 
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=18 * mm, rightMargin=18 * mm, topMargin=16 * mm, bottomMargin=16 * mm)
@@ -3649,7 +3672,7 @@ def quote_pdf_bytes(workspace_id: int) -> bytes:
     small = ParagraphStyle("PSmall", parent=styles["Normal"], fontSize=9, textColor=colors.HexColor("#5f574f"))
     h2 = ParagraphStyle("PH2", parent=styles["Heading2"], fontSize=13, spaceBefore=10, spaceAfter=4)
 
-    flow: List[Any] = []
+    flow: list[Any] = []
     flow.append(Paragraph(str(settings["quote_header"]), title_style))
     flow.append(Paragraph(f"Quotation for {workspace.get('job_name', '')}", styles["Normal"]))
     flow.append(Spacer(1, 4))
@@ -3781,31 +3804,31 @@ def dataframe_for_takeoff(workspace_id: int) -> pd.DataFrame:
         return df
     basis = str(workspace_setting(workspace_id, "internal_pricing_basis", "wall_m2") or "wall_m2").strip().lower()
     floors = floor_area_by_scope(df)
-    groups: Dict[str, List[int]] = {}
+    groups: dict[str, list[int]] = {}
     if basis == "floor_m2":
         for idx, row in df.iterrows():
             role = str(row.get("row_role") or "").strip()
             unit = _normalise_unit(row.get("unit")) or str(row.get("unit") or "")
             if role != "floor_area" and unit == "m²" and is_internal_wall_row(row.get("section"), row.get("element")):
                 groups.setdefault(pricing_scope_of(row.get("location")), []).append(int(idx))
-    allocated: Dict[int, float] = {}
+    allocated: dict[int, float] = {}
     for scope, idxs in groups.items():
         f = floor_for_scope(floors, scope)
         weights = [max(0.0, to_float(df.loc[i, "quantity"])) for i in idxs]
         total = sum(weights)
         for i, w in zip(idxs, weights):
             allocated[i] = f if len(idxs) == 1 else (f * w / total if f > 0 and total > 0 else 0.0)
-    clean_unit: List[str] = []
-    clean_qty: List[float] = []
-    clean_rate: List[float] = []
-    clean_coats: List[float] = []
-    clean_coverage: List[float] = []
-    clean_productivity: List[float] = []
-    paint_rows: List[float] = []
-    labour_rows: List[float] = []
-    value_rows: List[float] = []
-    priced_qty_rows: List[float] = []
-    basis_rows: List[str] = []
+    clean_unit: list[str] = []
+    clean_qty: list[float] = []
+    clean_rate: list[float] = []
+    clean_coats: list[float] = []
+    clean_coverage: list[float] = []
+    clean_productivity: list[float] = []
+    paint_rows: list[float] = []
+    labour_rows: list[float] = []
+    value_rows: list[float] = []
+    priced_qty_rows: list[float] = []
+    basis_rows: list[str] = []
     for r in df.itertuples():
         qty = to_float(getattr(r, "quantity", 0.0))
         unit = _normalise_unit(getattr(r, "unit", "")) or str(getattr(r, "unit", "") or "").strip()
@@ -3885,13 +3908,13 @@ _TAKEOFF_HEADER_SYNONYMS = {
     "notes": ["notes", "note", "comments", "remarks", "comment"],
 }
 
-_NORMALISED_HEADERS: Dict[str, str] = {}
+_NORMALISED_HEADERS: dict[str, str] = {}
 for _target, _words in _TAKEOFF_HEADER_SYNONYMS.items():
     for _word in _words:
         _NORMALISED_HEADERS[_norm_key(_word)] = _target
 
 
-def _match_takeoff_header(header: Any) -> Optional[str]:
+def _match_takeoff_header(header: Any) -> str | None:
     raw_lower = str(header or "").strip().lower()
     if not raw_lower:
         return None
@@ -3906,7 +3929,7 @@ def _match_takeoff_header(header: Any) -> Optional[str]:
         return "coverage_m2_per_litre"
     if key in {"m2h", "m2hr", "sqmh"}:
         return "productivity_m2_per_hour"
-    best_target: Optional[str] = None
+    best_target: str | None = None
     best_score = 0
     for target, words in _TAKEOFF_HEADER_SYNONYMS.items():
         score = 0
@@ -3929,7 +3952,7 @@ def _parse_qty(raw: Any) -> float:
     return to_float(cleaned, 0.0)
 
 
-def detect_takeoff_columns(upload: Any, header_row: Optional[int] = None) -> Tuple[List[str], List[List[Any]], int, int, int]:
+def detect_takeoff_columns(upload: Any, header_row: int | None = None) -> tuple[list[str], list[list[Any]], int, int, int]:
     """Read an uploaded .xlsx/.xls/.csv take-off file.
 
     Returns (raw column headers, body rows, detected header row index, match score,
@@ -3952,7 +3975,7 @@ def detect_takeoff_columns(upload: Any, header_row: Optional[int] = None) -> Tup
         raise RuntimeError("The take-off file is empty.")
 
     best_score = 0
-    detected: Optional[int] = None
+    detected: int | None = None
     if header_row is None:
         for i in range(min(30, len(df))):
             row = [str(v) for v in df.iloc[i].tolist()]
@@ -3971,30 +3994,30 @@ def detect_takeoff_columns(upload: Any, header_row: Optional[int] = None) -> Tup
     return raw_headers, body, detected, best_score, len(df)
 
 
-def parse_takeoff_file(upload: Any, mapping: Optional[Dict[int, str]] = None,
-                       raw_headers: Optional[List[str]] = None,
-                       body: Optional[List[List[Any]]] = None) -> Tuple[pd.DataFrame, List[str]]:
+def parse_takeoff_file(upload: Any, mapping: dict[int, str] | None = None,
+                       raw_headers: list[str] | None = None,
+                       body: list[list[Any]] | None = None) -> tuple[pd.DataFrame, list[str]]:
     """Build take-off rows from an uploaded file.
 
     mapping maps column index -> take-off field name. When None, columns are
     matched automatically from the header text. Returns (rows DataFrame, warnings).
     """
     name = str(getattr(upload, "name", "") or "takeoff")
-    warnings: List[str] = []
+    warnings: list[str] = []
     if raw_headers is None or body is None:
         raw_headers, body, _used, _score, _total = detect_takeoff_columns(upload)
     if mapping is None:
         mapping = {}
-        used: List[str] = []
+        used: list[str] = []
         for idx, h in enumerate(raw_headers):
             target = _match_takeoff_header(h)
             if target and target not in used:
                 mapping[idx] = target
                 used.append(target)
 
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     for line in body:
-        row: Dict[str, Any] = {c: "" for c in TAKEOFF_COLUMNS}
+        row: dict[str, Any] = {c: "" for c in TAKEOFF_COLUMNS}
         row["row_role"] = ""
         for idx, target in mapping.items():
             if idx >= len(line):
@@ -4143,7 +4166,7 @@ def excel_export_bytes(workspace_id: int) -> bytes:
         columns=["Field", "Value"],
     )
     summary = pd.DataFrame({"Executive Summary": [workspace.get("executive_summary", "")]})
-    sheets: List[Tuple[str, pd.DataFrame]] = [
+    sheets: list[tuple[str, pd.DataFrame]] = [
         ("Project Information", project),
         ("Executive Summary", summary),
         ("Source Documents", docs),
@@ -4252,7 +4275,7 @@ def ensure_jobhub_takeoff_tables(bridge: JobHubBridge) -> None:
     bridge.execute(line_sql)
 
 
-def push_takeoff_to_jobhub(workspace_id: int, bridge: JobHubBridge, created_by: str) -> Tuple[int, int]:
+def push_takeoff_to_jobhub(workspace_id: int, bridge: JobHubBridge, created_by: str) -> tuple[int, int]:
     ws_rows = lquery("SELECT * FROM workspaces WHERE id=?", (workspace_id,))
     if not ws_rows:
         raise RuntimeError(f"Workspace #{workspace_id} not found.")
@@ -4330,7 +4353,7 @@ def push_takeoff_to_jobhub(workspace_id: int, bridge: JobHubBridge, created_by: 
                 lm,
                 to_float(row.get("paint_litres"), 0.0),
                 str(row.get("confidence") or ""),
-                f"{str(row.get('notes') or '')} | Source: {str(row.get('source_reference') or '')}",
+                f"{row.get('notes') or ''!s} | Source: {row.get('source_reference') or ''!s}",
                 now_stamp(),
             ),
         )
@@ -4441,7 +4464,7 @@ def pull_takeoff_from_jobhub(workspace_id: int, bridge: JobHubBridge) -> int:
 # -----------------------------------------------------------------------------
 
 
-def ensure_shared_jobhub_schema(bridge: JobHubBridge) -> List[str]:
+def ensure_shared_jobhub_schema(bridge: JobHubBridge) -> list[str]:
     """Create the shared PlanReader <-> JobHub tables used by live sync.
 
     Only creates tables that do not already exist so an existing JobHub
@@ -4488,7 +4511,7 @@ def ensure_shared_jobhub_schema(bridge: JobHubBridge) -> List[str]:
     return created
 
 
-def next_jobhub_job_no(bridge: Optional[JobHubBridge]) -> str:
+def next_jobhub_job_no(bridge: JobHubBridge | None) -> str:
     """Next sequential PB number from the shared JobHub jobs table.
 
     Mirrors JobHub's ``next_job_no()``: no PB rows -> PB25001, otherwise the
@@ -4523,7 +4546,7 @@ def next_jobhub_job_no(bridge: Optional[JobHubBridge]) -> str:
     return f"{prefix}{int(digits) + 1:05d}"
 
 
-def create_linked_jobhub_job(bridge: Optional[JobHubBridge], job_no: str, job_name: str = "", site_address: str = "", status: str = "Active") -> Optional[int]:
+def create_linked_jobhub_job(bridge: JobHubBridge | None, job_no: str, job_name: str = "", site_address: str = "", status: str = "Active") -> int | None:
     """Insert a shared JobHub job row if that job number does not exist yet.
 
     Returns the JobHub ``jobs.id`` for the job, or None when the bridge is
@@ -4578,7 +4601,7 @@ def _sanitize_for_json(obj: Any) -> Any:
     return obj
 
 
-def _jobhub_takeoff_lines_csv(workspace: Dict[str, Any], takeoff: pd.DataFrame) -> str:
+def _jobhub_takeoff_lines_csv(workspace: dict[str, Any], takeoff: pd.DataFrame) -> str:
     """Take-off rows in JobHub's shared ``job_takeoff_rows`` column order."""
     buf = io.StringIO()
     writer = csv.writer(buf, lineterminator="\n")
@@ -4629,7 +4652,7 @@ def _takeoff_summary_csv(takeoff: pd.DataFrame) -> str:
     return buf.getvalue()
 
 
-def _progress_package_readme(workspace: Dict[str, Any], takeoff: pd.DataFrame, pages: pd.DataFrame) -> str:
+def _progress_package_readme(workspace: dict[str, Any], takeoff: pd.DataFrame, pages: pd.DataFrame) -> str:
     lines = [
         "PB PlanReader — progress marker package",
         "=======================================",
@@ -4641,7 +4664,7 @@ def _progress_package_readme(workspace: Dict[str, Any], takeoff: pd.DataFrame, p
         f"Estimator:         {workspace.get('estimator', '')}",
         f"Status:            {workspace.get('status', '')}",
         f"Generated:         {now_stamp()}",
-        f"3D model status:   Conceptual unless geometry is marked Measured or Verified.",
+        "3D model status:   Conceptual unless geometry is marked Measured or Verified.",
         "",
         "This package is the single progress marker for the job:",
         "  3d/3d_progress_marker.html      interactive 3D render (opens in a browser)",
@@ -4771,13 +4794,13 @@ def progress_package_bytes(workspace_id: int) -> bytes:
             if path.exists():
                 zf.write(path, f"source_documents/{safe_name(doc.get('file_name'))}")
         for page in pages.itertuples(index=False):
-            path = Path(str(getattr(page, "image_path") or ""))
+            path = Path(str(page.image_path or ""))
             if path.exists():
                 zf.write(path, f"rendered_pages/{safe_name(page.file_name)}_{int(page.id)}.png")
     return output.getvalue()
 
 
-def _sync_jobhub_takeoff_rows(bridge: JobHubBridge, job_id: int, takeoff: pd.DataFrame, conn: Optional[Any] = None) -> int:
+def _sync_jobhub_takeoff_rows(bridge: JobHubBridge, job_id: int, takeoff: pd.DataFrame, conn: Any | None = None) -> int:
     """Upsert the workspace take-off into the shared ``job_takeoff_rows`` table."""
     takeoff = takeoff_work_rows(takeoff)
     if takeoff.empty:
@@ -4827,7 +4850,7 @@ def _sync_jobhub_takeoff_rows(bridge: JobHubBridge, job_id: int, takeoff: pd.Dat
     return len(payloads)
 
 
-def push_progress_marker_to_jobhub(workspace_id: int, bridge: JobHubBridge, created_by: str) -> Dict[str, Any]:
+def push_progress_marker_to_jobhub(workspace_id: int, bridge: JobHubBridge, created_by: str) -> dict[str, Any]:
     """Send the one-file progress package to the shared JobHub database.
 
     Stores the ZIP (3D render + take-off + job documents) as a progress marker
@@ -4899,7 +4922,7 @@ def push_progress_marker_to_jobhub(workspace_id: int, bridge: JobHubBridge, crea
     }
 
 
-def advisory_xact_lock_keys(job_id: int, preflight_fingerprint: str) -> Tuple[int, int]:
+def advisory_xact_lock_keys(job_id: int, preflight_fingerprint: str) -> tuple[int, int]:
     """Derive deterministic 32-bit positive signed integer key pair for PostgreSQL pg_try_advisory_xact_lock."""
     key1 = int(job_id) & 0x7FFFFFFF
     fp_hash = hashlib.md5(preflight_fingerprint.encode("utf-8")).hexdigest() if preflight_fingerprint else "0"
@@ -4907,7 +4930,7 @@ def advisory_xact_lock_keys(job_id: int, preflight_fingerprint: str) -> Tuple[in
     return key1, key2
 
 
-def publish_job_to_jobhub(workspace_id: int, bridge: JobHubBridge, created_by: str, preflight_fingerprint: str = "", payload_hash: str = "") -> Dict[str, Any]:
+def publish_job_to_jobhub(workspace_id: int, bridge: JobHubBridge, created_by: str, preflight_fingerprint: str = "", payload_hash: str = "") -> dict[str, Any]:
     """Publish the final take-off and quotation to the shared JobHub job with partial-safe lifecycle and strict receipt verification."""
     ws_rows = lquery("SELECT * FROM workspaces WHERE id=?", (workspace_id,))
     if not ws_rows:
@@ -5171,7 +5194,7 @@ def publish_job_to_jobhub(workspace_id: int, bridge: JobHubBridge, created_by: s
     }
 
 
-def list_jobhub_progress_markers(bridge: Optional[JobHubBridge], job_id: int) -> List[Dict[str, Any]]:
+def list_jobhub_progress_markers(bridge: JobHubBridge | None, job_id: int) -> list[dict[str, Any]]:
     """Progress marker records already stored on a JobHub job."""
     if not bridge or not job_id:
         return []
@@ -5204,7 +5227,7 @@ def list_jobhub_progress_markers(bridge: Optional[JobHubBridge], job_id: int) ->
 # -----------------------------------------------------------------------------
 
 
-def hero(workspace: Optional[Dict[str, Any]] = None) -> None:
+def hero(workspace: dict[str, Any] | None = None) -> None:
     if workspace:
         title = f"{workspace.get('job_no','')} — {workspace.get('job_name','')}"
         sub = f"{workspace.get('builder_client','')} · {workspace.get('site_address','')}"
@@ -5214,7 +5237,7 @@ def hero(workspace: Optional[Dict[str, Any]] = None) -> None:
     st.markdown(f"<div class='pb-hero'><h1>{title}</h1><p>{sub}</p></div>", unsafe_allow_html=True)
 
 
-def current_workspace() -> Optional[Dict[str, Any]]:
+def current_workspace() -> dict[str, Any] | None:
     workspace_id = st.session_state.get("workspace_id")
     if not workspace_id:
         return None
@@ -5222,7 +5245,7 @@ def current_workspace() -> Optional[Dict[str, Any]]:
     return rows[0] if rows else None
 
 
-def login_screen(bridge: Optional[JobHubBridge]) -> None:
+def login_screen(bridge: JobHubBridge | None) -> None:
     app_css()
     hero()
     st.markdown("<div class='pb-card'>", unsafe_allow_html=True)
@@ -5263,7 +5286,7 @@ def login_screen(bridge: Optional[JobHubBridge]) -> None:
     st.stop()
 
 
-def sidebar_workspace_selector(bridge: Optional[JobHubBridge]) -> Optional[int]:
+def sidebar_workspace_selector(bridge: JobHubBridge | None) -> int | None:
     st.sidebar.markdown("## PB PlanReader")
     st.sidebar.caption(f"Standalone app · v{APP_VERSION}")
     if st.sidebar.button("Sign out"):
@@ -5326,7 +5349,7 @@ def sidebar_workspace_selector(bridge: Optional[JobHubBridge]) -> Optional[int]:
     return st.session_state.get("workspace_id")
 
 
-def dashboard_page(workspace: Dict[str, Any]) -> None:
+def dashboard_page(workspace: dict[str, Any]) -> None:
     hero(workspace)
     docs = ldf("SELECT * FROM documents WHERE workspace_id=?", (workspace["id"],))
     pages = ldf("SELECT * FROM pages WHERE workspace_id=?", (workspace["id"],))
@@ -5353,7 +5376,7 @@ def dashboard_page(workspace: Dict[str, Any]) -> None:
         st.plotly_chart(build_3d_figure(int(workspace["id"])), use_container_width=True)
 
 
-def page_thumbnail_bytes(path: str, max_w: int = 320) -> Optional[bytes]:
+def page_thumbnail_bytes(path: str, max_w: int = 320) -> bytes | None:
     try:
         p = Path(path)
         if not p.exists():
@@ -5370,7 +5393,7 @@ def page_thumbnail_bytes(path: str, max_w: int = 320) -> Optional[bytes]:
         return None
 
 
-def page_thumbnail(path: str, max_w: int = 320) -> Optional[bytes]:
+def page_thumbnail(path: str, max_w: int = 320) -> bytes | None:
     try:
         mtime = Path(path).stat().st_mtime
     except Exception:
@@ -5379,7 +5402,7 @@ def page_thumbnail(path: str, max_w: int = 320) -> Optional[bytes]:
 
 
 @lru_cache(maxsize=512)
-def _page_thumb(path: str, mtime: float, max_w: int) -> Optional[bytes]:
+def _page_thumb(path: str, mtime: float, max_w: int) -> bytes | None:
     try:
         p = Path(path)
         if not p.exists():
@@ -5448,7 +5471,7 @@ def page_preview_picker(workspace_id: int, doc_ids: Sequence[int]) -> None:
         records = edited.to_dict("records")
         for row in records:
             lexecute("UPDATE pages SET selected=? WHERE id=?", (1 if row.get("Keep") else 0, row["_pid"]))
-        to_render: Dict[int, List[int]] = {}
+        to_render: dict[int, list[int]] = {}
         for row in records:
             if row.get("Keep") and not row.get("_img"):
                 to_render.setdefault(int(row["_doc"]), []).append(int(row["_no"]))
@@ -5489,7 +5512,7 @@ def page_preview_picker(workspace_id: int, doc_ids: Sequence[int]) -> None:
                 st.caption(f"p{int(pg['page_no'])} · {pg.get('page_type')}")
 
 
-def project_documents_page(workspace: Dict[str, Any], bridge: Optional[JobHubBridge], user: Dict[str, Any]) -> None:
+def project_documents_page(workspace: dict[str, Any], bridge: JobHubBridge | None, user: dict[str, Any]) -> None:
     hero(workspace)
     tabs = st.tabs(["Project details", "Linked documents", "Upload", "Process files", "File manager"])
     with tabs[0]:
@@ -5654,7 +5677,7 @@ def project_documents_page(workspace: Dict[str, Any], bridge: Optional[JobHubBri
                 st.rerun()
 
 
-def drawing_register_page(workspace: Dict[str, Any]) -> None:
+def drawing_register_page(workspace: dict[str, Any]) -> None:
     hero(workspace)
     target_register_id = st.session_state.pop("active_register_item_id", None)
     if target_register_id:
@@ -5705,7 +5728,7 @@ def _run_with_progress(worker: Callable[[], Any], caption: str) -> Any:
     progress = st.progress(0)
     status = st.empty()
     start = time.monotonic()
-    holder: Dict[str, Any] = {}
+    holder: dict[str, Any] = {}
     done = threading.Event()
 
     def _worker_thread():
@@ -5734,7 +5757,7 @@ def _run_with_progress(worker: Callable[[], Any], caption: str) -> Any:
     return holder["value"]
 
 
-def subscription_takeoff_page(workspace: Dict[str, Any], session_api_key: str, ai_provider: str = "OpenAI") -> None:
+def subscription_takeoff_page(workspace: dict[str, Any], session_api_key: str, ai_provider: str = "OpenAI") -> None:
     hero(workspace)
     target_row_id = st.session_state.pop("active_takeoff_row_id", None)
     if target_row_id:
@@ -6013,7 +6036,7 @@ def subscription_takeoff_page(workspace: Dict[str, Any], session_api_key: str, a
                 st.dataframe(diffs,use_container_width=True,hide_index=True)
 
 
-def overlay_image(page:Dict[str,Any],zones:List[Dict[str,Any]]) -> Optional[Image.Image]:
+def overlay_image(page:dict[str,Any],zones:list[dict[str,Any]]) -> Image.Image | None:
     path=Path(str(page.get("image_path") or ""))
     if not path.exists(): return None
     img=Image.open(path).convert("RGBA")
@@ -6025,7 +6048,7 @@ def overlay_image(page:Dict[str,Any],zones:List[Dict[str,Any]]) -> Optional[Imag
     return img
 
 
-def plan_mapper_page(workspace:Dict[str,Any]) -> None:
+def plan_mapper_page(workspace:dict[str,Any]) -> None:
     hero(workspace)
     target_page_id = st.session_state.pop("active_page_id", None)
     if target_page_id:
@@ -6265,7 +6288,7 @@ def plan_mapper_page(workspace:Dict[str,Any]) -> None:
                 st.rerun()
 
 
-def model_3d_page(workspace:Dict[str,Any], session_api_key: str = "", ai_provider: str = "OpenAI") -> None:
+def model_3d_page(workspace:dict[str,Any], session_api_key: str = "", ai_provider: str = "OpenAI") -> None:
     hero(workspace)
     tabs=st.tabs(["Interactive model","Building masses","Doors & windows","Render / artist's impression","Model exports"])
     with tabs[0]:
@@ -6359,7 +6382,7 @@ def model_3d_page(workspace:Dict[str,Any], session_api_key: str = "", ai_provide
         st.caption("The HTML file is the shareable interactive 3D render. OBJ contains the rectangular masses. Openings are included in JSON and shown in the interactive model, but are not boolean-cut from the OBJ geometry.")
 
 
-def quantity_schedule_page(workspace:Dict[str,Any]) -> None:
+def quantity_schedule_page(workspace:dict[str,Any]) -> None:
     hero(workspace)
     takeoff=dataframe_for_takeoff(int(workspace["id"]))
     if takeoff.empty:
@@ -6419,7 +6442,7 @@ def quantity_schedule_page(workspace:Dict[str,Any]) -> None:
             st.download_button("Download priced quotation (PDF)",quote_pdf,file_name=f"{safe_name(workspace.get('job_no'))}_quotation.pdf",mime="application/pdf",use_container_width=True)
 
 
-def export_page(workspace:Dict[str,Any],bridge:Optional[JobHubBridge],user:Dict[str,Any]) -> None:
+def export_page(workspace:dict[str,Any],bridge:JobHubBridge | None,user:dict[str,Any]) -> None:
     hero(workspace)
     wid = int(workspace["id"])
     conn = local_connect()
@@ -6586,7 +6609,7 @@ def export_page(workspace:Dict[str,Any],bridge:Optional[JobHubBridge],user:Dict[
 # Offline Plan Reader (no AI)
 # ---------------------------------------------------------------------------
 
-def offline_plan_reader_page(workspace: Dict[str, Any]) -> None:
+def offline_plan_reader_page(workspace: dict[str, Any]) -> None:
     """Offline plan reading page - no AI required. Uses OCR, vector extraction, and pattern matching."""
     st.markdown('<div class="pb-header"><h2>Offline Plan Reader</h2><p>No AI required - uses OCR, vector extraction, and pattern matching</p></div>', unsafe_allow_html=True)
     
@@ -7016,7 +7039,7 @@ def offline_plan_reader_page(workspace: Dict[str, Any]) -> None:
         """)
 
 
-def settings_page(workspace:Dict[str,Any],bridge:Optional[JobHubBridge],session_api_key:str,ai_provider:str="OpenAI") -> None:
+def settings_page(workspace:dict[str,Any],bridge:JobHubBridge | None,session_api_key:str,ai_provider:str="OpenAI") -> None:
     hero(workspace)
     st.write(f"App version: `{APP_VERSION}`")
     st.write(f"PlanReader data folder: `{DATA_DIR}`")
@@ -7152,6 +7175,7 @@ def main() -> None:
     elif menu == "Review & QA":
         hero(workspace)
         import sys
+
         from pb_commercial_review_v161 import render_commercial_review_workspace
         render_commercial_review_workspace(sys.modules[__name__], workspace)
     elif menu == "Subscription Take-off": subscription_takeoff_page(workspace, session_api_key, ai_provider)
