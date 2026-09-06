@@ -590,6 +590,7 @@ def init_local_db() -> None:
     _ensure_measurement_columns(conn)
     _ensure_takeoff_columns(conn)
     _ensure_pages_columns(conn)
+    _ensure_database_indexes(conn)
     conn.commit()
     conn.close()
 
@@ -603,15 +604,37 @@ def _ensure_measurement_columns(conn: sqlite3.Connection) -> None:
     """
     existing = {row[1] for row in conn.execute("PRAGMA table_info(measurement_lines)").fetchall()}
     wanted = {
+        "takeoff_row_id": "INTEGER",
+        "label": "TEXT",
+        "unit": "TEXT",
+        "colour": "TEXT",
         "kind": "TEXT DEFAULT 'line'",
         "points": "TEXT",
         "area_m2": "REAL DEFAULT 0",
         "perimeter_m": "REAL DEFAULT 0",
+        "quantity_status": "TEXT",
+        "moved": "INTEGER DEFAULT 0",
+        "notes": "TEXT",
+        "created_at": "TEXT",
         "measurement_basis": "TEXT DEFAULT ''",
     }
     for name, ddl in wanted.items():
         if name not in existing:
             conn.execute(f"ALTER TABLE measurement_lines ADD COLUMN {name} {ddl}")
+
+
+def _ensure_database_indexes(conn: sqlite3.Connection) -> None:
+    """Create foreign key and lookup performance indexes idempotently after schema migrations."""
+    indexes = [
+        ("idx_pages_ws", "pages(workspace_id)"),
+        ("idx_takeoff_ws", "takeoff_rows(workspace_id)"),
+        ("idx_register_ws", "register_items(workspace_id)"),
+        ("idx_measurement_ws", "measurement_lines(workspace_id)"),
+        ("idx_measurement_page", "measurement_lines(page_id)"),
+        ("idx_measurement_row", "measurement_lines(takeoff_row_id)"),
+    ]
+    for idx_name, idx_target in indexes:
+        conn.execute(f"CREATE INDEX IF NOT EXISTS {idx_name} ON {idx_target}")
 
 
 def _ensure_takeoff_columns(conn: sqlite3.Connection) -> None:
@@ -3743,10 +3766,17 @@ def reconcile_ai_vs_drawn(workspace_id: int) -> pd.DataFrame:
     takeoff = dataframe_for_takeoff(workspace_id)
     if takeoff.empty:
         return pd.DataFrame(columns=["section", "element", "location", "unit", "ai_qty", "drawn_qty", "variance", "status"])
+    drawn_counts = {
+        int(row["takeoff_row_id"]): int(row["c"])
+        for row in lquery(
+            "SELECT takeoff_row_id, COUNT(*) AS c FROM measurement_lines WHERE workspace_id=? AND takeoff_row_id IS NOT NULL GROUP BY takeoff_row_id",
+            (workspace_id,)
+        )
+    }
     records = []
     for r in takeoff.itertuples(index=False):
         rid = int(r.id)
-        drawn = lquery("SELECT COUNT(*) AS c FROM measurement_lines WHERE takeoff_row_id=?", (rid,))[0]["c"]
+        drawn = drawn_counts.get(rid, 0)
         source_ref = str(r.source_reference or "")
         notes = str(r.notes or "")
         is_ai = "AI" in source_ref or "AI plan review" in notes or "AI-generated" in notes or "AI draft" in notes
