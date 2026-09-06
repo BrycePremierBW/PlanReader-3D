@@ -54,6 +54,7 @@ from pb_takeoff_authority_v164 import (
     is_model_surface_row,
     model_surface_authority,
     prepare_ai_takeoff_editor_save,
+    takeoff_row_pricing_authority,
     takeoff_row_publishability,
 )
 
@@ -3419,13 +3420,14 @@ def takeoff_work_rows(takeoff: pd.DataFrame) -> pd.DataFrame:
     Floor-area rows are per-level measurement rows used to drive floor-m² pricing;
     they carry real m² but are never painted quantities, so they are filtered out
     of painted-area totals and JobHub line pushes. Explicit exclusions and 3D
-    surfaces and AI-derived drafts without complete commercial review evidence
-    are also filtered here, using the same policy as Phase 6D preflight.
+    surfaces, unresolved clarification/provisional scope, and AI-derived drafts
+    without complete commercial review evidence are also filtered here. Phase 6D
+    still sees unresolved rows so its final-publish review gate can fail closed.
     """
     if takeoff.empty:
         return takeoff
     mask = takeoff.apply(
-        lambda row: takeoff_row_publishability(row.to_dict())[0], axis=1
+        lambda row: takeoff_row_pricing_authority(row.to_dict())[0], axis=1
     )
     return takeoff.loc[mask]
 
@@ -3451,13 +3453,13 @@ def takeoff_progress_rows(takeoff: pd.DataFrame) -> pd.DataFrame:
 
 
 def commercial_takeoff_rows(takeoff: pd.DataFrame) -> pd.DataFrame:
-    """Keep publishable work plus non-priced commercial floor references for calculations."""
+    """Keep firm priced work plus non-priced commercial floor references."""
     if takeoff.empty:
         return takeoff
     mask = takeoff.apply(
         lambda row: (
             is_commercial_floor_reference_row(row.to_dict())
-            or takeoff_row_publishability(row.to_dict())[0]
+            or takeoff_row_pricing_authority(row.to_dict())[0]
         ),
         axis=1,
     )
@@ -3832,9 +3834,10 @@ def dataframe_for_takeoff(workspace_id: int) -> pd.DataFrame:
     df = ldf("SELECT * FROM takeoff_rows WHERE workspace_id=? ORDER BY id", (workspace_id,))
     if df.empty:
         return df
-    # Exclusions and unapproved model-derived surfaces must never influence
-    # pricing, quotation detail, progress packages, or JobHub payloads. Floor
-    # references remain available for the optional floor-m² pricing basis.
+    # Exclusions, unresolved clarification/provisional scope, and unapproved
+    # model-derived surfaces must never influence pricing, quotation detail,
+    # progress packages, or JobHub payloads. Floor references remain available
+    # for the optional floor-m² pricing basis.
     df = commercial_takeoff_rows(df).copy()
     if df.empty:
         return df
