@@ -85,6 +85,14 @@ class ScaleCalibration:
     method: str  # "KNOWN_CALIBRATED", "GRAPHIC_SCALE_BAR", "OCR_TEXT", "UNKNOWN"
     is_verified: bool
     confidence: float
+    sheet_label: str = ""
+    scale_text: str = ""
+    source_type: str = "unknown"  # from pb_page_scale_calibration_authority.ScaleSourceType
+    status: str = "unknown"  # from pb_page_scale_calibration_authority.ScaleCalibrationStatus
+    issues: List[str] = field(default_factory=list)
+    revision_id: Optional[str] = None
+    approved_by: Optional[str] = None
+    approved_at: Optional[str] = None
 
     def is_usable_for_firm_measurement(self) -> bool:
         return self.is_verified and self.px_per_m > 0.0 and math.isfinite(self.px_per_m)
