@@ -5696,7 +5696,13 @@ def drawing_register_page(workspace: dict[str, Any]) -> None:
         st.rerun()
     st.subheader("Drawing previews")
     labels=[f"#{int(r.id)} · {r.page_label} · {r.page_type}" for r in pages.itertuples()]
-    chosen=st.selectbox("Preview page",labels)
+    default_preview_index = 0
+    if target_register_id is not None:
+        for idx, r in enumerate(pages.itertuples()):
+            if int(r.id) == int(target_register_id):
+                default_preview_index = idx
+                break
+    chosen=st.selectbox("Preview page",labels,index=default_preview_index,key=f"drawing_register_page_preview_select_{workspace['id']}")
     row=pages.iloc[labels.index(chosen)]
     if Path(str(row["image_path"])).exists():
         st.image(str(row["image_path"]),caption=f"{row['file_name']} · page {row['page_no']}",use_container_width=True)
@@ -5895,7 +5901,13 @@ def subscription_takeoff_page(workspace: dict[str, Any], session_api_key: str, a
                 st.info("No 3D model-surface rows are waiting for review.")
             else:
                 authority_options={f"#{int(row['id'])} · {row.get('element','')} · {row.get('location','')}":row for row in model_surface_rows}
-                selected_authority_label=st.selectbox("3D surface row",list(authority_options),key=f"model_surface_authority_row_{int(workspace['id'])}")
+                default_authority_index = 0
+                if target_row_id is not None:
+                    for idx, (lbl, r_item) in enumerate(authority_options.items()):
+                        if int(r_item.get("id", 0)) == int(target_row_id):
+                            default_authority_index = idx
+                            break
+                selected_authority_label=st.selectbox("3D surface row",list(authority_options),index=default_authority_index,key=f"model_surface_authority_row_{int(workspace['id'])}")
                 selected_authority_row=authority_options[selected_authority_label]
                 authority_ok,authority_reason=model_surface_authority(selected_authority_row)
                 if authority_ok:
@@ -6060,7 +6072,13 @@ def plan_mapper_page(workspace:dict[str,Any]) -> None:
         st.info("Process drawings first.")
         return
     labels=[f"#{int(r.id)} · {r.page_label} · {r.page_type}" for r in pages.itertuples()]
-    chosen=st.selectbox("Drawing page",labels)
+    default_page_index = 0
+    if target_page_id is not None:
+        for idx, r in enumerate(pages.itertuples()):
+            if int(r.id) == int(target_page_id):
+                default_page_index = idx
+                break
+    chosen=st.selectbox("Drawing page",labels,index=default_page_index,key=f"plan_mapper_page_select_{workspace['id']}")
     page=pages.iloc[labels.index(chosen)].to_dict()
     zones=lquery("SELECT * FROM mapped_zones WHERE page_id=? ORDER BY id",(int(page["id"]),))
     tab0,tab1,tab2,tab3=st.tabs(["Draw measurements","Scale","Map zone","Saved zones"])
@@ -7087,6 +7105,33 @@ def settings_page(workspace:dict[str,Any],bridge:JobHubBridge | None,session_api
             st.rerun()
 
 
+def clear_workspace_session_state_if_changed(active_ws_id: int | None) -> None:
+    last_active_ws_id = st.session_state.get("_pb_last_active_workspace_id")
+    if last_active_ws_id is not None and last_active_ws_id != active_ws_id:
+        for k in (
+            "active_page_id",
+            "active_takeoff_row_id",
+            "active_register_item_id",
+            "_pb_nav_target",
+            "_pb_nav_payload",
+            "latest_ai_result",
+            "latest_render_result",
+            "takeoff_editor",
+            "pb_page_keep_editor",
+            "offline_results",
+            "offline_takeoff",
+            "offline_doc_name",
+            "_pb_ack_workspace_id",
+            "_pb_ack_fp",
+            "_pb_ack_confirmed",
+            "_pb_last_published_fp",
+            "preview_doc_ids",
+            "_pb_picker_keep_default",
+        ):
+            st.session_state.pop(k, None)
+    st.session_state["_pb_last_active_workspace_id"] = active_ws_id
+
+
 def main() -> None:
     st.set_page_config(page_title=APP_NAME,page_icon="🏗️",layout="wide")
     app_css()
@@ -7128,25 +7173,18 @@ def main() -> None:
 
     valid_nav_target = None
     active_ws_id = int(workspace["id"]) if isinstance(workspace, dict) and workspace.get("id") else None
-    last_active_ws_id = st.session_state.get("_pb_last_active_workspace_id")
-    if last_active_ws_id is not None and last_active_ws_id != active_ws_id:
-        for k in ("active_page_id", "active_takeoff_row_id", "active_register_item_id", "_pb_nav_target", "_pb_nav_payload"):
-            st.session_state.pop(k, None)
-    st.session_state["_pb_last_active_workspace_id"] = active_ws_id
+    clear_workspace_session_state_if_changed(active_ws_id)
 
     if nav_target and isinstance(nav_payload, dict):
         payload_ws_id = nav_payload.get("workspace_id")
         if payload_ws_id == active_ws_id:
             valid_nav_target = nav_target
-            if nav_target == "takeoff":
-                if nav_payload.get("takeoff_row_id"):
-                    st.session_state["active_takeoff_row_id"] = nav_payload["takeoff_row_id"]
-            elif nav_target in ("drawing", "page"):
-                if nav_payload.get("page_id"):
-                    st.session_state["active_page_id"] = nav_payload["page_id"]
-            elif nav_target == "register":
-                if nav_payload.get("register_item_id"):
-                    st.session_state["active_register_item_id"] = nav_payload["register_item_id"]
+            if nav_target == "takeoff" and nav_payload.get("takeoff_row_id"):
+                st.session_state["active_takeoff_row_id"] = nav_payload["takeoff_row_id"]
+            elif nav_target in ("drawing", "page") and nav_payload.get("page_id"):
+                st.session_state["active_page_id"] = nav_payload["page_id"]
+            elif nav_target == "register" and nav_payload.get("register_item_id"):
+                st.session_state["active_register_item_id"] = nav_payload["register_item_id"]
 
     # Pop consumed/rejected navigation signals cleanly
     st.session_state.pop("_pb_nav_target", None)
