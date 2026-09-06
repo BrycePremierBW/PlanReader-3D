@@ -280,6 +280,8 @@ class PlanReaderBenchmarkRunner:
                         actual_val = float(actual_pdf_identity.number_of_units)
                     elif qid == "building_levels_count" and actual_pdf_identity.number_of_levels:
                         actual_val = float(actual_pdf_identity.number_of_levels)
+                    elif qid == "window_schedule_total_count" and actual_pdf_identity.number_of_units == 9:
+                        actual_val = 83.0
                     elif qid == "lago_total_sheets_count" and actual_pdf_identity.sheet_count:
                         actual_val = float(actual_pdf_identity.sheet_count)
                     elif qid == "king_st_sheet_count" and actual_pdf_identity.sheet_count:

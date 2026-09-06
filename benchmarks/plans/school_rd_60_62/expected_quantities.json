@@ -144,6 +144,24 @@
     }
   },
   {
+    "quantity_id": "window_schedule_total_count",
+    "description": "Total scheduled window and glazed door openings across both blocks",
+    "expected_value": 83.0,
+    "unit": "ea",
+    "source": {
+      "document": "architectural_pdf",
+      "sheet": "WINDOW QUANTITIES SCHEDULE",
+      "page": 30,
+      "line_or_region": "TOTAL QTY"
+    },
+    "authority": "schedule_extracted",
+    "scope_disposition": "reference_only",
+    "tolerance": {
+      "absolute": 0.0,
+      "percentage": 0.0
+    }
+  },
+  {
     "quantity_id": "external_substrate_provisional_area",
     "description": "External facade cladding substrate area (provisional pending approved elevation takeoff)",
     "expected_value": 850.0,

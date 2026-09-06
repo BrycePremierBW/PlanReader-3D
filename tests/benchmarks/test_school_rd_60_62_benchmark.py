@@ -40,6 +40,7 @@ def test_60_62_benchmark_manifest_and_quantities_load() -> None:
     assert q_map["entry_doors_count"].expected_value == 9.0
     assert q_map["internal_doors_excluded_count"].expected_value == 78.0
     assert q_map["staircase_allowance_count"].expected_value == 9.0
+    assert q_map["window_schedule_total_count"].expected_value == 83.0
 
 
 def test_60_62_render_pages_defined() -> None:
@@ -80,6 +81,9 @@ def test_60_62_benchmark_execution_and_provisional_quantities(tmp_path: Path) ->
 
     assert q_res["building_levels_count"]["status"] == "exact_match"
     assert q_res["building_levels_count"]["actual"] == 2.0
+
+    assert q_res["window_schedule_total_count"]["status"] == "exact_match"
+    assert q_res["window_schedule_total_count"]["actual"] == 83.0
 
     # Provisional external substrate quantity must be marked provisional_only
     ext_q = q_res["external_substrate_provisional_area"]
