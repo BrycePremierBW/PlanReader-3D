@@ -10,6 +10,7 @@ from pb_takeoff_authority_v164 import (
     AUTHORITY_SOURCE_FIELD,
     AUTHORITY_STATUS_FIELD,
     approve_model_surface_row,
+    is_commercial_floor_reference_row,
     is_floor_reference_row,
     is_model_surface_row,
     model_surface_authority,
@@ -3349,12 +3350,12 @@ def takeoff_work_rows(takeoff: pd.DataFrame) -> pd.DataFrame:
 
 
 def commercial_takeoff_rows(takeoff: pd.DataFrame) -> pd.DataFrame:
-    """Keep publishable work plus non-priced floor references for calculations."""
+    """Keep publishable work plus non-priced commercial floor references for calculations."""
     if takeoff.empty:
         return takeoff
     mask = takeoff.apply(
         lambda row: (
-            is_floor_reference_row(row.to_dict())
+            is_commercial_floor_reference_row(row.to_dict())
             or takeoff_row_publishability(row.to_dict())[0]
         ),
         axis=1,
@@ -3379,10 +3380,48 @@ def floor_area_by_level(takeoff: pd.DataFrame) -> Dict[str, float]:
     floor = takeoff.loc[
         takeoff["row_role"].fillna("").eq("floor_area") & takeoff["unit"].astype(str).eq("m²")
     ]
-    for r in floor.itertuples(index=False):
-        lvl = level_of(r.location)
-        out[lvl] = out.get(lvl, 0.0) + to_float(r.quantity)
+    for r in floor.to_dict("records"):
+        if is_commercial_floor_reference_row(r):
+            lvl = level_of(r.get("location"))
+            out[lvl] = out.get(lvl, 0.0) + to_float(r.get("quantity"))
     return out
+
+
+def pricing_scope_of(location: Any) -> str:
+    """Derive scope key (e.g. 'Unit 1 | Level 1' or 'Level 1') for floor-area pricing isolation."""
+    text = str(location or "").strip()
+    low = text.lower()
+    parts: List[str] = []
+    for p in [r"\bunits?\s*[#:-]?\s*[a-z0-9]+", r"\b(?:apartment|apt|townhouse|villa|lot)\s*[#:-]?\s*[a-z0-9]+", r"\b(?:block|building|wing|stage)\s*[#:-]?\s*[a-z0-9]+"]:
+        m = re.search(p, low, re.I)
+        if m:
+            parts.append(re.sub(r"\s+", " ", m.group()).strip().title())
+    parts.append(level_of(text))
+    return " | ".join(dict.fromkeys(parts))
+
+
+def floor_area_by_scope(takeoff: pd.DataFrame) -> Dict[str, float]:
+    """Per-scope internal floor area (m²) from commercial floor rows."""
+    out: Dict[str, float] = {}
+    if takeoff.empty or "row_role" not in takeoff.columns:
+        return out
+    floor = takeoff.loc[
+        takeoff["row_role"].fillna("").eq("floor_area") & takeoff["unit"].astype(str).eq("m²")
+    ]
+    for r in floor.to_dict("records"):
+        if is_commercial_floor_reference_row(r):
+            scp = pricing_scope_of(r.get("location"))
+            out[scp] = max(out.get(scp, 0.0), to_float(r.get("quantity")))
+    return out
+
+
+def floor_for_scope(floors: Dict[str, float], scope: str) -> float:
+    """Select appropriate floor area for scope or fall back to level-wide floor area."""
+    if scope in floors:
+        return floors[scope]
+    level = scope.split(" | ")[-1]
+    vals = [v for k, v in floors.items() if k.split(" | ")[-1] == level and v > 0]
+    return vals[0] if len(vals) == 1 else 0.0
 
 
 def per_level_summary(workspace_id: int) -> pd.DataFrame:
@@ -3405,11 +3444,16 @@ def per_level_summary(workspace_id: int) -> pd.DataFrame:
             & takeoff["row_role"].fillna("").eq("floor_area")
             & takeoff["unit"].eq("m²")
         ]
+        floor_m2_val = sum(
+            to_float(r.get("quantity"))
+            for r in floor_group.to_dict("records")
+            if is_commercial_floor_reference_row(r)
+        )
         out.append({
             "level": str(level),
             "rows": int(len(work_group)),
             "m2": to_float(work_group.loc[work_group["unit"].eq("m²"), "quantity"].sum()),
-            "floor_m2": to_float(floor_group["quantity"].sum()),
+            "floor_m2": to_float(floor_m2_val),
             "lm": to_float(work_group.loc[work_group["unit"].eq("lm"), "quantity"].sum()),
             "count": to_float(work_group.loc[work_group["unit"].isin({"No.", "item"}), "quantity"].sum()),
             "paint_litres": to_float(work_group["paint_litres"].sum()),
@@ -3448,7 +3492,8 @@ def quote_workbook_bytes(workspace_id: int) -> bytes:
     settings = _quote_settings(workspace_id)
     levels = quote_summary_frame(workspace_id)
     takeoff = dataframe_for_takeoff(workspace_id)
-    val_sum = to_float(takeoff["value_ex_gst"].sum()) if not takeoff.empty else 0.0
+    work = takeoff_work_rows(takeoff)
+    val_sum = to_float(work["value_ex_gst"].sum()) if not work.empty else 0.0
     margin = to_float(settings["pricing_margin_pct"]) / 100.0
     gst = to_float(settings["gst_rate_pct"]) / 100.0
     header = pd.DataFrame([
@@ -3512,9 +3557,10 @@ def quote_pdf_bytes(workspace_id: int) -> bytes:
     settings = _quote_settings(workspace_id)
     levels = quote_summary_frame(workspace_id)
     takeoff = dataframe_for_takeoff(workspace_id)
+    work = takeoff_work_rows(takeoff)
     margin = to_float(settings["pricing_margin_pct"]) / 100.0
     gst = to_float(settings["gst_rate_pct"]) / 100.0
-    sub_total = to_float(takeoff["value_ex_gst"].sum()) if not takeoff.empty else 0.0
+    sub_total = to_float(work["value_ex_gst"].sum()) if not work.empty else 0.0
     markup = to_float(sub_total * margin)
     subtotal_ex = to_float(sub_total + markup)
     gst_amount = to_float(subtotal_ex * gst)
@@ -3664,7 +3710,21 @@ def dataframe_for_takeoff(workspace_id: int) -> pd.DataFrame:
     if df.empty:
         return df
     basis = str(workspace_setting(workspace_id, "internal_pricing_basis", "wall_m2") or "wall_m2").strip().lower()
-    floor_by_level = floor_area_by_level(df)
+    floors = floor_area_by_scope(df)
+    groups: Dict[str, List[int]] = {}
+    if basis == "floor_m2":
+        for idx, row in df.iterrows():
+            role = str(row.get("row_role") or "").strip()
+            unit = _normalise_unit(row.get("unit")) or str(row.get("unit") or "")
+            if role != "floor_area" and unit == "m²" and is_internal_wall_row(row.get("section"), row.get("element")):
+                groups.setdefault(pricing_scope_of(row.get("location")), []).append(int(idx))
+    allocated: Dict[int, float] = {}
+    for scope, idxs in groups.items():
+        f = floor_for_scope(floors, scope)
+        weights = [max(0.0, to_float(df.loc[i, "quantity"])) for i in idxs]
+        total = sum(weights)
+        for i, w in zip(idxs, weights):
+            allocated[i] = f if len(idxs) == 1 else (f * w / total if f > 0 and total > 0 else 0.0)
     clean_qty: List[float] = []
     clean_rate: List[float] = []
     clean_coats: List[float] = []
@@ -3702,10 +3762,13 @@ def dataframe_for_takeoff(workspace_id: int) -> pd.DataFrame:
         paint_rows.append(litres)
         labour_rows.append(hours)
         if basis == "floor_m2" and unit == "m²" and is_internal_wall_row(getattr(r, "section", ""), getattr(r, "element", "")):
-            floor_m2 = to_float(floor_by_level.get(level_of(getattr(r, "location", "")), 0.0))
-            priced_qty_rows.append(floor_m2)
-            basis_rows.append("Floor m²")
-            value_rows.append(row_value(floor_m2, rate))
+            rid_idx = getattr(r, "Index", 0)
+            pq = allocated.get(int(rid_idx), qty)
+            priced_qty_rows.append(pq)
+            scp = pricing_scope_of(getattr(r, "location", ""))
+            lbl = "Floor m² allocated" if int(rid_idx) in allocated and len(groups.get(scp, [])) > 1 else ("Floor m²" if int(rid_idx) in allocated else "Quantity")
+            basis_rows.append(lbl)
+            value_rows.append(row_value(pq, rate))
         else:
             priced_qty_rows.append(qty)
             basis_rows.append("Wall m²" if basis == "floor_m2" and unit == "m²" else "Quantity")
