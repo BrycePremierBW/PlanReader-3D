@@ -3389,6 +3389,26 @@ def takeoff_work_rows(takeoff: pd.DataFrame) -> pd.DataFrame:
     return takeoff.loc[mask]
 
 
+def takeoff_progress_rows(takeoff: pd.DataFrame) -> pd.DataFrame:
+    """Return only rows authorised for progress claims and progress marker packages.
+
+    Filters out:
+    - Excluded rows
+    - Floor reference rows
+    - Unapproved model surfaces
+    - Provisional rows (provisional inclusion or unmeasured/provisional quantity)
+    - Zero, negative, or non-finite quantities
+    """
+    if takeoff.empty:
+        return takeoff
+    from pb_takeoff_authority_v164 import is_progress_eligible_row
+    mask = takeoff.apply(
+        lambda row: is_progress_eligible_row(row.to_dict())[0], axis=1
+    )
+    return takeoff.loc[mask]
+
+
+
 def commercial_takeoff_rows(takeoff: pd.DataFrame) -> pd.DataFrame:
     """Keep publishable work plus non-priced commercial floor references for calculations."""
     if takeoff.empty:
@@ -4620,15 +4640,23 @@ def _progress_package_readme(workspace: Dict[str, Any], takeoff: pd.DataFrame, p
     if takeoff.empty:
         lines.append("No measured take-off rows are in this package yet.")
     else:
-        work = takeoff_work_rows(takeoff)
+        work = takeoff_progress_rows(takeoff)
         lines.append(f"Take-off lines:   {len(work)}")
-        lines.append(f"Measured m2:      {to_float(work.loc[work['unit'].eq('m2' if 'm2' in set(work['unit'].astype(str)) else 'm²'), 'quantity'].sum()):,.2f}")
+        lines.append(f"Measured m2:      {to_float(work.loc[work['unit'].map(_normalise_unit).eq('m²'), 'quantity'].sum()):,.2f}")
         lines.append(f"Paint litres:     {to_float(work['paint_litres'].sum()):,.2f}")
         lines.append(f"Labour hours:     {to_float(work['labour_hours'].sum()):,.2f}")
         lines.append(f"Value ex GST:     ${to_float(work['value_ex_gst'].sum()):,.2f}")
         if "row_role" in takeoff.columns:
-            floor_m2 = to_float(takeoff.loc[takeoff["row_role"].fillna("").eq("floor_area") & takeoff["unit"].eq("m²"), "quantity"].sum())
-            if floor_m2:
+            floor = takeoff.loc[
+                takeoff["row_role"].fillna("").eq("floor_area")
+                & takeoff["unit"].map(_normalise_unit).eq("m²")
+            ]
+            floor_m2 = sum(
+                to_float(r.get("quantity"))
+                for r in floor.to_dict("records")
+                if is_commercial_floor_reference_row(r)
+            )
+            if floor_m2 > 0:
                 lines.append(f"Floor m2 (ref):   {floor_m2:,.2f}")
     lines += [
         "",
@@ -4651,7 +4679,12 @@ def progress_package_bytes(workspace_id: int) -> bytes:
     )
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("README.txt", _progress_package_readme(workspace, takeoff, pages))
-        work_takeoff = takeoff_work_rows(takeoff)
+        work_takeoff = takeoff_progress_rows(takeoff)
+        measured_mask = (
+            work_takeoff["quantity_status"].astype(str).str.strip().str.lower().eq("measured")
+            if not work_takeoff.empty
+            else pd.Series(dtype=bool)
+        )
         manifest = {
             "app": APP_NAME,
             "app_version": APP_VERSION,
@@ -4665,15 +4698,15 @@ def progress_package_bytes(workspace_id: int) -> bytes:
             "generated": now_stamp(),
             "executive_summary": str(workspace.get("executive_summary", "") or ""),
             "totals": {
-                "m2": to_float(work_takeoff.loc[work_takeoff["unit"].eq("m²"), "quantity"].sum()) if not work_takeoff.empty else 0.0,
-                "lm": to_float(work_takeoff.loc[work_takeoff["unit"].eq("lm"), "quantity"].sum()) if not work_takeoff.empty else 0.0,
-                "count": to_float(work_takeoff.loc[work_takeoff["unit"].isin({"No.", "item"}), "quantity"].sum()) if not work_takeoff.empty else 0.0,
+                "m2": to_float(work_takeoff.loc[work_takeoff["unit"].map(_normalise_unit).eq("m²"), "quantity"].sum()) if not work_takeoff.empty else 0.0,
+                "lm": to_float(work_takeoff.loc[work_takeoff["unit"].map(_normalise_unit).eq("lm"), "quantity"].sum()) if not work_takeoff.empty else 0.0,
+                "count": to_float(work_takeoff.loc[work_takeoff["unit"].map(_normalise_unit).isin({"No.", "item"}), "quantity"].sum()) if not work_takeoff.empty else 0.0,
                 "paint_litres": to_float(work_takeoff["paint_litres"].sum()) if not work_takeoff.empty else 0.0,
                 "labour_hours": to_float(work_takeoff["labour_hours"].sum()) if not work_takeoff.empty else 0.0,
                 "value_ex_gst": to_float(work_takeoff["value_ex_gst"].sum()) if not work_takeoff.empty else 0.0,
             },
             "pages": pages.to_dict("records"),
-            "measured_rows": int((work_takeoff["quantity_status"].astype(str).str.lower().str.contains("measur") if not work_takeoff.empty else pd.Series(dtype=bool)).sum()),
+            "measured_rows": int(measured_mask.sum()),
         }
         zf.writestr("package_manifest.json", json.dumps(_sanitize_for_json(manifest), indent=2, default=str, allow_nan=False))
         zf.writestr("3d/3d_progress_marker.html", build_3d_figure(workspace_id).to_html(full_html=True, include_plotlyjs=True))
@@ -4688,8 +4721,9 @@ def progress_package_bytes(workspace_id: int) -> bytes:
         zf.writestr("takeoff/paint_takeoff.xlsx", excel_export_bytes(workspace_id))
         if not takeoff.empty:
             zf.writestr("takeoff/takeoff_schedule.csv", takeoff.to_csv(index=False))
-            zf.writestr("takeoff/quantity_summary.csv", _takeoff_summary_csv(takeoff))
-            zf.writestr("takeoff/takeoff_lines_jobhub.csv", _jobhub_takeoff_lines_csv(workspace, takeoff))
+            zf.writestr("takeoff/quantity_summary.csv", _takeoff_summary_csv(work_takeoff))
+            zf.writestr("takeoff/takeoff_lines_jobhub.csv", _jobhub_takeoff_lines_csv(workspace, work_takeoff))
+
         for register_name, label in [
             ("door_schedule", "door_schedule"),
             ("inclusions", "inclusions"),

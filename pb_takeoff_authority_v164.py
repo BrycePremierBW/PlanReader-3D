@@ -227,3 +227,66 @@ def takeoff_row_publishability(row: Mapping[str, Any]) -> Tuple[bool, str]:
     if not approved:
         return False, reason
     return True, "PUBLISHABLE"
+
+
+_PROVISIONAL_STATUS_VALUES = {
+    "provisional",
+    "provisional_measured",
+    "to_measure",
+    "to_review",
+    "unmeasured",
+    "not_applicable",
+}
+
+_PROVISIONAL_INCLUSION_VALUES = {
+    "provisional",
+    "provisional_sum",
+    "provisional_item",
+    "prov",
+}
+
+
+def is_provisional_takeoff_row(row: Mapping[str, Any]) -> bool:
+    """Return whether a row is provisional (unmeasured, to-measure, or provisional inclusion)."""
+    if _normalised(row.get("inclusion_status")) in _PROVISIONAL_INCLUSION_VALUES:
+        return True
+    if _normalised(row.get("quantity_status")) in _PROVISIONAL_STATUS_VALUES:
+        return True
+    if is_model_surface_row(row):
+        approved, _ = model_surface_authority(row)
+        if not approved:
+            return True
+    return False
+
+
+def is_progress_eligible_row(row: Mapping[str, Any]) -> Tuple[bool, str]:
+    """Determine whether a takeoff row is eligible for progress claims.
+
+    Ineligible rows:
+    - Excluded rows (EXCLUDED)
+    - Floor reference rows (FLOOR_REFERENCE)
+    - Unapproved or tampered model surfaces (e.g. 3D model surface has not received commercial approval)
+    - Provisional rows (PROVISIONAL)
+    - Non-positive or non-finite quantities (ZERO_OR_INVALID_QUANTITY)
+    """
+    if is_excluded_takeoff_row(row):
+        return False, "EXCLUDED"
+    if is_floor_reference_row(row):
+        return False, "FLOOR_REFERENCE"
+    if is_model_surface_row(row):
+        approved, reason = model_surface_authority(row)
+        if not approved:
+            return False, reason
+    if is_provisional_takeoff_row(row):
+        return False, "PROVISIONAL"
+    qty_raw = row.get("quantity")
+    if qty_raw is None:
+        return False, "ZERO_OR_INVALID_QUANTITY"
+    try:
+        qty = float(qty_raw)
+    except (TypeError, ValueError):
+        return False, "ZERO_OR_INVALID_QUANTITY"
+    if not math.isfinite(qty) or qty <= 0.0:
+        return False, "ZERO_OR_INVALID_QUANTITY"
+    return True, "ELIGIBLE"
+

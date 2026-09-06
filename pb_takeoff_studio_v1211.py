@@ -165,10 +165,15 @@ def normalise_studio_areas(
 def completion_summary(areas: Iterable[Dict[str, Any]]) -> Dict[str, float]:
     total = 0.0
     completed = 0.0
+    provisional = 0.0
     for area in areas or []:
-        if str(area.get("status") or "") == "Excluded":
-            continue
+        st = str(area.get("status") or "")
         qty = max(0.0, _num(area.get("area_m2")))
+        if st == "Excluded":
+            continue
+        if st == "Provisional":
+            provisional += qty
+            continue
         progress = _clamp(area.get("progress_pct"), 0.0, 100.0)
         total += qty
         completed += qty * progress / 100.0
@@ -178,7 +183,9 @@ def completion_summary(areas: Iterable[Dict[str, Any]]) -> Dict[str, float]:
         "completed_m2": round(completed, 2),
         "remaining_m2": round(remaining, 2),
         "completed_pct": round((completed / total * 100.0) if total > 0 else 0.0, 1),
+        "provisional_m2": round(provisional, 2),
     }
+
 
 
 def build_studio_takeoff_rows(
@@ -508,7 +515,7 @@ def _studio_reports_panel(app: Any, workspace: Dict[str, Any]) -> None:
     if report.empty:
         app.st.info("No saved Takeoff Studio layouts yet. Save a Studio layout first.")
         return
-    included = report[report["Status"].ne("Excluded")].copy()
+    included = report[report["Status"].ne("Excluded") & report["Status"].ne("Provisional")].copy()
     c1, c2, c3 = app.st.columns(3)
     c1.metric("Saved areas", len(report))
     c2.metric("Included m²", f"{included['Area m²'].sum():,.2f}")
