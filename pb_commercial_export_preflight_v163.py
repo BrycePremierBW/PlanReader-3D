@@ -121,7 +121,7 @@ def _db_query(conn_or_app: Any, sql: str, params: tuple[Any, ...] = ()) -> list[
 
 
 def _get_workspace_meta(conn_or_app: Any, workspace_id: int) -> dict[str, Any]:
-    rows = _db_query(conn_or_app, "SELECT id, job_no, job_name, drawing_issue, jobhub_job_id FROM workspaces WHERE id=?", (workspace_id,))
+    rows = _db_query(conn_or_app, "SELECT * FROM workspaces WHERE id=?", (workspace_id,))
     if not rows:
         raise ValueError(f"Workspace #{workspace_id} does not exist.")
     row = rows[0]
@@ -129,7 +129,10 @@ def _get_workspace_meta(conn_or_app: Any, workspace_id: int) -> dict[str, Any]:
         "id": row.get("id"),
         "job_no": str(row.get("job_no") or ""),
         "job_name": str(row.get("job_name") or ""),
+        "builder_client": str(row.get("builder_client") or ""),
+        "site_address": str(row.get("site_address") or ""),
         "drawing_issue": str(row.get("drawing_issue") or ""),
+        "estimator": str(row.get("estimator") or ""),
         "jobhub_job_id": row.get("jobhub_job_id"),
     }
 
@@ -218,6 +221,20 @@ def _get_takeoff_row_stats(conn_or_app: Any, workspace_id: int) -> tuple[int, in
     payload_hash = hashlib.sha256(payload_json.encode("utf-8")).hexdigest()
 
     return total, publishable, excluded, floor_ref, measured_zero, payload_hash
+
+
+def _get_scale_authority_fingerprint(conn_or_app: Any, workspace_id: int) -> str:
+    """Computes a SHA-256 fingerprint of the workspace scale authority state across all pages."""
+    try:
+        from pb_multi_page_scale_v170 import derive_workspace_scale_authority
+        authority = derive_workspace_scale_authority(conn_or_app, workspace_id)
+        records = getattr(authority, "records", [])
+        records_payload = [r.to_dict() if hasattr(r, "to_dict") else dict(r) for r in records]
+        sorted_records = sorted(records_payload, key=lambda x: str(x.get("page_id") or ""))
+        raw_json = json.dumps(sorted_records, sort_keys=True, allow_nan=False)
+        return hashlib.sha256(raw_json.encode("utf-8")).hexdigest()
+    except (TypeError, ValueError, AttributeError, sqlite3.Error):
+        return "none"
 
 
 def compute_canonical_review_fingerprint(review_res: CommercialReviewResult) -> str:
@@ -479,11 +496,18 @@ def derive_export_preflight(conn_or_app: Any, workspace_id: int, bridge_availabl
 
     # Compute Deterministic Canonical Review & Preflight Fingerprints
     review_fp = compute_canonical_review_fingerprint(review_res)
+    scale_fp = _get_scale_authority_fingerprint(conn_or_app, workspace_id)
 
     fingerprint_data = {
         "workspace_id": workspace_id,
         "job_no": meta["job_no"],
+        "job_name": meta["job_name"],
+        "builder_client": meta["builder_client"],
+        "site_address": meta["site_address"],
         "drawing_issue": meta["drawing_issue"],
+        "estimator": meta["estimator"],
+        "jobhub_job_id": str(meta["jobhub_job_id"] or ""),
+        "scale_fingerprint": scale_fp,
         "review_fingerprint": review_fp,
         "preflight_status": preflight_status,
         "blocker_count": blocker_count,
@@ -563,7 +587,7 @@ def verify_toctou_and_publish_jobhub(
         try:
             from pb_planreader_3d_app import ensure_jobhub_takeoff_tables
             ensure_jobhub_takeoff_tables(bridge)
-        except Exception:
+        except (AttributeError, TypeError, sqlite3.Error, ImportError):
             pass
         try:
             query_sql = "SELECT id, takeoff_no, notes FROM painting_takeoff_packages WHERE job_id=? AND status='Published' ORDER BY id DESC"
