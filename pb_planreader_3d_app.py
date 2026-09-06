@@ -5229,10 +5229,14 @@ def list_jobhub_progress_markers(bridge: JobHubBridge | None, job_id: int) -> li
 
 def hero(workspace: dict[str, Any] | None = None) -> None:
     if workspace:
-        title = f"{workspace.get('job_no','')} — {workspace.get('job_name','')}"
-        sub = f"{workspace.get('builder_client','')} · {workspace.get('site_address','')}"
+        job_no = html.escape(str(workspace.get('job_no') or ''))
+        job_name = html.escape(str(workspace.get('job_name') or ''))
+        builder = html.escape(str(workspace.get('builder_client') or ''))
+        address = html.escape(str(workspace.get('site_address') or ''))
+        title = f"{job_no} — {job_name}" if job_no else job_name
+        sub = f"{builder} · {address}" if (builder and address) else (builder or address)
     else:
-        title = APP_NAME
+        title = html.escape(APP_NAME)
         sub = "Standalone commercial painting plan reader, subscription take-off workflow and interactive 3D building model."
     st.markdown(f"<div class='pb-hero'><h1>{title}</h1><p>{sub}</p></div>", unsafe_allow_html=True)
 
@@ -6186,7 +6190,7 @@ def plan_mapper_page(workspace:dict[str,Any]) -> None:
             for i,ln in enumerate(comp_lines[:12]):
                 with lcols[i%2]:
                     unit_note=f"{ln.get('unit') or ''}" + (f" · {ln.get('length_m')} m" if float(ln.get('length_m') or 0)>0 and (ln.get('kind') or 'line')=='line' else "") + (f" · {ln.get('area_m2')} m²" if float(ln.get('area_m2') or 0)>0 else "")
-                    st.markdown(f"<span style='display:inline-block;width:18px;height:4px;background:{ln.get('colour')};vertical-align:middle;margin-right:6px'></span>{ln.get('label') or 'Measurement'} · {unit_note}",unsafe_allow_html=True)
+                    st.markdown(f"<span style='display:inline-block;width:18px;height:4px;background:{html.escape(str(ln.get('colour') or ''))};vertical-align:middle;margin-right:6px'></span>{html.escape(str(ln.get('label') or 'Measurement'))} · {html.escape(str(unit_note))}",unsafe_allow_html=True)
         with st.expander("Substrate coverage check — which rows have been drawn?",expanded=False):
             shape_counts={}
             for ln in (comp_lines or []):
@@ -6206,7 +6210,7 @@ def plan_mapper_page(workspace:dict[str,Any]) -> None:
                     n=shape_counts.get(int(r["id"]),0)
                     flag=" <span style='color:#b42318;font-weight:700'>— NOT DRAWN</span>" if n==0 else ""
                     qty=f" · measured {r['quantity']:.2f}" if r["quantity"] else ""
-                    st.markdown(f"<span style='display:inline-block;width:12px;height:12px;border-radius:3px;background:{r['colour']};vertical-align:middle;margin-right:6px'></span>{r['label']} · {r['unit']} · {n} shape(s){qty}{flag}",unsafe_allow_html=True)
+                    st.markdown(f"<span style='display:inline-block;width:12px;height:12px;border-radius:3px;background:{html.escape(str(r.get('colour') or ''))};vertical-align:middle;margin-right:6px'></span>{html.escape(str(r.get('label') or ''))} · {html.escape(str(r.get('unit') or ''))} · {n} shape(s){qty}{flag}",unsafe_allow_html=True)
     with tab1:
         st.write(f"Drawing scale text: **{page.get('scale_text') or 'not entered'}**")
         c1,c2=st.columns(2)

@@ -56,16 +56,28 @@ class EstimatorOverrideRegistry:
         estimator_name: str = "Estimator",
     ) -> OverrideRecord:
         """Apply a manual override to a takeoff row and record audit entry."""
+        ALLOWED_FIELDS = {
+            "section", "element", "location", "substrate", "finish_system",
+            "quantity", "unit", "quantity_status", "source_page", "source_reference",
+            "inclusion_status", "coats", "coverage_m2_per_litre", "productivity_m2_per_hour",
+            "rate_per_unit", "confidence", "notes", "row_role", "commercial_authority_status",
+            "commercial_authority_source", "commercial_authority_reviewed_by",
+            "commercial_authority_reviewed_at", "commercial_authority_fingerprint"
+        }
+        field_norm = str(field_name).strip().lower()
+        if field_norm not in ALLOWED_FIELDS:
+            raise ValueError(f"Invalid column name for takeoff row override: {field_name}")
+
         cur = conn.cursor()
 
         # Fetch current value
-        cur.execute(f"SELECT {field_name} FROM takeoff_rows WHERE id=? AND workspace_id=?", (row_id, workspace_id))
+        cur.execute(f"SELECT {field_norm} FROM takeoff_rows WHERE id=? AND workspace_id=?", (row_id, workspace_id))
         row = cur.fetchone()
         old_val = str(row[0]) if row and row[0] is not None else ""
 
         # Update takeoff row with new value and mark notes with override trace
         cur.execute(
-            f"UPDATE takeoff_rows SET {field_name}=?, notes=COALESCE(notes, '') || ' [MANUAL OVERRIDE: ' || ? || ']' WHERE id=? AND workspace_id=?",
+            f"UPDATE takeoff_rows SET {field_norm}=?, notes=COALESCE(notes, '') || ' [MANUAL OVERRIDE: ' || ? || ']' WHERE id=? AND workspace_id=?",
             (new_value, str(override_reason), row_id, workspace_id)
         )
 
