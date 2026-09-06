@@ -5841,16 +5841,17 @@ def subscription_takeoff_page(workspace: dict[str, Any], session_api_key: str, a
                     row_role="model_surface"
                 elif row_role not in {"", "floor_area"}:
                     row_role=""
-                values=[row.get(col,"") for col in TAKEOFF_COLUMNS]
-                authority={
+                merged_row = {**prior, **row}
+                values = [merged_row.get(col, "") for col in TAKEOFF_COLUMNS]
+                authority = {
                     AUTHORITY_STATUS_FIELD: prior.get(AUTHORITY_STATUS_FIELD, AUTHORITY_REVIEW_REQUIRED if row_role == "model_surface" else ""),
                     AUTHORITY_SOURCE_FIELD: prior.get(AUTHORITY_SOURCE_FIELD, ""),
                     AUTHORITY_REVIEWED_BY_FIELD: prior.get(AUTHORITY_REVIEWED_BY_FIELD, ""),
                     AUTHORITY_REVIEWED_AT_FIELD: prior.get(AUTHORITY_REVIEWED_AT_FIELD, ""),
                     AUTHORITY_FINGERPRINT_FIELD: prior.get(AUTHORITY_FINGERPRINT_FIELD, ""),
                 }
-                candidate={
-                    **{col: row.get(col, "") for col in TAKEOFF_COLUMNS},
+                candidate = {
+                    **merged_row,
                     "workspace_id": int(workspace["id"]),
                     "row_role": row_role,
                     **authority,
@@ -5859,10 +5860,10 @@ def subscription_takeoff_page(workspace: dict[str, Any], session_api_key: str, a
                 if row_role == "model_surface" and status_norm == AUTHORITY_APPROVED:
                     approval_still_matches, _ = model_surface_authority(candidate)
                     if not approval_still_matches:
-                        authority[AUTHORITY_STATUS_FIELD]=AUTHORITY_REVIEW_REQUIRED
-                        authority[AUTHORITY_REVIEWED_BY_FIELD]=""
-                        authority[AUTHORITY_REVIEWED_AT_FIELD]=""
-                        authority[AUTHORITY_FINGERPRINT_FIELD]=""
+                        authority[AUTHORITY_STATUS_FIELD] = AUTHORITY_REVIEW_REQUIRED
+                        authority[AUTHORITY_REVIEWED_BY_FIELD] = ""
+                        authority[AUTHORITY_REVIEWED_AT_FIELD] = ""
+                        authority[AUTHORITY_FINGERPRINT_FIELD] = ""
                 lexecute("""INSERT INTO takeoff_rows(
                     workspace_id,section,element,location,substrate,finish_system,quantity,unit,
                     quantity_status,source_page,source_reference,inclusion_status,coats,
@@ -5870,11 +5871,12 @@ def subscription_takeoff_page(workspace: dict[str, Any], session_api_key: str, a
                     row_role,commercial_authority_status,commercial_authority_source,
                     commercial_authority_reviewed_by,commercial_authority_reviewed_at,
                     commercial_authority_fingerprint,created_at,updated_at
-                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",(
-                    workspace["id"],*values,row_role,
-                    authority[AUTHORITY_STATUS_FIELD],authority[AUTHORITY_SOURCE_FIELD],
-                    authority[AUTHORITY_REVIEWED_BY_FIELD],authority[AUTHORITY_REVIEWED_AT_FIELD],
-                    authority[AUTHORITY_FINGERPRINT_FIELD],now_stamp(),now_stamp()))
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
+                    workspace["id"], *values, row_role,
+                    authority[AUTHORITY_STATUS_FIELD], authority[AUTHORITY_SOURCE_FIELD],
+                    authority[AUTHORITY_REVIEWED_BY_FIELD], authority[AUTHORITY_REVIEWED_AT_FIELD],
+                    authority[AUTHORITY_FINGERPRINT_FIELD], now_stamp(), now_stamp()
+                ))
             st.success("Take-off schedule saved.")
             st.rerun()
         if c2.button("Apply default rates to all rows",use_container_width=True):
