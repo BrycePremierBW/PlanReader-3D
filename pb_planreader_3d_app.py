@@ -2285,11 +2285,50 @@ def seed_drawing_register(workspace_id: int) -> None:
 # -----------------------------------------------------------------------------
 
 
+def _normalise_unit(raw: Any) -> str:
+    text = str(raw or "").strip().lower()
+    if not text:
+        return ""
+    cleaned = re.sub(r"[\s\.\-_]+", "", text)
+    if (
+        text in {"m2", "sqm", "sq m", "m²", "m^2"}
+        or "m2" in text
+        or "m²" in text
+        or "m^2" in text
+        or "sqm" in cleaned
+        or "square" in text
+    ):
+        return "m²"
+    if (
+        text in {"lm", "m", "lin m", "lineal", "linear metre", "linear metres", "linear meter", "linear meters", "metre", "metres"}
+        or cleaned in {"lm", "linm", "linealm", "lineal", "linearm", "linearmetre", "linearmetres", "linearmeter", "linearmeters"}
+        or "lineal" in text
+        or "linear" in text
+    ):
+        return "lm"
+    if (
+        text in {"no", "no.", "nos", "nos.", "ea", "ea.", "each", "count", "number", "each (no.)"}
+        or cleaned in {"no", "nos", "ea", "each", "count", "number"}
+    ):
+        return "No."
+    if (
+        text in {"l", "litre", "litres", "ltr", "lt"}
+        or cleaned in {"l", "litre", "litres", "ltr", "lt"}
+    ):
+        return "L"
+    if "item" in text or cleaned in {"item", "items", "ls", "lumpsum"}:
+        return "item"
+    if "allow" in text:
+        return "allowance"
+    return text.title()
+
+
 def paint_litres(quantity: Any, unit: str, coats: Any, coverage: Any) -> float:
     q = to_float(quantity, 0.0)
     c = to_float(coats, 0.0)
     cov = to_float(coverage, 0.0)
-    if unit != "m²" or cov <= 0.0 or q <= 0.0 or c <= 0.0:
+    u = _normalise_unit(unit) or str(unit or "").strip()
+    if u != "m²" or cov <= 0.0 or q <= 0.0 or c <= 0.0:
         return 0.0
     val = (q * c) / cov
     return val if math.isfinite(val) and val > 0.0 else 0.0
@@ -2300,7 +2339,8 @@ def labour_hours(quantity: Any, unit: str, productivity: Any) -> float:
     prod = to_float(productivity, 0.0)
     if prod <= 0.0 or q <= 0.0:
         return 0.0
-    if unit in {"m²", "lm", "No.", "item"}:
+    u = _normalise_unit(unit) or str(unit or "").strip()
+    if u in {"m²", "lm", "No.", "item"}:
         val = q / prod
         return val if math.isfinite(val) and val > 0.0 else 0.0
     return 0.0
@@ -3378,7 +3418,8 @@ def floor_area_by_level(takeoff: pd.DataFrame) -> Dict[str, float]:
     if takeoff.empty or "row_role" not in takeoff.columns:
         return out
     floor = takeoff.loc[
-        takeoff["row_role"].fillna("").eq("floor_area") & takeoff["unit"].astype(str).eq("m²")
+        takeoff["row_role"].fillna("").eq("floor_area")
+        & takeoff["unit"].map(_normalise_unit).eq("m²")
     ]
     for r in floor.to_dict("records"):
         if is_commercial_floor_reference_row(r):
@@ -3406,7 +3447,8 @@ def floor_area_by_scope(takeoff: pd.DataFrame) -> Dict[str, float]:
     if takeoff.empty or "row_role" not in takeoff.columns:
         return out
     floor = takeoff.loc[
-        takeoff["row_role"].fillna("").eq("floor_area") & takeoff["unit"].astype(str).eq("m²")
+        takeoff["row_role"].fillna("").eq("floor_area")
+        & takeoff["unit"].map(_normalise_unit).eq("m²")
     ]
     for r in floor.to_dict("records"):
         if is_commercial_floor_reference_row(r):
@@ -3442,25 +3484,29 @@ def per_level_summary(workspace_id: int) -> pd.DataFrame:
         floor_group = takeoff.loc[
             takeoff["level"].eq(level)
             & takeoff["row_role"].fillna("").eq("floor_area")
-            & takeoff["unit"].eq("m²")
+            & takeoff["unit"].map(_normalise_unit).eq("m²")
         ]
         floor_m2_val = sum(
             to_float(r.get("quantity"))
             for r in floor_group.to_dict("records")
             if is_commercial_floor_reference_row(r)
         )
+        if not len(work_group) and floor_m2_val <= 0.0:
+            continue
         out.append({
             "level": str(level),
             "rows": int(len(work_group)),
-            "m2": to_float(work_group.loc[work_group["unit"].eq("m²"), "quantity"].sum()),
+            "m2": to_float(work_group.loc[work_group["unit"].map(_normalise_unit).eq("m²"), "quantity"].sum()),
             "floor_m2": to_float(floor_m2_val),
-            "lm": to_float(work_group.loc[work_group["unit"].eq("lm"), "quantity"].sum()),
-            "count": to_float(work_group.loc[work_group["unit"].isin({"No.", "item"}), "quantity"].sum()),
+            "lm": to_float(work_group.loc[work_group["unit"].map(_normalise_unit).eq("lm"), "quantity"].sum()),
+            "count": to_float(work_group.loc[work_group["unit"].map(_normalise_unit).isin({"No.", "item"}), "quantity"].sum()),
             "paint_litres": to_float(work_group["paint_litres"].sum()),
             "labour_hours": to_float(work_group["labour_hours"].sum()),
             "value_ex_gst": to_float(work_group["value_ex_gst"].sum()),
         })
     df = pd.DataFrame(out)
+    if df.empty:
+        return pd.DataFrame(columns=["level", "rows", "m2", "floor_m2", "lm", "count", "paint_litres", "labour_hours", "value_ex_gst"])
     df["sort"] = df["level"].map(level_sort_key)
     df = df.sort_values("sort", ignore_index=True).drop(columns=["sort"])
     return df
@@ -3496,6 +3542,10 @@ def quote_workbook_bytes(workspace_id: int) -> bytes:
     val_sum = to_float(work["value_ex_gst"].sum()) if not work.empty else 0.0
     margin = to_float(settings["pricing_margin_pct"]) / 100.0
     gst = to_float(settings["gst_rate_pct"]) / 100.0
+    markup = to_float(val_sum * margin)
+    subtotal_ex = to_float(val_sum + markup)
+    gst_amount = to_float(subtotal_ex * gst)
+    grand = to_float(subtotal_ex + gst_amount)
     header = pd.DataFrame([
         ["Quotation", str(settings["quote_header"])],
         ["Job number", workspace.get("job_no", "")],
@@ -3512,10 +3562,10 @@ def quote_workbook_bytes(workspace_id: int) -> bytes:
         "Metric": ["Value ex GST", "Mark-up", "Subtotal ex GST", "GST", "Total inc GST"],
         "Amount": [
             val_sum,
-            to_float(val_sum * margin),
-            to_float(val_sum * (1 + margin)),
-            to_float(val_sum * (1 + margin) * gst),
-            to_float(val_sum * (1 + margin) * (1 + gst)),
+            markup,
+            subtotal_ex,
+            gst_amount,
+            grand,
         ],
     })
     sheets: List[Tuple[str, pd.DataFrame]] = [
@@ -3725,6 +3775,7 @@ def dataframe_for_takeoff(workspace_id: int) -> pd.DataFrame:
         total = sum(weights)
         for i, w in zip(idxs, weights):
             allocated[i] = f if len(idxs) == 1 else (f * w / total if f > 0 and total > 0 else 0.0)
+    clean_unit: List[str] = []
     clean_qty: List[float] = []
     clean_rate: List[float] = []
     clean_coats: List[float] = []
@@ -3737,13 +3788,14 @@ def dataframe_for_takeoff(workspace_id: int) -> pd.DataFrame:
     basis_rows: List[str] = []
     for r in df.itertuples():
         qty = to_float(getattr(r, "quantity", 0.0))
-        unit = str(getattr(r, "unit", "") or "")
+        unit = _normalise_unit(getattr(r, "unit", "")) or str(getattr(r, "unit", "") or "").strip()
         role = str(getattr(r, "row_role", "") or "").strip()
         coats = to_float(getattr(r, "coats", 2.0), 2.0)
         coverage = to_float(getattr(r, "coverage_m2_per_litre", 12.0), 12.0)
         productivity = to_float(getattr(r, "productivity_m2_per_hour", 8.0), 8.0)
         rate = to_float(getattr(r, "rate_per_unit", 0.0), 0.0)
 
+        clean_unit.append(unit)
         clean_qty.append(qty)
         clean_rate.append(rate)
         clean_coats.append(coats)
@@ -3774,6 +3826,7 @@ def dataframe_for_takeoff(workspace_id: int) -> pd.DataFrame:
             basis_rows.append("Wall m²" if basis == "floor_m2" and unit == "m²" else "Quantity")
             value_rows.append(row_value(qty, rate))
 
+    df["unit"] = clean_unit
     df["quantity"] = clean_qty
     df["rate_per_unit"] = clean_rate
     df["coats"] = clean_coats
@@ -3846,24 +3899,6 @@ def _match_takeoff_header(header: Any) -> Optional[str]:
             best_target = target
     return best_target if best_score >= 4 else None
 
-
-def _normalise_unit(raw: Any) -> str:
-    text = str(raw or "").strip().lower()
-    if not text:
-        return ""
-    if text in {"m2", "sqm", "sq m", "m²", "square metres", "square meter", "square metres"} or "m2" in text or "m²" in text:
-        return "m²"
-    if text in {"lm", "m", "lin m", "lineal", "lin m", "linear metre", "metre"} or "lm" == text:
-        return "lm"
-    if text in {"no", "no.", "nos", "ea", "each", "count", "each (no.)"}:
-        return "No."
-    if text in {"l", "litre", "litres", "ltr", "lt"}:
-        return "L"
-    if "item" in text:
-        return "item"
-    if "allow" in text:
-        return "allowance"
-    return text.title()
 
 
 def _parse_qty(raw: Any) -> float:
@@ -4506,12 +4541,12 @@ def _sanitize_for_json(obj: Any) -> Any:
 def _jobhub_takeoff_lines_csv(workspace: Dict[str, Any], takeoff: pd.DataFrame) -> str:
     """Take-off rows in JobHub's shared ``job_takeoff_rows`` column order."""
     buf = io.StringIO()
-    writer = csv.writer(buf)
+    writer = csv.writer(buf, lineterminator="\n")
     writer.writerow(["internal_external", "area_location", "substrate", "labour_category",
                      "qty_m2", "lineal_m", "count", "coats", "rate_ex_gst",
                      "labour_hours", "paint_litres", "value_ex_gst", "source_note", "confidence"])
     for _, row in takeoff_work_rows(takeoff).iterrows():
-        unit = str(row.get("unit") or "")
+        unit = _normalise_unit(row.get("unit")) or str(row.get("unit") or "")
         qty = to_float(row.get("quantity"))
         m2 = qty if unit == "m²" else 0.0
         lm = qty if unit == "lm" else 0.0
@@ -4539,14 +4574,14 @@ def _takeoff_summary_csv(takeoff: pd.DataFrame) -> str:
     if takeoff.empty:
         return "section,m2,lineal_m,count,paint_litres,labour_hours,value_ex_gst\n"
     buf = io.StringIO()
-    writer = csv.writer(buf)
+    writer = csv.writer(buf, lineterminator="\n")
     writer.writerow(["section", "m2", "lineal_m", "count", "paint_litres", "labour_hours", "value_ex_gst"])
     for section, group in takeoff_work_rows(takeoff).groupby("section", dropna=False):
         writer.writerow([
             str(section or "Unassigned"),
-            to_float(group.loc[group["unit"].eq("m²"), "quantity"].sum()),
-            to_float(group.loc[group["unit"].eq("lm"), "quantity"].sum()),
-            to_float(group.loc[group["unit"].isin({"No.", "item"}), "quantity"].sum()),
+            to_float(group.loc[group["unit"].map(_normalise_unit).eq("m²"), "quantity"].sum()),
+            to_float(group.loc[group["unit"].map(_normalise_unit).eq("lm"), "quantity"].sum()),
+            to_float(group.loc[group["unit"].map(_normalise_unit).isin({"No.", "item"}), "quantity"].sum()),
             to_float(group["paint_litres"].sum()),
             to_float(group["labour_hours"].sum()),
             to_float(group["value_ex_gst"].sum()),
