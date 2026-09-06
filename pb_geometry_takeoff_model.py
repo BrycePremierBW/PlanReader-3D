@@ -33,6 +33,7 @@ class AuthorityStatus(str, Enum):
     FIRM = "firm"
     PROVISIONAL = "provisional"
     REVIEW_REQUIRED = "review_required"
+    BLOCKED = "blocked"
     EXCLUDED = "excluded"
     REFERENCE_ONLY = "reference_only"
 
