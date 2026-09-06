@@ -335,6 +335,9 @@ def collect_takeoff_review_signals(app: Any, workspace_id: int) -> List[Commerci
                 else:
                     reasons.append("Measured item lacks a valid numeric quantity")
                     primary_severity = "BLOCKER"
+            elif parsed_qty < 0.0:
+                reasons.append(f"Measured quantity cannot be negative ('{qty_str}')")
+                primary_severity = "BLOCKER"
             elif parsed_qty == 0.0:
                 # Valid confirmed zero -> NO measurement error unless provisional/confidence flag exists
                 pass
@@ -346,11 +349,17 @@ def collect_takeoff_review_signals(app: Any, workspace_id: int) -> List[Commerci
                 break
 
         # Rule 4: Inclusion status semantics
-        if incl in ("clarification", "provisional"):
+        from pb_takeoff_authority_v164 import (
+            _CLARIFICATION_SCOPE_VALUES,
+            _PROVISIONAL_INCLUSION_VALUES,
+            _INCLUDED_SCOPE_VALUES,
+            _EXCLUDED_SCOPE_VALUES,
+        )
+        if incl in _CLARIFICATION_SCOPE_VALUES or incl in _PROVISIONAL_INCLUSION_VALUES:
             reasons.append(f"Scope inclusion status requires review ('{incl}')")
             if primary_category == "Measurement" and not any("Quantity" in r or "Measured" in r for r in reasons):
                 primary_category = "Scope / inclusion"
-        elif incl and incl not in ("inclusion", "include", "included", "exclusion", "exclude", "excluded"):
+        elif incl and (incl not in _INCLUDED_SCOPE_VALUES and incl not in _EXCLUDED_SCOPE_VALUES):
             reasons.append(f"Scope inclusion status is unrecognised ('{incl}')")
             if primary_category == "Measurement" and not any("Quantity" in r or "Measured" in r for r in reasons):
                 primary_category = "Scope / inclusion"

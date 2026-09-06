@@ -31,7 +31,16 @@ AUTHORITY_REVIEWED_AT_FIELD = "commercial_authority_reviewed_at"
 AUTHORITY_FINGERPRINT_FIELD = "commercial_authority_fingerprint"
 
 _EXCLUDED_SCOPE_VALUES = {"exclude", "excluded", "exclusion"}
-_CLARIFICATION_SCOPE_VALUES = {"clarification", "clarification_only"}
+_CLARIFICATION_SCOPE_VALUES = {
+    "clarification",
+    "clarification_only",
+    "rfi",
+    "query",
+    "to_clarify",
+    "clarify",
+    "unresolved",
+    "disputed",
+}
 
 _PROVISIONAL_STATUS_VALUES = {
     "provisional",
@@ -40,6 +49,8 @@ _PROVISIONAL_STATUS_VALUES = {
     "to_review",
     "unmeasured",
     "not_applicable",
+    "approximate",
+    "estimated",
 }
 
 _PROVISIONAL_INCLUSION_VALUES = {
@@ -47,6 +58,24 @@ _PROVISIONAL_INCLUSION_VALUES = {
     "provisional_sum",
     "provisional_item",
     "prov",
+    "separate_item",
+    "separate",
+    "optional",
+    "variation",
+    "client_variation",
+    "allowance_only",
+    "tbd",
+    "pending",
+    "unconfirmed",
+}
+
+_INCLUDED_SCOPE_VALUES = {
+    "",
+    "inclusion",
+    "include",
+    "included",
+    "base_contract",
+    "base_scope",
 }
 
 _AI_REVIEWED_CONFIDENCE_VALUES = {
@@ -201,6 +230,8 @@ def takeoff_row_scope_authority(row: Mapping[str, Any]) -> Tuple[bool, str]:
         return False, "CLARIFICATION"
     if inclusion in _PROVISIONAL_INCLUSION_VALUES:
         return False, "PROVISIONAL"
+    if inclusion not in _INCLUDED_SCOPE_VALUES:
+        return False, "UNRESOLVED_SCOPE"
 
     quantity_status = _normalised(row.get("quantity_status"))
     if quantity_status in _PROVISIONAL_STATUS_VALUES:
@@ -209,6 +240,15 @@ def takeoff_row_scope_authority(row: Mapping[str, Any]) -> Tuple[bool, str]:
     from pb_mapped_zone_geometry_authority import is_geometric_approximation
     if is_geometric_approximation(row):
         return False, "PROVISIONAL"
+
+    qty_raw = row.get("quantity")
+    if qty_raw is not None:
+        try:
+            qty = float(qty_raw)
+            if math.isfinite(qty) and qty < 0.0:
+                return False, "NEGATIVE_QUANTITY"
+        except (TypeError, ValueError):
+            pass
 
     return True, "SCOPE_AUTHORISED"
 
@@ -231,6 +271,13 @@ def is_commercial_floor_reference_row(row: Mapping[str, Any]) -> bool:
     if is_model_surface_row(row):
         approved, _ = model_surface_authority(row)
         if not approved:
+            return False
+    if "quantity" in row and row.get("quantity") is not None:
+        try:
+            qty = float(row.get("quantity"))
+            if math.isfinite(qty) and qty <= 0.0:
+                return False
+        except (TypeError, ValueError):
             return False
     return True
 
