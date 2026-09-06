@@ -183,6 +183,7 @@ def test_every_output_carries_blocking_reasons_and_warnings_arrays():
         source_type=TakeoffSourceType.DOCUMENTED_DIMENSION,
         source_page=1,
         source_sheet="WD-01",
+        dimension_text_id="DIM-CLEAN-01",
     )
     assert isinstance(clean_row.warnings, list)
     assert isinstance(clean_row.blocking_reasons, list)
@@ -196,7 +197,132 @@ def test_every_output_carries_blocking_reasons_and_warnings_arrays():
         source_type=TakeoffSourceType.PDF_SCALED,
         source_page=1,
         source_sheet="WD-01",
+        scale_id="SCALE-WD-01",
     )
     assert len(warn_row.warnings) > 0
     assert isinstance(warn_row.warnings, list)
     assert isinstance(warn_row.blocking_reasons, list)
+
+
+def test_missing_figured_dimension_reference_blocks_documented_dimension():
+    """Documented dimension quantity without a figured-dimension trace cannot publish."""
+    row = create_takeoff_output_row(
+        quantity_id="QTY-NO-DIM-TRACE",
+        description="Untraceable Documented Wall",
+        value=15.0,
+        unit="m²",
+        source_type=TakeoffSourceType.DOCUMENTED_DIMENSION,
+        source_page=4,
+        source_sheet="WD-04",
+        # dimension_text_id intentionally omitted
+    )
+    assert row.is_publishable is False
+    assert any("figured-dimension" in r.lower() for r in row.blocking_reasons)
+
+
+def test_missing_scale_reference_blocks_scaled_geometry():
+    """Scaled geometry quantity without a scale reference is blocked for that specific reason."""
+    row = create_takeoff_output_row(
+        quantity_id="QTY-NO-SCALE-REF",
+        description="Untraceable Scaled Partition",
+        value=22.0,
+        unit="m²",
+        source_type=TakeoffSourceType.PDF_SCALED,
+        source_page=6,
+        source_sheet="WD-06",
+        # scale_id intentionally omitted
+    )
+    assert row.is_publishable is False
+    assert any("scale reference" in r.lower() for r in row.blocking_reasons)
+
+
+def test_unreliable_scale_for_scaled_geometry_blocks():
+    """A scaled geometry quantity referencing an unreliable page scale calibration blocks outright."""
+    for bad_status in ("unknown", "conflicting", "manual_required", "blocked"):
+        row = create_takeoff_output_row(
+            quantity_id=f"QTY-BAD-SCALE-{bad_status}",
+            description="Scaled Wall Against Bad Calibration",
+            value=30.0,
+            unit="m²",
+            source_type=TakeoffSourceType.PDF_SCALED,
+            source_page=7,
+            source_sheet="WD-07",
+            scale_id="SCALE-P7",
+            scale_calibration_status=bad_status,
+        )
+        assert row.is_publishable is False
+        assert row.authority_status == AuthorityStatus.BLOCKED.value
+        assert any("unreliable scale" in r.lower() for r in row.blocking_reasons)
+
+
+def test_unknown_source_type_fails_closed():
+    """An unrecognized source_type blocks rather than silently defaulting to something permissive."""
+    row = create_takeoff_output_row(
+        quantity_id="QTY-UNKNOWN-SOURCE",
+        description="Mystery Quantity",
+        value=10.0,
+        unit="m²",
+        source_type="totally_made_up_source",
+        source_page=1,
+        source_sheet="WD-01",
+    )
+    assert row.is_publishable is False
+    assert row.authority_status == AuthorityStatus.BLOCKED.value
+    assert any("unknown source_type" in r.lower() for r in row.blocking_reasons)
+
+
+def test_unknown_authority_status_fails_closed():
+    """An unrecognized authority_status blocks rather than being passed through untouched."""
+    row = create_takeoff_output_row(
+        quantity_id="QTY-UNKNOWN-AUTHORITY",
+        description="Mystery Authority",
+        value=10.0,
+        unit="m²",
+        source_type=TakeoffSourceType.DOCUMENTED_DIMENSION,
+        authority_status="totally_made_up_status",
+        source_page=1,
+        source_sheet="WD-01",
+        dimension_text_id="DIM-1",
+    )
+    assert row.is_publishable is False
+    assert row.authority_status == AuthorityStatus.BLOCKED.value
+    assert any("unknown authority_status" in r.lower() for r in row.blocking_reasons)
+
+
+def test_json_serialization_preserves_authority_metadata():
+    """json.dumps(row.to_dict()) round-trips without losing any authority field."""
+    import json
+
+    row = create_takeoff_output_row(
+        quantity_id="QTY-JSON-1",
+        description="External Cladding Gross Area",
+        value=124.5,
+        unit="m²",
+        trade="cladding",
+        source_type=TakeoffSourceType.DOCUMENTED_DIMENSION,
+        confidence=0.92,
+        source_page=3,
+        source_sheet="WD-03",
+        geometry_ref="WALL-EXT-01",
+        scale_id="SCALE-P3-1_100",
+        dimension_text_id="DIM-12450",
+        benchmark_status="exact_match",
+        revision_hash="rev_abc123",
+    )
+    encoded = json.dumps(row.to_dict())
+    decoded: Dict[str, Any] = json.loads(encoded)
+
+    for field_name in (
+        "quantity_id", "description", "value", "unit", "trade", "source_type",
+        "authority_status", "confidence", "source_page", "source_sheet",
+        "geometry_ref", "scale_id", "dimension_text_id", "benchmark_status",
+        "is_publishable", "warnings", "blocking_reasons", "approved_by",
+        "approved_at", "revision_hash", "fingerprint",
+    ):
+        assert field_name in decoded, f"Field {field_name} lost in JSON round-trip"
+
+    assert decoded["quantity_id"] == row.quantity_id
+    assert decoded["value"] == row.value
+    assert decoded["is_publishable"] == row.is_publishable
+    assert decoded["blocking_reasons"] == row.blocking_reasons
+    assert decoded["fingerprint"] == row.compute_fingerprint()

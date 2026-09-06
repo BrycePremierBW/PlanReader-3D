@@ -47,10 +47,10 @@ Every takeoff item emitted conforms to the 20-field `TakeoffOutputRow` structure
 
 | Source Type | Authority Status | Commercial Publishability Rule |
 |---|---|---|
-| `documented_dimension` | `firm` | Publishable **only** if current, valid, and traceable (`source_page` or `source_sheet` present). |
-| `schedule_extracted` | `firm` | Publishable **only** if project identity is confirmed and source trace exists. |
-| `pdf_scaled` | `provisional` | **Provisional / draft only**. Never commercially publishable without verification. |
-| `ai_detected` | `provisional` | **Provisional / draft only**. Requires estimator confirmation before publication. |
+| `documented_dimension` | `firm` | Publishable **only** if current, valid, traceable (`source_page` or `source_sheet` present), **and** linked to a figured-dimension trace (`dimension_text_id`). |
+| `schedule_extracted` | `firm` | Publishable **only** if project identity is explicitly confirmed (`project_identity_confirmed is True`) and source trace exists. Identity that was never verified (`None`) blocks the same as an explicit mismatch. |
+| `pdf_scaled` | `provisional` | **Provisional / draft only**. Never commercially publishable. Requires a `scale_id` reference (missing scale reference is its own blocking reason), and blocks outright if the referenced scale calibration is `unknown`, `conflicting`, `manual_required`, or `blocked`. |
+| `ai_detected` | `provisional` | **Provisional / draft only**. Never commercially publishable — this module has no approval override for AI-detected rows. |
 | `model_derived` | `provisional` | Provisional unless user-approved. |
 | `user_corrected` | `review_required` | `review_required` until approved by an estimator. |
 | `user_approved` | `user_approved` | Publishable if current, non-stale, and valid. |
@@ -66,5 +66,7 @@ Every takeoff item emitted conforms to the 20-field `TakeoffOutputRow` structure
 2. **Negative quantities**: Negative quantities fail closed with `ValueError` or `authority_status="blocked"`.
 3. **Invalid zeroes**: Where `allow_zero=False`, a zero measurement is blocked from publication.
 4. **Stale drawings**: If `revision_hash != current_revision_hash`, publication is blocked with a stale revision warning.
-5. **Scale conflicts**: If referencing a scale calibration with status `conflicting`, `manual_required`, or `blocked`, the takeoff row fails closed to `blocked`.
+5. **Scale conflicts**: If referencing a scale calibration with status `unknown`, `conflicting`, `manual_required`, or `blocked`, the takeoff row fails closed to `blocked`.
 6. **Tamper detection**: `compute_fingerprint()` calculates a SHA-256 hash across canonical commercial fields. Mutating quantity or status changes the hash.
+7. **Unrecognized metadata**: An unrecognized `source_type` or `authority_status` string is not passed through — it fails closed to `authority_status="blocked"` with an explicit blocking reason naming the unrecognized value.
+8. **Missing traces**: `documented_dimension` without a `dimension_text_id`, and `pdf_scaled` without a `scale_id`, each add their own specific blocking reason rather than merely being flagged as generically untraceable.

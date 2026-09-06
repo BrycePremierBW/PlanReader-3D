@@ -12,9 +12,9 @@ from enum import Enum
 import hashlib
 import json
 import math
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Union
 
-from pb_geometry_takeoff_model import AuthorityStatus, MeasurementAuthorityType
+from pb_geometry_takeoff_model import AuthorityStatus
 from pb_page_scale_calibration_authority import ScaleCalibrationStatus
 
 
@@ -34,6 +34,16 @@ class TakeoffSourceType(str, Enum):
     REFERENCE_ONLY = "reference_only"
     BLOCKED = "blocked"
     MANUAL = "manual"
+
+
+_KNOWN_SOURCE_TYPES = {t.value for t in TakeoffSourceType}
+_KNOWN_AUTHORITY_STATUSES = {s.value for s in AuthorityStatus}
+_UNRELIABLE_SCALE_STATUSES = {
+    ScaleCalibrationStatus.UNKNOWN.value,
+    ScaleCalibrationStatus.CONFLICTING.value,
+    ScaleCalibrationStatus.MANUAL_REQUIRED.value,
+    ScaleCalibrationStatus.BLOCKED.value,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -162,6 +172,16 @@ def create_takeoff_output_row(
     warn_list: List[str] = list(warnings or [])
     block_list: List[str] = list(blocking_reasons or [])
 
+    # Fail closed on any authority metadata this module does not recognize, rather
+    # than letting an unrecognized label silently pass through to downstream consumers.
+    if a_status is not None and a_status not in _KNOWN_AUTHORITY_STATUSES:
+        block_list.append(f"Unknown authority_status: {a_status!r}")
+        a_status = AuthorityStatus.BLOCKED.value
+
+    if s_type not in _KNOWN_SOURCE_TYPES:
+        block_list.append(f"Unknown source_type: {s_type!r}")
+        a_status = AuthorityStatus.BLOCKED.value
+
     if not allow_zero and value == 0.0:
         a_status = AuthorityStatus.BLOCKED.value
         block_list.append("Zero quantity is invalid for physical takeoff element")
@@ -169,10 +189,10 @@ def create_takeoff_output_row(
     # Scale Calibration Gating
     if scale_calibration_status:
         sc_status = str(scale_calibration_status).lower()
-        if sc_status in ("blocked", "conflicting", "manual_required"):
+        if sc_status in _UNRELIABLE_SCALE_STATUSES:
             a_status = AuthorityStatus.BLOCKED.value
-            block_list.append(f"Scale calibration is {sc_status}: commercial takeoff blocked")
-        elif sc_status == "provisional":
+            block_list.append(f"Unreliable scale for scaled geometry (calibration status: {sc_status})")
+        elif sc_status == ScaleCalibrationStatus.PROVISIONAL.value:
             warn_list.append("Associated scale calibration is provisional")
             if s_type == TakeoffSourceType.PDF_SCALED.value:
                 a_status = AuthorityStatus.PROVISIONAL.value
@@ -190,9 +210,11 @@ def create_takeoff_output_row(
         has_trace = bool(source_page is not None or source_sheet)
         if not has_trace:
             block_list.append("Untraceable: documented dimension missing source page and sheet")
+        if not dimension_text_id:
+            block_list.append("Missing figured-dimension trace for documented dimension quantity")
         if a_status is None:
-            a_status = AuthorityStatus.FIRM.value if (has_trace and not is_stale) else AuthorityStatus.REVIEW_REQUIRED.value
-        if a_status == AuthorityStatus.FIRM.value and has_trace and not is_stale and len(block_list) == 0:
+            a_status = AuthorityStatus.FIRM.value if (has_trace and dimension_text_id and not is_stale) else AuthorityStatus.REVIEW_REQUIRED.value
+        if a_status == AuthorityStatus.FIRM.value and has_trace and dimension_text_id and not is_stale and len(block_list) == 0:
             is_publishable = True
 
     elif s_type == TakeoffSourceType.SCHEDULE_EXTRACTED.value:
@@ -204,6 +226,7 @@ def create_takeoff_output_row(
             a_status = AuthorityStatus.BLOCKED.value
         elif project_identity_confirmed is None:
             warn_list.append("Project identity not explicitly verified")
+            block_list.append("Project identity not confirmed for schedule-extracted quantity")
             if a_status is None:
                 a_status = AuthorityStatus.REVIEW_REQUIRED.value
         else:
@@ -217,30 +240,34 @@ def create_takeoff_output_row(
         if a_status is None:
             a_status = AuthorityStatus.PROVISIONAL.value
         warn_list.append("Scaled geometry is provisional/draft only and requires estimator verification")
+        if not scale_id:
+            block_list.append("Missing scale reference for scaled geometry")
         is_publishable = False
 
     elif s_type == TakeoffSourceType.AI_DETECTED.value:
         if a_status is None:
             a_status = AuthorityStatus.PROVISIONAL.value
         warn_list.append("AI detected quantity is provisional/draft only and requires estimator review")
+        block_list.append("AI-detected quantity is not approved for commercial publication")
         is_publishable = False
 
     elif s_type == TakeoffSourceType.MODEL_DERIVED.value:
         if approved_by:
             if a_status is None:
-                a_status = "user_approved"
+                a_status = AuthorityStatus.USER_APPROVED.value
             if not is_stale and len(block_list) == 0:
                 is_publishable = True
         else:
             if a_status is None:
                 a_status = AuthorityStatus.PROVISIONAL.value
             warn_list.append("3D model-derived quantity is provisional until approved by estimator")
+            block_list.append("Model-derived quantity is not approved for commercial publication")
             is_publishable = False
 
     elif s_type == TakeoffSourceType.USER_CORRECTED.value:
         if approved_by:
             if a_status is None:
-                a_status = "user_approved"
+                a_status = AuthorityStatus.USER_APPROVED.value
             if not is_stale and len(block_list) == 0:
                 is_publishable = True
         else:
@@ -250,7 +277,7 @@ def create_takeoff_output_row(
 
     elif s_type == TakeoffSourceType.USER_APPROVED.value:
         if a_status is None:
-            a_status = "user_approved"
+            a_status = AuthorityStatus.USER_APPROVED.value
         if not approved_by:
             block_list.append("User approved row missing approved_by estimator attribution")
         if not is_stale and approved_by and len(block_list) == 0:
@@ -339,7 +366,7 @@ def approve_takeoff_output_row(
         unit=row.unit,
         trade=row.trade,
         source_type=TakeoffSourceType.USER_APPROVED,
-        authority_status="user_approved",
+        authority_status=AuthorityStatus.USER_APPROVED,
         confidence=1.0,
         source_page=row.source_page,
         source_sheet=row.source_sheet,
@@ -350,7 +377,7 @@ def approve_takeoff_output_row(
         warnings=row.warnings,
         blocking_reasons=[
             r for r in row.blocking_reasons
-            if "approval" not in r.lower() and "review" not in r.lower()
+            if "approv" not in r.lower() and "review" not in r.lower()
         ],
         approved_by=approved_by,
         approved_at=stamp,

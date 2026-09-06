@@ -197,6 +197,7 @@ def test_payload_fingerprint_deterministic_and_tamper_evident():
         source_type=TakeoffSourceType.DOCUMENTED_DIMENSION,
         source_page=3,
         source_sheet="WD-03",
+        dimension_text_id="DIM-15000",
         approved_by="Bryce Curran",
         approved_at="2026-09-07T00:00:00Z",
         revision_hash="rev_clean_123",
