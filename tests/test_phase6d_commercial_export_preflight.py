@@ -214,8 +214,8 @@ class MockJobHubBridge:
         if "query_fail" in self.fail_on and "painting_takeoff_packages" in sql:
             raise sqlite3.OperationalError("Simulated JobHub package query failure")
         if "painting_takeoff_packages" in sql:
-            if "status='Pending'" in sql:
-                return [p for p in self.packages if p.get("status") == "Pending"]
+            if "status='Pending'" in sql or "status IN" in sql:
+                return [p for p in self.packages if p.get("status") in ("Pending", "Published")]
             return self.packages
         if "jobs" in sql:
             return [{"id": params[0] if params else 101, "status": self.job_status}]

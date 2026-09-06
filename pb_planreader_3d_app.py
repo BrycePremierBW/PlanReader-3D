@@ -7103,6 +7103,11 @@ def main() -> None:
 
     valid_nav_target = None
     active_ws_id = int(workspace["id"]) if isinstance(workspace, dict) and workspace.get("id") else None
+    last_active_ws_id = st.session_state.get("_pb_last_active_workspace_id")
+    if last_active_ws_id is not None and last_active_ws_id != active_ws_id:
+        for k in ("active_page_id", "active_takeoff_row_id", "active_register_item_id", "_pb_nav_target", "_pb_nav_payload"):
+            st.session_state.pop(k, None)
+    st.session_state["_pb_last_active_workspace_id"] = active_ws_id
 
     if nav_target and isinstance(nav_payload, dict):
         payload_ws_id = nav_payload.get("workspace_id")
