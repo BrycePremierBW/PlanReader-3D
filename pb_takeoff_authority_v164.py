@@ -17,6 +17,8 @@ from typing import Any, Dict, Mapping, Tuple
 MODEL_SURFACE_ROLE = "model_surface"
 MODEL_SURFACE_SOURCE_PREFIX = "pb 3d surface editor "
 FLOOR_REFERENCE_ROLE = "floor_area"
+AI_DRAFT_ORIGIN = "ai"
+AI_REVIEWED_ORIGIN = "ai_reviewed"
 
 AUTHORITY_REVIEW_REQUIRED = "REVIEW_REQUIRED"
 AUTHORITY_APPROVED = "APPROVED"
@@ -28,6 +30,19 @@ AUTHORITY_REVIEWED_AT_FIELD = "commercial_authority_reviewed_at"
 AUTHORITY_FINGERPRINT_FIELD = "commercial_authority_fingerprint"
 
 _EXCLUDED_SCOPE_VALUES = {"exclude", "excluded", "exclusion"}
+
+_AI_REVIEWED_CONFIDENCE_VALUES = {
+    "approved",
+    "checked",
+    "confirmed",
+    "estimator_verified",
+    "manual_verified",
+    "manually_verified",
+    "reviewed",
+    "verified",
+}
+
+_AI_CONFIRMED_QUANTITY_STATUS_VALUES = {"allowance", "mapped", "measured"}
 
 
 def _text(value: Any) -> str:
@@ -70,11 +85,90 @@ def is_excluded_takeoff_row(row: Mapping[str, Any]) -> bool:
     return _normalised(row.get("inclusion_status")) in _EXCLUDED_SCOPE_VALUES
 
 
+def is_ai_takeoff_row(row: Mapping[str, Any]) -> bool:
+    """Recognise AI-derived quantities even after a legacy partial round-trip.
+
+    ``origin`` and ``ai_baseline_quantity`` are the canonical persisted markers.
+    Older rows may only retain the explanatory text added by the production AI
+    importer, so those exact legacy markers remain sticky as a fail-closed
+    compatibility boundary.
+    """
+    if _normalised(row.get("origin")) in {AI_DRAFT_ORIGIN, AI_REVIEWED_ORIGIN}:
+        return True
+
+    baseline = row.get("ai_baseline_quantity")
+    if baseline is not None:
+        if not (isinstance(baseline, float) and math.isnan(baseline)):
+            if _text(baseline).lower() not in {"", "nan", "none", "null"}:
+                return True
+
+    provenance_text = " ".join(
+        _text(row.get(field)).lower()
+        for field in ("source_reference", "notes")
+    )
+    return any(
+        marker in provenance_text
+        for marker in ("ai draft", "ai plan review", "ai-generated", "ai generated")
+    )
+
+
+def ai_takeoff_authority(row: Mapping[str, Any]) -> Tuple[bool, str]:
+    """Require explicit estimator confirmation before AI quantities are commercial."""
+    if not is_ai_takeoff_row(row):
+        return True, "NOT_AI_DRAFT"
+
+    if _normalised(row.get("origin")) != AI_REVIEWED_ORIGIN:
+        return False, "AI draft has not been explicitly reviewed by an estimator"
+
+    status = _normalised(row.get("quantity_status"))
+    if status not in _AI_CONFIRMED_QUANTITY_STATUS_VALUES:
+        return False, "AI draft quantity has not been explicitly confirmed by an estimator"
+
+    confidence = _normalised(row.get("confidence"))
+    if confidence not in _AI_REVIEWED_CONFIDENCE_VALUES:
+        return False, "AI draft has no explicit estimator verification"
+
+    return True, "ESTIMATOR_VERIFIED"
+
+
+def prepare_ai_takeoff_editor_save(
+    prior: Mapping[str, Any], edited: Mapping[str, Any]
+) -> Dict[str, Any]:
+    """Preserve AI provenance and record only an explicit review transition.
+
+    Merely saving a legacy AI row whose model supplied trusted-looking status
+    text is not review. The estimator must change quantity status or confidence
+    to an accepted value in the editor. Once recorded, later saves preserve the
+    reviewed marker while the accepted status fields remain fail-closed gates.
+    """
+    merged = {**dict(prior), **dict(edited)}
+    if not (is_ai_takeoff_row(prior) or is_ai_takeoff_row(merged)):
+        return merged
+
+    status = _normalised(merged.get("quantity_status"))
+    confidence = _normalised(merged.get("confidence"))
+    prior_origin = _normalised(prior.get("origin"))
+    review_fields_changed = (
+        status != _normalised(prior.get("quantity_status"))
+        or confidence != _normalised(prior.get("confidence"))
+    )
+    explicit_review = (
+        status in _AI_CONFIRMED_QUANTITY_STATUS_VALUES
+        and confidence in _AI_REVIEWED_CONFIDENCE_VALUES
+        and (prior_origin == AI_REVIEWED_ORIGIN or review_fields_changed)
+    )
+    merged["origin"] = "AI_REVIEWED" if explicit_review else "AI"
+    return merged
+
+
 def is_commercial_floor_reference_row(row: Mapping[str, Any]) -> bool:
     """Return whether a row is a commercially valid floor reference (not excluded, and approved if model-derived)."""
     if not is_floor_reference_row(row):
         return False
     if is_excluded_takeoff_row(row):
+        return False
+    ai_approved, _ = ai_takeoff_authority(row)
+    if not ai_approved:
         return False
     if is_model_surface_row(row):
         approved, _ = model_surface_authority(row)
@@ -223,6 +317,9 @@ def takeoff_row_publishability(row: Mapping[str, Any]) -> Tuple[bool, str]:
         return False, "EXCLUDED"
     if is_floor_reference_row(row):
         return False, "FLOOR_REFERENCE"
+    ai_approved, ai_reason = ai_takeoff_authority(row)
+    if not ai_approved:
+        return False, ai_reason
     approved, reason = model_surface_authority(row)
     if not approved:
         return False, reason
@@ -265,18 +362,13 @@ def is_progress_eligible_row(row: Mapping[str, Any]) -> Tuple[bool, str]:
     Ineligible rows:
     - Excluded rows (EXCLUDED)
     - Floor reference rows (FLOOR_REFERENCE)
-    - Unapproved or tampered model surfaces (e.g. 3D model surface has not received commercial approval)
+    - Unreviewed AI drafts or unapproved/tampered model surfaces
     - Provisional rows (PROVISIONAL)
     - Non-positive or non-finite quantities (ZERO_OR_INVALID_QUANTITY)
     """
-    if is_excluded_takeoff_row(row):
-        return False, "EXCLUDED"
-    if is_floor_reference_row(row):
-        return False, "FLOOR_REFERENCE"
-    if is_model_surface_row(row):
-        approved, reason = model_surface_authority(row)
-        if not approved:
-            return False, reason
+    publishable, reason = takeoff_row_publishability(row)
+    if not publishable:
+        return False, reason
     if is_provisional_takeoff_row(row):
         return False, "PROVISIONAL"
     qty_raw = row.get("quantity")
@@ -297,17 +389,12 @@ def is_jobhub_eligible_row(row: Mapping[str, Any]) -> Tuple[bool, str]:
     Ineligible rows:
     - Excluded rows (EXCLUDED)
     - Floor reference rows (FLOOR_REFERENCE)
-    - Unapproved or tampered model surfaces (e.g. 3D model surface has not received commercial approval)
+    - Unreviewed AI drafts or unapproved/tampered model surfaces
     - Non-positive or non-finite quantities (ZERO_OR_INVALID_QUANTITY)
     """
-    if is_excluded_takeoff_row(row):
-        return False, "EXCLUDED"
-    if is_floor_reference_row(row):
-        return False, "FLOOR_REFERENCE"
-    if is_model_surface_row(row):
-        approved, reason = model_surface_authority(row)
-        if not approved:
-            return False, reason
+    publishable, reason = takeoff_row_publishability(row)
+    if not publishable:
+        return False, reason
     qty_raw = row.get("quantity")
     if qty_raw is None:
         return False, "ZERO_OR_INVALID_QUANTITY"

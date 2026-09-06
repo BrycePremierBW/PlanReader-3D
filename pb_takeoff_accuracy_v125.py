@@ -11,6 +11,7 @@ from typing import Any
 import pandas as pd
 
 import pb_takeoff_v12 as v12
+from pb_takeoff_authority_v164 import ai_takeoff_authority, is_ai_takeoff_row
 
 PB_ACCURACY_VERSION = "2026.08.13-2"
 AUTO_SCALE: dict[int, float] = {}
@@ -134,9 +135,7 @@ def scope_of(v: Any) -> str:
 
 
 def is_ai(row: dict[str, Any]) -> bool:
-    if clean(row.get("origin")).lower() == "ai": return True
-    text = " ".join(clean(row.get(k)) for k in ("source_reference", "notes", "confidence")).lower()
-    return any(x in text for x in ("ai draft", "ai plan review", "ai-generated", "ai generated"))
+    return is_ai_takeoff_row(row)
 
 
 def mapped_ids(app: Any, wid: int) -> set[int]:
@@ -423,13 +422,13 @@ def import_ai(app:Any,base:Any):
     def run(wid:int,data:dict[str,Any]):
         schema(app); before=app.lquery("SELECT COALESCE(MAX(id),0) id FROM takeoff_rows WHERE workspace_id=?",(wid,)); bid=int(before[0]["id"] or 0); counts=base(wid,data); created=app.lquery("SELECT * FROM takeoff_rows WHERE workspace_id=? AND id>? ORDER BY id",(wid,bid))
         for row,source in zip(created,list(data.get("takeoff_rows") or [])):
-            q=max(0.0,app.to_float(source.get("quantity",row.get("quantity")))); st=clean(row.get("quantity_status")); st="Provisional measured" if q>0 and st.lower()=="measured" else st; note=f"{clean(row.get('notes'))} · AI draft — verify against the mapped drawing or schedule before final publish.".strip(" ·"); app.lexecute("UPDATE takeoff_rows SET origin='AI',ai_baseline_quantity=?,quantity_status=?,notes=?,rate_per_unit=CASE WHEN row_role='floor_area' THEN 0 ELSE rate_per_unit END WHERE id=?",(q,st,note,row["id"]))
+            q=max(0.0,app.to_float(source.get("quantity",row.get("quantity")))); st="Provisional measured" if q>0 else "To measure"; role=clean(source.get("row_role")); role=role if role in {"", "floor_area"} else ""; reported_confidence=clean(source.get("confidence")); confidence_note=f" AI reported confidence: {reported_confidence}." if reported_confidence else ""; note=f"{clean(row.get('notes'))} · AI draft — verify against the mapped drawing or schedule before final publish.{confidence_note}".strip(" ·"); app.lexecute("UPDATE takeoff_rows SET origin='AI',ai_baseline_quantity=?,quantity_status=?,confidence='To review',notes=?,rate_per_unit=CASE WHEN ?='floor_area' THEN 0 ELSE rate_per_unit END,row_role=? WHERE id=?",(q,st,note,role,role,row["id"]))
         return counts
     return run
 
 
 def reconcile(app:Any,wid:int)->pd.DataFrame:
-    df=dataframe_for_takeoff(app,wid); cols=["section","element","location","unit","ai_qty","drawn_qty","variance","basis","status"]
+    df=app.ldf("SELECT * FROM takeoff_rows WHERE workspace_id=? ORDER BY id",(wid,)); cols=["section","element","location","unit","ai_qty","drawn_qty","variance","basis","status"]
     if df.empty:return pd.DataFrame(columns=cols)
     mapped=mapped_ids(app,wid); rec=[]
     for r in df.to_dict("records"):
@@ -457,7 +456,15 @@ def issues(app:Any,wid:int)->list[dict[str,Any]]:
         if "to measure" in st:add("Critical","TO_MEASURE",f"Row #{rid} is still To measure.",rid,r.get("source_reference"))
         elif q<=0 and u not in {"allowance","L"}:add("Critical","ZERO_QUANTITY",f"Row #{rid} is included but has no quantity.",rid,r.get("source_reference"))
         if app.to_float(r.get("rate_per_unit"))<=0 and u!="L":add("Critical","ZERO_RATE",f"Row #{rid} is included but has no rate.",rid,r.get("source_reference"))
-        if is_ai(r) and q>0 and rid not in mapped and clean(r.get("confidence")).lower() not in REVIEWED:add("Critical","AI_UNVERIFIED",f"Row #{rid} still relies on an AI quantity; map it or verify it against the issued source.",rid,r.get("source_reference"))
+        ai_approved, _ = ai_takeoff_authority(r)
+        if is_ai(r) and q > 0 and not ai_approved:
+            add(
+                "Critical",
+                "AI_UNVERIFIED",
+                f"Row #{rid} remains AI-derived; verify it against the issued source and explicitly confirm its quantity status and confidence.",
+                rid,
+                r.get("source_reference"),
+            )
         if rid in mapped:
             lines=app.lquery("SELECT ml.*,p.width_px,p.height_px,p.px_per_m FROM measurement_lines ml JOIN pages p ON p.id=ml.page_id WHERE ml.workspace_id=? AND ml.takeoff_row_id=?",(wid,rid)); expected,n,bad=measured_qty(app,r,lines)
             if n and abs(expected-q)>max(.01,.005*max(expected,q,1)):add("Critical","MEASUREMENT_MISMATCH",f"Row #{rid} stores {q:.3f} {u}, saved geometry calculates {expected:.3f} {u}.",rid,r.get("source_reference"))
