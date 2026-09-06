@@ -98,6 +98,7 @@ def test_commercial_publish_strictly_filters_to_publishable_rows():
         source_type=TakeoffSourceType.DOCUMENTED_DIMENSION,
         source_page=2,
         source_sheet="WD-02",
+        dimension_text_id="DIM-COMM-1",
         revision_hash=ctx["drawing_revision"]["revision_hash"],
         current_revision_hash=ctx["drawing_revision"]["revision_hash"],
     )
@@ -127,6 +128,7 @@ def test_partition_publishable_rows_helper():
         source_type=TakeoffSourceType.DOCUMENTED_DIMENSION,
         source_page=1,
         source_sheet="WD-01",
+        dimension_text_id="DIM-ROW-1",
     )
     row_prov = create_takeoff_output_row(
         quantity_id="ROW-2",
