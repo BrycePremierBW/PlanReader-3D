@@ -1,0 +1,24 @@
+{
+  "default": {
+    "absolute": 0.5,
+    "percentage": 0.01
+  },
+  "categories": {
+    "elevation_height": {
+      "absolute": 0.05,
+      "percentage": 0.05
+    },
+    "opening_width": {
+      "absolute": 0.05,
+      "percentage": 0.05
+    },
+    "opening_count": {
+      "absolute": 0.0,
+      "percentage": 0.0
+    },
+    "sheet_count": {
+      "absolute": 0.0,
+      "percentage": 0.0
+    }
+  }
+}

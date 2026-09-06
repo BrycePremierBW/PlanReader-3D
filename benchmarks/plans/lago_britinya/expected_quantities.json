@@ -1,0 +1,74 @@
+[
+  {
+    "quantity_id": "lago_cd3001_p86_east_glazed_lights_count",
+    "description": "True-positive glazed opening lights on CD3001 East Elevation Left/Centre facade ROI",
+    "expected_value": 9.0,
+    "unit": "ea",
+    "source": {
+      "document": "architectural_pdf",
+      "sheet": "CD3001",
+      "page": 86,
+      "line_or_region": "E1 East Elevation [1020, 634, 1412, 729]"
+    },
+    "authority": "schedule_extracted",
+    "scope_disposition": "reference_only",
+    "tolerance": {
+      "absolute": 0.0,
+      "percentage": 0.0
+    }
+  },
+  {
+    "quantity_id": "lago_cd3001_p86_opening_height_m",
+    "description": "Glazed opening band height on CD3001 East Elevation",
+    "expected_value": 1.489,
+    "unit": "m",
+    "source": {
+      "document": "architectural_pdf",
+      "sheet": "CD3001",
+      "page": 86,
+      "line_or_region": "Glazed window band"
+    },
+    "authority": "pdf_scaled",
+    "scope_disposition": "reference_only",
+    "tolerance": {
+      "absolute": 0.05,
+      "percentage": 0.05
+    }
+  },
+  {
+    "quantity_id": "lago_cd3001_p86_opening_light_width_m",
+    "description": "Individual glazed light average width on CD3001 East Elevation",
+    "expected_value": 0.773,
+    "unit": "m",
+    "source": {
+      "document": "architectural_pdf",
+      "sheet": "CD3001",
+      "page": 86,
+      "line_or_region": "Structural bay light"
+    },
+    "authority": "pdf_scaled",
+    "scope_disposition": "reference_only",
+    "tolerance": {
+      "absolute": 0.05,
+      "percentage": 0.05
+    }
+  },
+  {
+    "quantity_id": "lago_total_sheets_count",
+    "description": "Total sheets in combined architectural drawing set",
+    "expected_value": 207.0,
+    "unit": "sheets",
+    "source": {
+      "document": "architectural_pdf",
+      "sheet": "ARCH-DRAWINGS_COMBINED",
+      "page": 1,
+      "line_or_region": "PDF Document Catalogue"
+    },
+    "authority": "documented",
+    "scope_disposition": "reference_only",
+    "tolerance": {
+      "absolute": 0.0,
+      "percentage": 0.0
+    }
+  }
+]

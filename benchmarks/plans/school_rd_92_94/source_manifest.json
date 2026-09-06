@@ -1,0 +1,18 @@
+{
+  "benchmark_id": "school_rd_92_94",
+  "project_name": "COX PROPERTY GROUP - ELISE",
+  "project_number": "COX05",
+  "client": "Cox Property Group",
+  "drawing_issue": "IFC Issue 1",
+  "drawing_date": "15.07.2026",
+  "source_pdf": "COX05_92-94 SCHOOL RD_IFC_15.07.26_compressed.pdf",
+  "source_takeoff": "Premier_Brushworks_92-94_School_Rd_Full_Painting_Takeoff.xlsx",
+  "allowed_comparison_sources": [
+    "Premier_Brushworks_92-94_School_Rd_Full_Painting_Takeoff.xlsx"
+  ],
+  "rejected_comparison_sources": [
+    "Premier_Brushworks_60-62_School_Rd_Maroochydore_Revised.xlsx",
+    "PB-26017_School_Rd_Detailed_Takeoff_and_Pricing.xlsx"
+  ],
+  "status": "benchmark_seed"
+}

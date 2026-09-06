@@ -1,0 +1,20 @@
+{
+  "default": {
+    "absolute": 0.5,
+    "percentage": 0.01
+  },
+  "categories": {
+    "ceiling_area": {
+      "absolute": 1.0,
+      "percentage": 0.005
+    },
+    "door_count": {
+      "absolute": 0.0,
+      "percentage": 0.0
+    },
+    "dwelling_units": {
+      "absolute": 0.0,
+      "percentage": 0.0
+    }
+  }
+}

@@ -1,0 +1,83 @@
+{
+  "benchmark_id": "king_st_122_126",
+  "timestamp": "2026-09-06T13:43:31.487208+00:00",
+  "source_pdf": "C:\\Users\\bryce\\Downloads\\23-060 - 122-126 King St, Buderim - Construction Issue 4 (G) - 31.03.2025.pdf",
+  "source_takeoff": null,
+  "project_identity": {
+    "project_name": "122-126 King St, Buderim - Construction Issue 4 (G)",
+    "address": "122-126 King St, Buderim QLD",
+    "client": "Public Tender / Commercial Client",
+    "project_number": "23-060",
+    "drawing_issue": "Construction Issue 4 (G)",
+    "drawing_date": "31.03.2025",
+    "drawing_set_title": "23-060 - 122-126 King St, Buderim - Construction Issue 4 (G) - 31.03.2025",
+    "number_of_units": null,
+    "number_of_levels": null,
+    "sheet_count": 29,
+    "metadata": {}
+  },
+  "comparison_allowed": true,
+  "rejection_reason": "project_identity_confirmed",
+  "pages_classified": {
+    "total_pages": 29,
+    "role_breakdown": {
+      "RENDER_3D_VIEW": 17,
+      "ELEVATION": 5,
+      "FLOOR_PLAN": 6,
+      "FINISH_SCHEDULE": 1
+    },
+    "render_pages_detected": [
+      1,
+      2,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      14,
+      15,
+      18,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28
+    ]
+  },
+  "schedules_extracted": {},
+  "quantities_compared": [
+    {
+      "quantity_id": "king_st_sheet_count",
+      "description": "Total sheets in construction drawing set",
+      "expected": 29.0,
+      "actual": 29.0,
+      "unit": "sheets",
+      "difference": 0.0,
+      "difference_percent": 0.0,
+      "status": "exact_match",
+      "confidence": 1.0,
+      "source_trace": {
+        "document": "architectural_pdf",
+        "sheet": "COVER SHEET",
+        "page": 1,
+        "line_or_region": "Drawing index"
+      },
+      "notes": ""
+    }
+  ],
+  "summary": {
+    "total_expected_quantities": 1,
+    "pass_count": 1,
+    "fail_count": 0,
+    "warnings_count": 0,
+    "provisional_count": 0,
+    "exact_match_count": 1,
+    "within_tolerance_count": 0,
+    "outside_tolerance_count": 0,
+    "missing_count": 0,
+    "accuracy_score": 1.0,
+    "readiness_score": 1.0
+  }
+}

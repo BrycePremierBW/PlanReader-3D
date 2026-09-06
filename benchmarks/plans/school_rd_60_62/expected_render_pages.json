@@ -1,0 +1,11 @@
+{
+  "render_pages": [1, 2, 3, 4, 35, 36],
+  "descriptions": [
+    "Cover / Perspective impression (Page 1)",
+    "3D Artist Impression - Street View (Page 2)",
+    "3D Artist Impression - Courtyard View (Page 3)",
+    "3D Artist Impression - Aerial View (Page 4)",
+    "3D Elevations - Block A (Page 35)",
+    "3D Elevations - Block B (Page 36)"
+  ]
+}

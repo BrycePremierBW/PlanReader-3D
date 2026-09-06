@@ -1,0 +1,22 @@
+{
+  "schedules": [
+    {
+      "schedule_type": "elevation_schedule",
+      "sheet": "CD3001",
+      "description": "External Elevations 01 (East, West, North, South)",
+      "target_role": "ELEVATION"
+    },
+    {
+      "schedule_type": "door_window_schedule",
+      "sheet": "CD6001",
+      "description": "Typical Window & Glazed Door Schedules",
+      "target_role": "DOOR_WINDOW_SCHEDULE"
+    },
+    {
+      "schedule_type": "finish_schedule",
+      "sheet": "CD0003",
+      "description": "External and Internal Material Finishes Schedule",
+      "target_role": "FINISH_SCHEDULE"
+    }
+  ]
+}

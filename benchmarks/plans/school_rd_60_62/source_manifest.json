@@ -1,0 +1,18 @@
+{
+  "benchmark_id": "school_rd_60_62",
+  "project_name": "60-62 School Rd Maroochydore - Proposed Townhouse Development",
+  "project_number": "26-017",
+  "client": "Balleo Pty Ltd",
+  "drawing_issue": "BA Issue",
+  "drawing_date": "09.06.2026",
+  "source_pdf": "26-017 - 60-62 School Rd Maroochydore - BA Issue (1) - 09.06.26.pdf",
+  "source_takeoff": "Premier_Brushworks_60-62_School_Rd_Maroochydore_Revised.xlsx",
+  "allowed_comparison_sources": [
+    "Premier_Brushworks_60-62_School_Rd_Maroochydore_Revised.xlsx",
+    "PB-26017_School_Rd_Detailed_Takeoff_and_Pricing.xlsx"
+  ],
+  "rejected_comparison_sources": [
+    "Premier_Brushworks_92-94_School_Rd_Full_Painting_Takeoff.xlsx"
+  ],
+  "status": "benchmark_seed"
+}
