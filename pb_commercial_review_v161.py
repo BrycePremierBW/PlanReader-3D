@@ -308,6 +308,12 @@ def collect_takeoff_review_signals(app: Any, workspace_id: int) -> List[Commerci
                 primary_severity = "BLOCKER"
                 primary_category = "3D model authority"
 
+        from pb_mapped_zone_geometry_authority import is_geometric_approximation
+        if is_geometric_approximation(row):
+            reasons.append("Mapped geometry is an unproven approximation or non-exact bounding box")
+            primary_severity = "REVIEW"
+            primary_category = "Measurement"
+
         # Rule 1: Quantity status signals
         if not qty_status or qty_status.lower() in ("to measure", "provisional measured", "provisional"):
             if qty_status.lower() == "to measure":
