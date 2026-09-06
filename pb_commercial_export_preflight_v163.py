@@ -398,6 +398,7 @@ def derive_export_preflight(conn_or_app: Any, workspace_id: int, bridge_availabl
 
     blocking_reasons: list[str] = []
     warnings: list[str] = []
+    final_publish_authority_reasons: list[str] = []
     unavailable_sources: list[str] = []
 
     try:
@@ -444,7 +445,13 @@ def derive_export_preflight(conn_or_app: Any, workspace_id: int, bridge_availabl
         if sev == SEVERITY_BLOCKER:
             blocking_reasons.append(f"{cat}: {summary}")
         elif sev == SEVERITY_REVIEW:
-            warnings.append(f"{cat}: {summary}")
+            warning = f"{cat}: {summary}"
+            warnings.append(warning)
+            # A REVIEW signal sourced from a takeoff row means the commercial row
+            # itself is unresolved. Typed acknowledgement may accept peripheral
+            # register/RFI warnings, but it cannot create measurement/scope authority.
+            if src_fam == "takeoff":
+                final_publish_authority_reasons.append(warning)
 
     # Fail-Closed B5 Opening Deduction Evidence Check
     b5_blockers, b5_warnings = _verify_b5_opening_evidence(conn_or_app, workspace_id)
@@ -484,10 +491,11 @@ def derive_export_preflight(conn_or_app: Any, workspace_id: int, bridge_availabl
     else:
         draft_handoff_state = "UNAVAILABLE"
 
-    # Final JobHub Publish Policy: STRICT GATES
+    # Final JobHub Publish Policy: STRICT GATES. REVIEW-level takeoff signals
+    # block final publication because acknowledgement cannot manufacture row authority.
     if not bridge_available or not meta["jobhub_job_id"]:
         final_publish_state = "UNAVAILABLE"
-    elif preflight_status == "BLOCKED":
+    elif preflight_status == "BLOCKED" or final_publish_authority_reasons:
         final_publish_state = "BLOCKED"
     elif preflight_status == "AVAILABLE_WITH_WARNING":
         final_publish_state = "AVAILABLE_WITH_WARNING"
@@ -513,6 +521,7 @@ def derive_export_preflight(conn_or_app: Any, workspace_id: int, bridge_availabl
         "blocker_count": blocker_count,
         "warning_count": warning_count,
         "blocking_reasons": blocking_reasons,
+        "final_publish_authority_reasons": final_publish_authority_reasons,
         "pub_rows": pub_rows,
         "payload_hash": payload_hash,
     }
@@ -569,7 +578,7 @@ def verify_toctou_and_publish_jobhub(
     preflight = derive_export_preflight(conn_or_app, workspace_id, bridge_available=True)
 
     if preflight.final_publish_state == "BLOCKED":
-        reasons_str = "; ".join(preflight.blocking_reasons)
+        reasons_str = "; ".join(preflight.blocking_reasons or preflight.warnings)
         raise RuntimeError(f"Final publish blocked by preflight QA gate: {reasons_str}")
 
     if preflight.final_publish_state == "UNAVAILABLE":
