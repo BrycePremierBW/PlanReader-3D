@@ -14,23 +14,29 @@ Phase 6D Authority:
   - Server-Level Duplicate Guard: Checks existing JobHub package receipts for matching preflight fingerprint.
 """
 from __future__ import annotations
-import inspect
 
 import dataclasses
 import hashlib
 import html
+import inspect
 import json
+import math
 import sqlite3
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from pb_commercial_review_v161 import (
-    CommercialReviewResult,
-    CommercialReviewSignal,
     REQUIRED_FAMILIES,
     SEVERITY_BLOCKER,
     SEVERITY_INFO,
     SEVERITY_REVIEW,
+    CommercialReviewResult,
     collect_commercial_review_signals,
+)
+from pb_opening_production_v175 import (
+    PAGES_INDEX_KEY,
+    SETTING_PREFIX,
+    _is_authorised_b5_automatic,
+    _is_valid_positive_int,
 )
 from pb_takeoff_authority_v164 import (
     is_excluded_takeoff_row,
@@ -45,19 +51,19 @@ class CommercialPreflightResult:
     job_no: str
     job_name: str
     drawing_issue: str
-    jobhub_job_id: Optional[int]
+    jobhub_job_id: int | None
     preflight_status: str              # AVAILABLE | AVAILABLE_WITH_WARNING | BLOCKED | UNAVAILABLE
     blocker_count: int
     warning_count: int
     info_count: int
     total_review_items: int
     required_coverage_complete: bool
-    unavailable_required_sources: List[str]
+    unavailable_required_sources: list[str]
     internal_download_state: str        # AVAILABLE | AVAILABLE_WITH_WARNING | UNAVAILABLE
     draft_handoff_state: str           # AVAILABLE | AVAILABLE_WITH_WARNING | UNAVAILABLE
     final_publish_state: str           # AVAILABLE | AVAILABLE_WITH_WARNING | BLOCKED | UNAVAILABLE
-    blocking_reasons: List[str]
-    warnings: List[str]
+    blocking_reasons: list[str]
+    warnings: list[str]
     review_fingerprint: str
     preflight_fingerprint: str
     payload_hash: str
@@ -67,7 +73,7 @@ class CommercialPreflightResult:
     floor_reference_rows: int
     measured_zero_rows: int
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "workspace_id": self.workspace_id,
             "job_no": html.escape(self.job_no or ""),
@@ -97,7 +103,7 @@ class CommercialPreflightResult:
         }
 
 
-def _db_query(conn_or_app: Any, sql: str, params: Tuple[Any, ...] = ()) -> List[Dict[str, Any]]:
+def _db_query(conn_or_app: Any, sql: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
     if hasattr(conn_or_app, "lquery"):
         raw = conn_or_app.lquery(sql, params)
         if isinstance(raw, list):
@@ -114,7 +120,7 @@ def _db_query(conn_or_app: Any, sql: str, params: Tuple[Any, ...] = ()) -> List[
     return []
 
 
-def _get_workspace_meta(conn_or_app: Any, workspace_id: int) -> Dict[str, Any]:
+def _get_workspace_meta(conn_or_app: Any, workspace_id: int) -> dict[str, Any]:
     rows = _db_query(conn_or_app, "SELECT id, job_no, job_name, drawing_issue, jobhub_job_id FROM workspaces WHERE id=?", (workspace_id,))
     if not rows:
         raise ValueError(f"Workspace #{workspace_id} does not exist.")
@@ -128,7 +134,18 @@ def _get_workspace_meta(conn_or_app: Any, workspace_id: int) -> Dict[str, Any]:
     }
 
 
-def _get_takeoff_row_stats(conn_or_app: Any, workspace_id: int) -> Tuple[int, int, int, int, int, str]:
+def _safe_finite_float(val: Any) -> float | None:
+    """Parse numeric float safely, rejecting non-finite numbers (NaN/inf) and booleans."""
+    if val is None or isinstance(val, bool):
+        return None
+    try:
+        f = float(val)
+        return f if math.isfinite(f) else None
+    except (ValueError, TypeError, OverflowError):
+        return None
+
+
+def _get_takeoff_row_stats(conn_or_app: Any, workspace_id: int) -> tuple[int, int, int, int, int, str]:
     """Retrieves row statistics and payload fingerprint for a workspace across all consequential publish fields."""
     rows = _db_query(
         conn_or_app,
@@ -161,10 +178,10 @@ def _get_takeoff_row_stats(conn_or_app: Any, workspace_id: int) -> Tuple[int, in
         if is_publishable:
             publishable += 1
 
+        qty_clean = _safe_finite_float(qty)
         qty_status_str = str(r.get("quantity_status") or "").strip().lower()
-        if qty is not None and float(qty) == 0.0:
-            if qty_status_str in ("measured", "confirmed", "allowance"):
-                measured_zero += 1
+        if qty_clean is not None and qty_clean == 0.0 and qty_status_str in ("measured", "confirmed", "allowance"):
+            measured_zero += 1
 
         # Build comprehensive payload dict of consequential export fields
         pub_payload_items.append({
@@ -174,15 +191,15 @@ def _get_takeoff_row_stats(conn_or_app: Any, workspace_id: int) -> Tuple[int, in
             "location": str(r.get("location") or ""),
             "substrate": str(r.get("substrate") or ""),
             "unit": unit_str,
-            "quantity": float(qty) if qty is not None else None,
-            "coats": float(r.get("coats")) if r.get("coats") is not None else None,
-            "rate_per_unit": float(r.get("rate_per_unit")) if r.get("rate_per_unit") is not None else None,
-            "labour_hours": float(r.get("labour_hours")) if r.get("labour_hours") is not None else None,
-            "paint_litres": float(r.get("paint_litres")) if r.get("paint_litres") is not None else None,
-            "value_ex_gst": float(r.get("value_ex_gst")) if r.get("value_ex_gst") is not None else None,
+            "quantity": qty_clean,
+            "coats": _safe_finite_float(r.get("coats")),
+            "rate_per_unit": _safe_finite_float(r.get("rate_per_unit")),
+            "labour_hours": _safe_finite_float(r.get("labour_hours")),
+            "paint_litres": _safe_finite_float(r.get("paint_litres")),
+            "value_ex_gst": _safe_finite_float(r.get("value_ex_gst")),
             "finish_system": str(r.get("finish_system") or ""),
-            "coverage_m2_per_litre": float(r.get("coverage_m2_per_litre")) if r.get("coverage_m2_per_litre") is not None else None,
-            "productivity_m2_per_hour": float(r.get("productivity_m2_per_hour")) if r.get("productivity_m2_per_hour") is not None else None,
+            "coverage_m2_per_litre": _safe_finite_float(r.get("coverage_m2_per_litre")),
+            "productivity_m2_per_hour": _safe_finite_float(r.get("productivity_m2_per_hour")),
             "inclusion_status": inclusion_str,
             "row_role": role_str,
             "notes": str(r.get("notes") or ""),
@@ -197,7 +214,7 @@ def _get_takeoff_row_stats(conn_or_app: Any, workspace_id: int) -> Tuple[int, in
 
     # Sort payload deterministically by row ID
     sorted_payload = sorted(pub_payload_items, key=lambda x: str(x.get("id") or ""))
-    payload_json = json.dumps(sorted_payload, sort_keys=True)
+    payload_json = json.dumps(sorted_payload, sort_keys=True, allow_nan=False)
     payload_hash = hashlib.sha256(payload_json.encode("utf-8")).hexdigest()
 
     return total, publishable, excluded, floor_ref, measured_zero, payload_hash
@@ -230,7 +247,7 @@ def compute_canonical_review_fingerprint(review_res: CommercialReviewResult) -> 
             "location": str(getattr(sig, "location", "") or ""),
             "element": str(getattr(sig, "element", "") or ""),
             "unit": str(getattr(sig, "unit", "") or ""),
-            "quantity": float(getattr(sig, "quantity")) if getattr(sig, "quantity", None) is not None else None,
+            "quantity": _safe_finite_float(getattr(sig, "quantity", None)),
             "inclusion_status": str(getattr(sig, "inclusion_status", "") or ""),
         }
         canonical_signals.append(sig_dict)
@@ -245,8 +262,113 @@ def compute_canonical_review_fingerprint(review_res: CommercialReviewResult) -> 
         "source_coverage": coverage_dict,
         "signals": sorted_signals,
     }
-    raw_json = json.dumps(review_state_structure, sort_keys=True)
+    raw_json = json.dumps(review_state_structure, sort_keys=True, allow_nan=False)
     return hashlib.sha256(raw_json.encode("utf-8")).hexdigest()
+
+
+def _verify_b5_opening_evidence(conn_or_app: Any, workspace_id: int) -> tuple[list[str], list[str]]:
+    """Verify persisted B5 opening deduction evidence for the workspace.
+    Fails closed on pipeline errors, conflicts, orphaned pages, workspace replays, or invalid deductions.
+    """
+    blockers: list[str] = []
+    warnings: list[str] = []
+
+    raw_index = None
+    if hasattr(conn_or_app, "workspace_setting") and callable(conn_or_app.workspace_setting):
+        raw_index = conn_or_app.workspace_setting(workspace_id, PAGES_INDEX_KEY, "[]")
+    elif hasattr(conn_or_app, "get_workspace_setting") and callable(conn_or_app.get_workspace_setting):
+        raw_index = conn_or_app.get_workspace_setting(workspace_id, PAGES_INDEX_KEY, "[]")
+    else:
+        try:
+            rows = _db_query(conn_or_app, "SELECT value FROM workspace_settings WHERE workspace_id=? AND key=?", (workspace_id, PAGES_INDEX_KEY))
+            if rows:
+                raw_index = rows[0].get("value")
+        except (sqlite3.OperationalError, sqlite3.DatabaseError, TypeError, ValueError):
+            raw_index = None
+
+    if not raw_index:
+        return blockers, warnings
+
+    try:
+        page_ids = json.loads(raw_index) if isinstance(raw_index, str) else raw_index
+        if not isinstance(page_ids, list):
+            page_ids = []
+    except (json.JSONDecodeError, TypeError, ValueError):
+        blockers.append("B5 opening evidence index corrupted or unparseable")
+        return blockers, warnings
+
+    for pid in page_ids:
+        if not _is_valid_positive_int(pid):
+            blockers.append(f"Invalid page identity in B5 opening evidence index: {pid}")
+            continue
+
+        page_rows = _db_query(conn_or_app, "SELECT id, workspace_id FROM pages WHERE id=?", (int(pid),))
+        if not page_rows:
+            blockers.append(f"Orphaned B5 opening evidence for non-existent page #{pid}")
+            continue
+
+        live_page = page_rows[0]
+        live_ws = live_page.get("workspace_id")
+        if int(live_ws or 0) != int(workspace_id):
+            blockers.append(f"Cross-workspace replay: B5 evidence page #{pid} belongs to workspace #{live_ws}, not #{workspace_id}")
+            continue
+
+        raw_payload = None
+        key = f"{SETTING_PREFIX}{int(pid)}"
+        if hasattr(conn_or_app, "workspace_setting") and callable(conn_or_app.workspace_setting):
+            raw_payload = conn_or_app.workspace_setting(workspace_id, key, "{}")
+        elif hasattr(conn_or_app, "get_workspace_setting") and callable(conn_or_app.get_workspace_setting):
+            raw_payload = conn_or_app.get_workspace_setting(workspace_id, key, "{}")
+        else:
+            try:
+                rows = _db_query(conn_or_app, "SELECT value FROM workspace_settings WHERE workspace_id=? AND key=?", (workspace_id, key))
+                if rows:
+                    raw_payload = rows[0].get("value")
+            except (sqlite3.OperationalError, sqlite3.DatabaseError, TypeError, ValueError):
+                raw_payload = None
+
+        if not raw_payload:
+            continue
+
+        try:
+            payload = json.loads(raw_payload) if isinstance(raw_payload, str) else raw_payload
+            if not isinstance(payload, dict):
+                blockers.append(f"Malformed B5 opening evidence payload on page #{pid}")
+                continue
+        except (json.JSONDecodeError, TypeError, ValueError):
+            blockers.append(f"Unparseable B5 opening evidence payload on page #{pid}")
+            continue
+
+        pl_ws = payload.get("workspace_id")
+        if pl_ws is not None and int(pl_ws) != int(workspace_id):
+            blockers.append(f"Cross-workspace replay: B5 payload on page #{pid} claims workspace #{pl_ws}, expected #{workspace_id}")
+            continue
+
+        pl_pid = payload.get("page_id")
+        if pl_pid is not None and int(pl_pid) != int(pid):
+            blockers.append(f"Page mismatch: B5 payload claims page #{pl_pid}, expected #{pid}")
+            continue
+
+        st = str(payload.get("status") or "").lower()
+        if st == "error" or payload.get("error"):
+            err_msg = payload.get("error") or "pipeline error"
+            blockers.append(f"B5 opening analysis error on page #{pid}: {err_msg}")
+            continue
+
+        conflicts = payload.get("conflicts") or []
+        if conflicts:
+            blockers.append(f"Unresolved B5 opening conflicts on page #{pid} ({len(conflicts)} conflict(s))")
+
+        for inst in payload.get("instances") or []:
+            if not isinstance(inst, dict):
+                blockers.append(f"Malformed opening instance on page #{pid}")
+                continue
+            is_deduct = inst.get("deduct")
+            if is_deduct and not _is_authorised_b5_automatic(inst) and not inst.get("manual_override_confirmed"):
+                tag = inst.get("tag") or inst.get("opening_instance_id") or inst.get("opening_id") or "unnamed"
+                blockers.append(f"Unauthorized B5 opening deduction on page #{pid} ('{tag}'): missing required proof bundle or invalid evidence")
+
+    return blockers, warnings
 
 
 def derive_export_preflight(conn_or_app: Any, workspace_id: int, bridge_available: bool = True) -> CommercialPreflightResult:
@@ -257,13 +379,13 @@ def derive_export_preflight(conn_or_app: Any, workspace_id: int, bridge_availabl
     workspace_dict = {"id": workspace_id, "job_no": meta["job_no"], "job_name": meta["job_name"], "drawing_issue": meta["drawing_issue"]}
     review_res: CommercialReviewResult = collect_commercial_review_signals(conn_or_app, workspace_dict)
 
-    blocking_reasons: List[str] = []
-    warnings: List[str] = []
-    unavailable_sources: List[str] = []
+    blocking_reasons: list[str] = []
+    warnings: list[str] = []
+    unavailable_sources: list[str] = []
 
     try:
         total_rows, pub_rows, excl_rows, floor_rows, zero_rows, payload_hash = _get_takeoff_row_stats(conn_or_app, workspace_id)
-    except Exception as exc:
+    except (sqlite3.OperationalError, sqlite3.DatabaseError, TypeError, ValueError) as exc:
         total_rows, pub_rows, excl_rows, floor_rows, zero_rows, payload_hash = 0, 0, 0, 0, 0, "error"
         blocking_reasons.append(f"Take-off query error: {exc}")
         unavailable_sources.append("takeoff")
@@ -290,11 +412,27 @@ def derive_export_preflight(conn_or_app: Any, workspace_id: int, bridge_availabl
         sev = getattr(sig, "severity", SEVERITY_INFO)
         cat = getattr(sig, "category", "Review")
         summary = getattr(sig, "summary", getattr(sig, "message", "Signal"))
+        src_fam = getattr(sig, "source_family", "")
+
+        # Strict scale boundary: provisional or uncalibrated scale must ALWAYS block final publication!
+        if src_fam == "scale" and (
+            "provisional" in summary.lower()
+            or "uncalibrated" in summary.lower()
+            or "provisional" in cat.lower()
+            or sev == SEVERITY_BLOCKER
+        ):
+            blocking_reasons.append(f"{cat}: {summary}")
+            continue
 
         if sev == SEVERITY_BLOCKER:
             blocking_reasons.append(f"{cat}: {summary}")
         elif sev == SEVERITY_REVIEW:
             warnings.append(f"{cat}: {summary}")
+
+    # Fail-Closed B5 Opening Deduction Evidence Check
+    b5_blockers, b5_warnings = _verify_b5_opening_evidence(conn_or_app, workspace_id)
+    blocking_reasons.extend(b5_blockers)
+    warnings.extend(b5_warnings)
 
     # Publishable row count gate
     if pub_rows == 0:
@@ -394,7 +532,7 @@ def verify_toctou_and_publish_jobhub(
     expected_fingerprint: str,
     acknowledgement_confirmed: bool,
     publish_fn: Any
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Time-Of-Check / Time-Of-Use (TOCTOU) Protected JobHub Final Publish Gate.
 
     Re-derives Phase 6B review, fresh Phase 6D preflight, and payload hash immediately prior to calling downstream
@@ -431,8 +569,8 @@ def verify_toctou_and_publish_jobhub(
                     raise RuntimeError(f"Package for preflight fingerprint {preflight.preflight_fingerprint[:12]}... has already been published to JobHub for job #{job_id} (Package #{pkg.get('id')}).")
         except RuntimeError:
             raise
-        except Exception as exc:
-            raise RuntimeError(f"Duplicate verification failed closed: unable to query existing JobHub packages ({exc}).")
+        except (sqlite3.OperationalError, sqlite3.DatabaseError, TypeError, ValueError, AttributeError) as exc:
+            raise RuntimeError(f"Duplicate verification failed closed: unable to query existing JobHub packages ({exc}).") from exc
 
     # Safely determine signature BEFORE invocation to prevent double-invocation on internal TypeError
     supports_kwargs = True
