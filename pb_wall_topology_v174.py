@@ -22,6 +22,7 @@ class RoomSpaceRecord:
     default_wall_height_m: float
     wall_surface_area_m2: float  # perimeter_m * default_wall_height_m
     raw_points: List[Tuple[float, float]] = field(default_factory=list)
+    scale_reliable: bool = True
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -34,12 +35,13 @@ class RoomSpaceRecord:
             "default_wall_height_m": round(self.default_wall_height_m, 2),
             "wall_surface_area_m2": round(self.wall_surface_area_m2, 2),
             "raw_points_count": len(self.raw_points),
+            "scale_reliable": self.scale_reliable,
         }
 
 
 def compute_polygon_area_and_perimeter(pts: Sequence[Tuple[float, float]], px_per_m: float = 100.0) -> Tuple[float, float]:
     """Calculate real-world area (m²) and perimeter (m) for a 2D polygon in pixel coordinates using Shoelace formula."""
-    if not pts or len(pts) < 3 or px_per_m <= 0:
+    if not pts or len(pts) < 3 or not math.isfinite(px_per_m) or px_per_m <= 0:
         return (0.0, 0.0)
 
     n = len(pts)
@@ -95,10 +97,25 @@ class WallTopologyRegistry:
                 except Exception:
                     pass
 
-            calc_area, calc_perim = compute_polygon_area_and_perimeter(pts, px_per_m=float(px_m or 100.0))
-            area_val = float(area_m2) if area_m2 else calc_area
-            perim_val = float(len_m) if len_m else calc_perim
-            wall_m2 = perim_val * default_wall_height
+            try:
+                px_m_val = float(px_m) if px_m is not None else 0.0
+            except (TypeError, ValueError):
+                px_m_val = 0.0
+            scale_valid = math.isfinite(px_m_val) and px_m_val > 0.0
+            has_stored_area = area_m2 is not None and float(area_m2) != 0.0
+            has_stored_perim = len_m is not None and float(len_m) != 0.0
+
+            if scale_valid:
+                calc_area, calc_perim = compute_polygon_area_and_perimeter(pts, px_per_m=px_m_val)
+            else:
+                # No calibrated scale for this page: fail closed rather than
+                # fabricating geometry against an assumed px/m ratio.
+                calc_area, calc_perim = 0.0, 0.0
+
+            area_val = float(area_m2) if has_stored_area else calc_area
+            perim_val = float(len_m) if has_stored_perim else calc_perim
+            room_scale_reliable = scale_valid or has_stored_area or has_stored_perim
+            wall_m2 = perim_val * default_wall_height if room_scale_reliable else 0.0
 
             rooms.append(RoomSpaceRecord(
                 room_id=int(rid),
@@ -110,6 +127,7 @@ class WallTopologyRegistry:
                 default_wall_height_m=default_wall_height,
                 wall_surface_area_m2=wall_m2,
                 raw_points=pts,
+                scale_reliable=room_scale_reliable,
             ))
 
         return cls(rooms)
@@ -119,6 +137,25 @@ class WallTopologyRegistry:
 
     def total_wall_surface_m2(self) -> float:
         return sum(r.wall_surface_area_m2 for r in self.rooms)
+
+    def get_issues(self) -> List[Dict[str, Any]]:
+        """Rooms whose geometry could not be trusted because the source page has no reliable scale."""
+        return [
+            {
+                "room_id": r.room_id,
+                "page_id": r.page_id,
+                "room_name": r.room_name,
+                "issue_type": "UNRELIABLE_SCALE_GEOMETRY",
+                "description": (
+                    f"{r.room_name} has no calibrated page scale and no stored measurement; "
+                    "area/perimeter were not fabricated and default to 0."
+                ),
+            }
+            for r in self.rooms if not r.scale_reliable
+        ]
+
+    def is_blocked(self) -> bool:
+        return len(self.get_issues()) > 0
 
 
 def derive_wall_topology(conn: sqlite3.Connection, workspace_id: int, default_wall_height: float = 2.7) -> WallTopologyRegistry:

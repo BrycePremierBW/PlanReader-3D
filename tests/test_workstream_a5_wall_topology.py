@@ -104,6 +104,73 @@ class WorkstreamA5TopologyTests(unittest.TestCase):
         self.assertAlmostEqual(registry.total_floor_area_m2(), 74.0, places=2)
         self.assertAlmostEqual(registry.total_wall_surface_m2(), 135.0, places=2)  # (30+20)*2.7 = 135m²
 
+    def test_04_missing_scale_fails_closed_not_fabricated(self):
+        """A page with no px_per_m and no stored measurement must NOT silently assume 100 px/m."""
+        cur = self.conn.cursor()
+        cur.execute("INSERT INTO pages VALUES (11, 1, 'A-102 No Scale', NULL)")
+        pts = [(0, 0), (1000, 0), (1000, 500), (0, 500)]  # would be 50m2 @ 100px/m if fabricated
+        cur.execute(
+            "INSERT INTO measurement_lines VALUES (200, 1, 11, 'polygon', NULL, NULL, ?)",
+            (json.dumps(pts),)
+        )
+        self.conn.commit()
+
+        registry = derive_wall_topology(self.conn, 1, default_wall_height=2.7)
+        self.assertEqual(len(registry.rooms), 1)
+        room = registry.rooms[0]
+
+        # Must fail closed to zero, never silently assume a 100 px/m default scale.
+        self.assertEqual(room.area_m2, 0.0)
+        self.assertEqual(room.perimeter_m, 0.0)
+        self.assertEqual(room.wall_surface_area_m2, 0.0)
+        self.assertFalse(room.scale_reliable)
+
+        self.assertTrue(registry.is_blocked())
+        issues = registry.get_issues()
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0]["issue_type"], "UNRELIABLE_SCALE_GEOMETRY")
+        self.assertEqual(issues[0]["page_id"], 11)
+
+    def test_05_zero_and_nonfinite_scale_fail_closed(self):
+        """px_per_m of 0, NaN, or inf must all fail closed rather than fabricating geometry."""
+        cur = self.conn.cursor()
+        cur.execute("INSERT INTO pages VALUES (12, 1, 'A-103 Zero Scale', 0.0)")
+        cur.execute("INSERT INTO pages VALUES (13, 1, 'A-104 NaN Scale', ?)", (float("nan"),))
+        cur.execute("INSERT INTO pages VALUES (14, 1, 'A-105 Inf Scale', ?)", (float("inf"),))
+        pts = [(0, 0), (1000, 0), (1000, 500), (0, 500)]
+        for mid, pid in ((300, 12), (301, 13), (302, 14)):
+            cur.execute(
+                "INSERT INTO measurement_lines VALUES (?, 1, ?, 'polygon', NULL, NULL, ?)",
+                (mid, pid, json.dumps(pts))
+            )
+        self.conn.commit()
+
+        registry = derive_wall_topology(self.conn, 1, default_wall_height=2.7)
+        self.assertEqual(len(registry.rooms), 3)
+        for room in registry.rooms:
+            self.assertEqual(room.area_m2, 0.0)
+            self.assertEqual(room.perimeter_m, 0.0)
+            self.assertFalse(room.scale_reliable)
+        self.assertTrue(registry.is_blocked())
+        self.assertEqual(len(registry.get_issues()), 3)
+
+    def test_06_stored_measurement_trusted_even_without_page_scale(self):
+        """A canonical stored area/length is trusted as-is even if the page's px_per_m is later missing."""
+        cur = self.conn.cursor()
+        cur.execute("INSERT INTO pages VALUES (15, 1, 'A-106 No Scale But Stored', NULL)")
+        cur.execute(
+            "INSERT INTO measurement_lines VALUES (400, 1, 15, 'polygon', 30.0, 50.0, NULL)"
+        )
+        self.conn.commit()
+
+        registry = derive_wall_topology(self.conn, 1, default_wall_height=2.7)
+        self.assertEqual(len(registry.rooms), 1)
+        room = registry.rooms[0]
+        self.assertEqual(room.area_m2, 50.0)
+        self.assertEqual(room.perimeter_m, 30.0)
+        self.assertTrue(room.scale_reliable)
+        self.assertFalse(registry.is_blocked())
+
 
 if __name__ == "__main__":
     unittest.main()
