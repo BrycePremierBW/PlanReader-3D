@@ -59,6 +59,14 @@ wall_ai = add_row("Internal walls", "Wall paint", "Level 1 · all walls", 100.0,
 wall_ai2 = add_row("Internal walls", "Wall paint", "Level 1 · all walls", 95.0, "m²", 12.0, ref="AI plan review")
 skirt_ground = add_row("Internal walls", "Skirting", "Ground · all skirting", 40.0, "lm", 6.0)
 facade_ai = add_row("External", "Facade paint", "Level 1 · external walls", 60.0, "m²", 15.0, notes="AI draft")
+for reviewed_ai_row in (wall_ai, wall_ai2, facade_ai):
+    app.lexecute(
+        """UPDATE takeoff_rows
+              SET origin='AI_REVIEWED',ai_baseline_quantity=quantity,
+                  quantity_status='Measured',confidence='Estimator verified'
+            WHERE id=?""",
+        (reviewed_ai_row,),
+    )
 
 # 3. Copy rows across levels
 copied = app.copy_takeoff_rows_to_level(wid, [wall_ai, skirt_ground], "Level 2")

@@ -49,9 +49,11 @@ from pb_takeoff_authority_v164 import (
     AUTHORITY_SOURCE_FIELD,
     AUTHORITY_STATUS_FIELD,
     approve_model_surface_row,
+    is_ai_takeoff_row,
     is_commercial_floor_reference_row,
     is_model_surface_row,
     model_surface_authority,
+    prepare_ai_takeoff_editor_save,
     takeoff_row_publishability,
 )
 
@@ -3417,8 +3419,8 @@ def takeoff_work_rows(takeoff: pd.DataFrame) -> pd.DataFrame:
     Floor-area rows are per-level measurement rows used to drive floor-m² pricing;
     they carry real m² but are never painted quantities, so they are filtered out
     of painted-area totals and JobHub line pushes. Explicit exclusions and 3D
-    surfaces without complete commercial review evidence are also filtered here,
-    using the same policy as Phase 6D preflight.
+    surfaces and AI-derived drafts without complete commercial review evidence
+    are also filtered here, using the same policy as Phase 6D preflight.
     """
     if takeoff.empty:
         return takeoff
@@ -3434,7 +3436,7 @@ def takeoff_progress_rows(takeoff: pd.DataFrame) -> pd.DataFrame:
     Filters out:
     - Excluded rows
     - Floor reference rows
-    - Unapproved model surfaces
+    - Unreviewed AI drafts and unapproved model surfaces
     - Provisional rows (provisional inclusion or unmeasured/provisional quantity)
     - Zero, negative, or non-finite quantities
     """
@@ -3763,7 +3765,13 @@ def reconcile_ai_vs_drawn(workspace_id: int) -> pd.DataFrame:
     and the AI quantity is compared with the drawn quantity so differences stand
     out before the take-off is priced.
     """
-    takeoff = dataframe_for_takeoff(workspace_id)
+    # Reconciliation is an evidence-review surface, not a commercial output.
+    # Keep blocked AI drafts visible here even though pricing/export filters
+    # correctly exclude them.
+    takeoff = ldf(
+        "SELECT * FROM takeoff_rows WHERE workspace_id=? ORDER BY id",
+        (workspace_id,),
+    )
     if takeoff.empty:
         return pd.DataFrame(columns=["section", "element", "location", "unit", "ai_qty", "drawn_qty", "variance", "status"])
     drawn_counts = {
@@ -3777,9 +3785,7 @@ def reconcile_ai_vs_drawn(workspace_id: int) -> pd.DataFrame:
     for r in takeoff.itertuples(index=False):
         rid = int(r.id)
         drawn = drawn_counts.get(rid, 0)
-        source_ref = str(r.source_reference or "")
-        notes = str(r.notes or "")
-        is_ai = "AI" in source_ref or "AI plan review" in notes or "AI-generated" in notes or "AI draft" in notes
+        is_ai = is_ai_takeoff_row(r._asdict())
         if drawn:
             basis = "Drawn"
         elif is_ai:
@@ -5881,7 +5887,7 @@ def subscription_takeoff_page(workspace: dict[str, Any], session_api_key: str, a
                     row_role="model_surface"
                 elif row_role not in {"", "floor_area"}:
                     row_role=""
-                merged_row = {**prior, **row}
+                merged_row = prepare_ai_takeoff_editor_save(prior, row)
                 values = [merged_row.get(col, "") for col in TAKEOFF_COLUMNS]
                 authority = {
                     AUTHORITY_STATUS_FIELD: prior.get(AUTHORITY_STATUS_FIELD, AUTHORITY_REVIEW_REQUIRED if row_role == "model_surface" else ""),
@@ -5910,12 +5916,16 @@ def subscription_takeoff_page(workspace: dict[str, Any], session_api_key: str, a
                     coverage_m2_per_litre,productivity_m2_per_hour,rate_per_unit,confidence,notes,
                     row_role,commercial_authority_status,commercial_authority_source,
                     commercial_authority_reviewed_by,commercial_authority_reviewed_at,
-                    commercial_authority_fingerprint,created_at,updated_at
-                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
+                    commercial_authority_fingerprint,ai_baseline_quantity,
+                    pre_map_quantity,pre_map_quantity_status,origin,created_at,updated_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
                     workspace["id"], *values, row_role,
                     authority[AUTHORITY_STATUS_FIELD], authority[AUTHORITY_SOURCE_FIELD],
                     authority[AUTHORITY_REVIEWED_BY_FIELD], authority[AUTHORITY_REVIEWED_AT_FIELD],
-                    authority[AUTHORITY_FINGERPRINT_FIELD], now_stamp(), now_stamp()
+                    authority[AUTHORITY_FINGERPRINT_FIELD],
+                    merged_row.get("ai_baseline_quantity"), merged_row.get("pre_map_quantity"),
+                    merged_row.get("pre_map_quantity_status"), merged_row.get("origin", ""),
+                    now_stamp(), now_stamp()
                 ))
             st.success("Take-off schedule saved.")
             st.rerun()
