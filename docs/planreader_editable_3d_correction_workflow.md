@@ -65,15 +65,32 @@ useful for audit. It proves the underlying measurement itself was not silently
 altered — only its publishability was — and the old row is never deleted, so a
 reviewer can always see exactly what was blocked and why.
 
-## How this later feeds JobHub preflight
+## How this feeds JobHub preflight
 
-This PR does not call JobHub and does not touch the PR C publishing contract. But
-the shape it establishes — objects carrying a `revision_hash`, corrections that
-always demand re-approval, and quantities that go stale and blocked the instant
-their source geometry changes — is exactly what a JobHub preflight gate will need to
-check before publication: "is every quantity's geometry at its approved revision, or
-has it been corrected since and gone stale?" That check is a straightforward
-`invalidate_stale_quantities_for_corrections()` call away once PR C exists to wire it in.
+PR C (`pb_planreader_jobhub_publish_contract.py`) is merged, and this module
+integrates with it read-only — it does not call JobHub, does not publish live data,
+and does not modify the publishing contract at all.
+
+The integration is proven in
+`tests/editable_3d/test_editable_3d_quantity_staleness.py::TestJobHubPreflightIntegration`:
+a `TakeoffOutputRow` that passes `run_jobhub_publish_preflight()` cleanly (`is_valid=True`)
+is turned stale by `invalidate_stale_quantities_for_corrections()` after a geometry
+correction, and the **same, unmodified** preflight gate then correctly rejects it
+(`is_valid=False`, `blocked_row_count=1`) — because PR C's gate already inspects
+`is_publishable` and `blocking_reasons` on any `TakeoffOutputRow` it's given. No
+compatibility hook was needed: the two modules were already shaped to compose.
+
+## Approval and re-publication
+
+A quantity staled by a correction cannot become firm again just because the
+underlying `EditableGeometryObject` is later approved via
+`approve_corrected_geometry()`. Approval updates the object's own
+`authority_status`; it does not retroactively rewrite any `TakeoffOutputRow` that
+was already staled. A new row must be created via `pb_takeoff_output_authority`
+(e.g. `approve_takeoff_output_row()`) with a `revision_hash` matching the object's
+new, approved revision before it can pass `run_jobhub_publish_preflight()` again.
+This is deliberate: re-publication after a correction is a distinct, explicit act,
+not an automatic side effect of approval.
 
 ## Known limitations
 

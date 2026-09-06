@@ -178,3 +178,62 @@ class TestQuantityInvalidationResultSerializable:
         decoded = json.loads(encoded)
         assert decoded["is_publishable"] is False
         assert "stale_after_geometry_correction" in decoded["blocking_reasons"]
+
+
+class TestJobHubPreflightIntegration:
+    """Proves stale-after-correction rows are already correctly rejected by PR C's
+    run_jobhub_publish_preflight() with zero changes to that module — the existing
+    gate's is_publishable/blocking_reasons checks are sufficient."""
+
+    def test_stale_row_from_correction_blocks_jobhub_preflight(self):
+        from pb_planreader_jobhub_publish_contract import (
+            PublishMode,
+            run_jobhub_publish_preflight,
+        )
+
+        ledger = Editable3DCorrectionLedger()
+        ledger.register_object(_make_wall("WALL-PREFLIGHT-1"))
+
+        row = create_takeoff_output_row(
+            quantity_id="QTY-PREFLIGHT-1",
+            description="Kitchen Wall",
+            value=12.0,
+            unit="m²",
+            source_type=TakeoffSourceType.DOCUMENTED_DIMENSION,
+            source_page=2,
+            source_sheet="WD-02",
+            geometry_ref="WALL-PREFLIGHT-1",
+            dimension_text_id="DIM-PF-1",
+        )
+        project_identity = {"project_id": "JOB-1", "identity_confirmed": True}
+        drawing_revision = {"revision_hash": "REV-CURRENT"}
+
+        clean_result = run_jobhub_publish_preflight(
+            [row], project_identity, drawing_revision, mode=PublishMode.COMMERCIAL_PUBLISH
+        )
+        assert clean_result.is_valid is True
+        assert clean_result.publishable_row_count == 1
+
+        outcome = ledger.apply_correction(
+            correction_id="CORR-PF-1",
+            object_id="WALL-PREFLIGHT-1",
+            field=CorrectionField.LENGTH.value,
+            new_value=6.0,
+            reason="Corrected on site",
+            actor="Estimator A",
+            source=CorrectionSource.EDITOR_3D.value,
+            affected_quantity_ids=["QTY-PREFLIGHT-1"],
+        )
+        assert outcome.ok is True
+
+        stale_row = ledger.invalidate_takeoff_rows([row])[0].new_row
+
+        stale_result = run_jobhub_publish_preflight(
+            [stale_row], project_identity, drawing_revision, mode=PublishMode.COMMERCIAL_PUBLISH
+        )
+        assert stale_result.is_valid is False
+        assert stale_result.blocked_row_count == 1
+        assert any(
+            "stale_after_geometry_correction" in r.lower() or "unpublishable" in r.lower()
+            for r in stale_result.blocking_reasons
+        )
