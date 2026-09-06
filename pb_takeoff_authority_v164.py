@@ -134,12 +134,12 @@ def ai_takeoff_authority(row: Mapping[str, Any]) -> Tuple[bool, str]:
 def prepare_ai_takeoff_editor_save(
     prior: Mapping[str, Any], edited: Mapping[str, Any]
 ) -> Dict[str, Any]:
-    """Preserve AI provenance and record only an explicit review transition.
+    """Preserve AI provenance and make review mutation-sensitive.
 
-    Merely saving a legacy AI row whose model supplied trusted-looking status
-    text is not review. The estimator must change quantity status or confidence
-    to an accepted value in the editor. Once recorded, later saves preserve the
-    reviewed marker while the accepted status fields remain fail-closed gates.
+    A legacy AI row cannot self-authorise trusted-looking model fields. Likewise,
+    an already reviewed AI row cannot carry that review across a consequential
+    commercial edit unless the estimator explicitly changes quantity status or
+    confidence as part of the same save. Unchanged reviewed rows remain reviewed.
     """
     merged = {**dict(prior), **dict(edited)}
     if not (is_ai_takeoff_row(prior) or is_ai_takeoff_row(merged)):
@@ -152,10 +152,17 @@ def prepare_ai_takeoff_editor_save(
         status != _normalised(prior.get("quantity_status"))
         or confidence != _normalised(prior.get("confidence"))
     )
-    explicit_review = (
+    bound_state_changed = any(
+        _canonical_value(prior.get(field)) != _canonical_value(merged.get(field))
+        for field in _AUTHORITY_BOUND_FIELDS
+    )
+    valid_review_fields = (
         status in _AI_CONFIRMED_QUANTITY_STATUS_VALUES
         and confidence in _AI_REVIEWED_CONFIDENCE_VALUES
-        and (prior_origin == AI_REVIEWED_ORIGIN or review_fields_changed)
+    )
+    explicit_review = valid_review_fields and (
+        review_fields_changed
+        or (prior_origin == AI_REVIEWED_ORIGIN and not bound_state_changed)
     )
     merged["origin"] = "AI_REVIEWED" if explicit_review else "AI"
     return merged
