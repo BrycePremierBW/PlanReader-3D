@@ -22,6 +22,7 @@ from pb_takeoff_authority_v164 import (
     model_surface_authority,
     prepare_ai_takeoff_editor_save,
 )
+from pb_mapped_zone_geometry_authority import classify_mapped_zone_authority
 
 SOURCE_PREFIX = "PB No-AI v1.2.16"
 
@@ -93,13 +94,9 @@ def classify_context(*, page_type: Any = "", view_type: Any = "", label: Any = "
 
 def zone_to_takeoff_row(zone: dict[str, Any]) -> dict[str, Any] | None:
     """Convert one mapped zone to a safe, deterministic take-off draft row."""
-    px_per_m = _num(zone.get("px_per_m"))
-    area = max(0.0, _num(zone.get("area_m2")))
-    if area <= 0 and px_per_m > 0:
-        width_px = max(0.0, _num(zone.get("w_px")))
-        height_px = max(0.0, _num(zone.get("h_px")))
-        if width_px > 0 and height_px > 0:
-            area = width_px * height_px / (px_per_m * px_per_m)
+    px_per_m = _num(zone.get("px_per_m")) or _num(zone.get("page_px_per_m"))
+    geo_auth = classify_mapped_zone_authority(zone, px_per_m)
+    area = geo_auth["area_m2"]
     if area <= 0:
         return None
 
@@ -109,8 +106,18 @@ def zone_to_takeoff_row(zone: dict[str, Any]) -> dict[str, Any] | None:
         label=zone.get("name"),
         substrate=zone.get("substrate"),
     )
-    calibrated = px_per_m > 0 or _num(zone.get("page_px_per_m")) > 0
-    quantity_status, confidence = _measured_status(zone.get("quantity_status"), calibrated, area)
+    is_floor_area = context["row_role"] == "floor_area"
+    calibrated = px_per_m > 0
+
+    if (geo_auth["is_exact_rectangle"] or (is_floor_area and not geo_auth["is_approximation"])) and calibrated:
+        quantity_status, confidence = _measured_status(zone.get("quantity_status"), calibrated, area)
+        raw_incl = str(zone.get("inclusion_status") or "").strip().upper()
+        inclusion_status = raw_incl if raw_incl in {"INCLUSION", "EXCLUSION", "CLARIFICATION"} else ("INCLUSION" if is_floor_area or quantity_status == "Measured" else "PROVISIONAL")
+    else:
+        quantity_status = "Provisional measured"
+        confidence = "To review" if calibrated else "Derived"
+        inclusion_status = "PROVISIONAL"
+
     substrate = str(zone.get("substrate") or "Other").strip() or "Other"
     finish = str(zone.get("finish_system") or "To be confirmed").strip() or "To be confirmed"
     zone_id = int(_num(zone.get("id"), 0))
@@ -118,7 +125,8 @@ def zone_to_takeoff_row(zone: dict[str, Any]) -> dict[str, Any] | None:
     source_ref = f"{SOURCE_PREFIX} · zone:{zone_id}"
     if original_ref:
         source_ref += f" · {original_ref}"
-    is_floor_area = context["row_role"] == "floor_area"
+
+    notes = f"Rules-based no-AI takeoff from mapped geometry: {geo_auth['reason']}."
 
     return {
         "section": context["section"],
@@ -131,13 +139,13 @@ def zone_to_takeoff_row(zone: dict[str, Any]) -> dict[str, Any] | None:
         "quantity_status": quantity_status,
         "source_page": str(zone.get("page_label") or ""),
         "source_reference": source_ref,
-        "inclusion_status": "INCLUSION" if is_floor_area else "PROVISIONAL",
+        "inclusion_status": inclusion_status,
         "coats": 0,
         "coverage_m2_per_litre": 0,
         "productivity_m2_per_hour": 0,
         "rate_per_unit": 0,
         "confidence": confidence,
-        "notes": "Rules-based no-AI draft from mapped geometry. Review painting scope, substrate and finish before pricing.",
+        "notes": notes,
         "row_role": context["row_role"],
     }
 
@@ -152,6 +160,9 @@ def measurement_to_takeoff_row(item: dict[str, Any]) -> dict[str, Any] | None:
     area = max(0.0, _num(item.get("area_m2")))
     length = max(0.0, _num(item.get("length_m")))
     perimeter = max(0.0, _num(item.get("perimeter_m")))
+
+    pxpm = _num(item.get("page_px_per_m"))
+    calibrated = pxpm > 0
 
     if requested_unit == "m²" or (area > 0 and any(token in kind for token in ("area", "polygon", "rect", "box"))):
         quantity, unit = area, "m²"
@@ -173,8 +184,21 @@ def measurement_to_takeoff_row(item: dict[str, Any]) -> dict[str, Any] | None:
     if context["row_role"] == "floor_area" and "floor" not in label.lower():
         context = {"section": "General", "element": "Measured area", "row_role": ""}
 
-    calibrated = _num(item.get("page_px_per_m")) > 0
-    quantity_status, confidence = _measured_status(item.get("quantity_status"), calibrated, quantity)
+    if unit == "m²":
+        geo_auth = classify_mapped_zone_authority(item, pxpm)
+        if geo_auth["area_m2"] > 0:
+            quantity = geo_auth["area_m2"]
+        if geo_auth["is_exact_rectangle"] and calibrated:
+            quantity_status, confidence = _measured_status(item.get("quantity_status"), calibrated, quantity)
+            inclusion_status = "INCLUSION" if context["row_role"] == "floor_area" or quantity_status == "Measured" else "PROVISIONAL"
+        else:
+            quantity_status = "Provisional measured"
+            confidence = "To review" if calibrated else "Derived"
+            inclusion_status = "PROVISIONAL"
+    else:
+        quantity_status, confidence = _measured_status(item.get("quantity_status"), calibrated, quantity)
+        inclusion_status = "INCLUSION" if context["row_role"] == "floor_area" else "PROVISIONAL"
+
     measurement_id = int(_num(item.get("id"), 0))
     is_floor_area = context["row_role"] == "floor_area"
     return {
@@ -188,13 +212,13 @@ def measurement_to_takeoff_row(item: dict[str, Any]) -> dict[str, Any] | None:
         "quantity_status": quantity_status,
         "source_page": str(item.get("page_label") or ""),
         "source_reference": f"{SOURCE_PREFIX} · measurement:{measurement_id}",
-        "inclusion_status": "INCLUSION" if is_floor_area else "PROVISIONAL",
+        "inclusion_status": inclusion_status,
         "coats": 0,
         "coverage_m2_per_litre": 0,
         "productivity_m2_per_hour": 0,
         "rate_per_unit": 0,
         "confidence": confidence,
-        "notes": "Rules-based no-AI draft from Plan Mapper geometry. Assign the painting substrate/finish and review scope before pricing.",
+        "notes": "Rules-based no-AI takeoff from Plan Mapper geometry. Assign the painting substrate/finish and review scope before pricing.",
         "row_role": context["row_role"],
     }
 

@@ -6338,9 +6338,16 @@ def plan_mapper_page(workspace:dict[str,Any]) -> None:
             selected=st.multiselect("Zones",list(choices.keys()))
             c1,c2=st.columns(2)
             if selected and c1.button("Add selected zones to take-off"):
+                from pb_mapped_zone_geometry_authority import classify_mapped_zone_authority
                 for label in selected:
                     z=lquery("SELECT * FROM mapped_zones WHERE id=?",(choices[label],))[0]
-                    lexecute("""INSERT INTO takeoff_rows(workspace_id,section,element,location,substrate,finish_system,quantity,unit,quantity_status,source_page,source_reference,inclusion_status,coats,coverage_m2_per_litre,productivity_m2_per_hour,rate_per_unit,confidence,notes,row_role,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",(workspace["id"],"Mapped drawing","Mapped zone",z.get("name",""),z.get("substrate",""),z.get("finish_system",""),z.get("area_m2",0),"m²",z.get("quantity_status","Measured"),page.get("page_label",""),z.get("source_reference",""),"INCLUSION",3,12,8,default_rate_for(z.get("substrate",""),"Mapped zone",z.get("finish_system",""),"m²"),"Measured" if pxpm>0 else "To review","Rectangle mapped in PlanReader.","",now_stamp(),now_stamp()))
+                    auth = classify_mapped_zone_authority(z, pxpm)
+                    q_status = auth["quantity_status"]
+                    conf = auth["confidence"]
+                    incl = auth["inclusion_status"]
+                    area = auth["area_m2"]
+                    notes = f"Rules-based no-AI takeoff from mapped geometry: {auth['reason']}."
+                    lexecute("""INSERT INTO takeoff_rows(workspace_id,section,element,location,substrate,finish_system,quantity,unit,quantity_status,source_page,source_reference,inclusion_status,coats,coverage_m2_per_litre,productivity_m2_per_hour,rate_per_unit,confidence,notes,row_role,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",(workspace["id"],"Mapped drawing","Mapped zone",z.get("name",""),z.get("substrate",""),z.get("finish_system",""),area,"m²",q_status,page.get("page_label",""),z.get("source_reference",""),incl,3,12,8,default_rate_for(z.get("substrate",""),"Mapped zone",z.get("finish_system",""),"m²"),conf,notes,"",now_stamp(),now_stamp()))
                 st.success("Take-off rows added.")
             if selected and c2.button("Create conceptual 3D masses from selected zones"):
                 for label in selected:

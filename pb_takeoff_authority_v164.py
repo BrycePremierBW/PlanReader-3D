@@ -11,6 +11,7 @@ import hashlib
 import hmac
 import json
 import math
+import re
 from typing import Any, Dict, Mapping, Tuple
 
 
@@ -126,8 +127,10 @@ def is_ai_takeoff_row(row: Mapping[str, Any]) -> bool:
         _text(row.get(field)).lower()
         for field in ("source_reference", "notes")
     )
+    # Strip explicit no-ai markers so rules-based no-AI generators are not misidentified as AI drafts
+    cleaned_provenance = re.sub(r"\bno[- ]ai\b", "", provenance_text)
     return any(
-        marker in provenance_text
+        re.search(rf"\b{re.escape(marker)}\b", cleaned_provenance)
         for marker in ("ai draft", "ai plan review", "ai-generated", "ai generated")
     )
 
@@ -203,7 +206,16 @@ def takeoff_row_scope_authority(row: Mapping[str, Any]) -> Tuple[bool, str]:
     if quantity_status in _PROVISIONAL_STATUS_VALUES:
         return False, "PROVISIONAL"
 
+    from pb_mapped_zone_geometry_authority import is_geometric_approximation
+    if is_geometric_approximation(row):
+        return False, "PROVISIONAL"
+
     return True, "SCOPE_AUTHORISED"
+
+
+def compute_takeoff_row_fingerprint(row: Mapping[str, Any]) -> str:
+    """Bind a takeoff row approval to every consequential field."""
+    return compute_model_surface_authority_fingerprint(row)
 
 
 def is_commercial_floor_reference_row(row: Mapping[str, Any]) -> bool:
