@@ -39,8 +39,12 @@ from pb_opening_production_v175 import (
     _is_valid_positive_int,
 )
 from pb_takeoff_authority_v164 import (
+    ai_takeoff_authority,
+    is_ai_takeoff_row,
     is_excluded_takeoff_row,
     is_floor_reference_row,
+    is_model_surface_row,
+    model_surface_authority,
     takeoff_row_publishability,
 )
 
@@ -118,6 +122,48 @@ def _db_query(conn_or_app: Any, sql: str, params: tuple[Any, ...] = ()) -> list[
         rows = cur.fetchall()
         return [dict(zip(cols, r)) for r in rows]
     return []
+
+
+def _takeoff_review_has_explicit_row_authority(
+    conn_or_app: Any,
+    workspace_id: int,
+    signal: Any,
+) -> bool:
+    """Return True only when a REVIEW signal's current row has explicit authority.
+
+    Fingerprint-bound model approval and explicit AI estimator review are the two
+    persisted row-level authority mechanisms. Ordinary/manual rows have no such
+    override, so unresolved REVIEW state remains final-publish blocking.
+    """
+    raw_row_id = getattr(signal, "takeoff_row_id", None) or getattr(signal, "source_id", None)
+    if isinstance(raw_row_id, bool):
+        return False
+    try:
+        row_id = int(raw_row_id)
+    except (TypeError, ValueError, OverflowError):
+        return False
+    if row_id <= 0:
+        return False
+
+    try:
+        rows = _db_query(
+            conn_or_app,
+            "SELECT * FROM takeoff_rows WHERE id=? AND workspace_id=?",
+            (row_id, workspace_id),
+        )
+    except (sqlite3.OperationalError, sqlite3.DatabaseError, TypeError, ValueError):
+        return False
+    if len(rows) != 1:
+        return False
+
+    row = rows[0]
+    if is_model_surface_row(row):
+        approved, _ = model_surface_authority(row)
+        return approved
+    if is_ai_takeoff_row(row):
+        approved, _ = ai_takeoff_authority(row)
+        return approved
+    return False
 
 
 def _get_workspace_meta(conn_or_app: Any, workspace_id: int) -> dict[str, Any]:
@@ -447,10 +493,14 @@ def derive_export_preflight(conn_or_app: Any, workspace_id: int, bridge_availabl
         elif sev == SEVERITY_REVIEW:
             warning = f"{cat}: {summary}"
             warnings.append(warning)
-            # A REVIEW signal sourced from a takeoff row means the commercial row
-            # itself is unresolved. Typed acknowledgement may accept peripheral
-            # register/RFI warnings, but it cannot create measurement/scope authority.
-            if src_fam == "takeoff":
+            # A takeoff REVIEW without explicit current-row authority is unresolved.
+            # Fingerprint-approved 3D rows and explicitly estimator-reviewed AI rows
+            # already bind authority to the current state and retain warning semantics.
+            if src_fam == "takeoff" and not _takeoff_review_has_explicit_row_authority(
+                conn_or_app,
+                workspace_id,
+                sig,
+            ):
                 final_publish_authority_reasons.append(warning)
 
     # Fail-Closed B5 Opening Deduction Evidence Check
@@ -492,7 +542,7 @@ def derive_export_preflight(conn_or_app: Any, workspace_id: int, bridge_availabl
         draft_handoff_state = "UNAVAILABLE"
 
     # Final JobHub Publish Policy: STRICT GATES. REVIEW-level takeoff signals
-    # block final publication because acknowledgement cannot manufacture row authority.
+    # lacking explicit persisted row authority block final publication.
     if not bridge_available or not meta["jobhub_job_id"]:
         final_publish_state = "UNAVAILABLE"
     elif preflight_status == "BLOCKED" or final_publish_authority_reasons:
