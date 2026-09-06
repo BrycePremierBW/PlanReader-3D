@@ -56,6 +56,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="PlanReader Accuracy Benchmark CLI Runner")
     parser.add_argument("--benchmark", help="Benchmark ID to run (e.g. school_rd_60_62, lago_britinya)")
     parser.add_argument("--all", action="store_true", help="Run all available benchmark seeds")
+    parser.add_argument("--report", action="store_true", help="Generate consolidated golden plan accuracy report")
     parser.add_argument("--pdf", help="Optional override path to source PDF")
     parser.add_argument("--takeoff", help="Optional override path to source takeoff workbook")
     parser.add_argument("--benchmarks-dir", default="benchmarks/plans", help="Directory containing benchmark folders")
@@ -75,12 +76,16 @@ def main() -> int:
                 benchmarks_to_run.append(child.name)
     elif args.benchmark:
         benchmarks_to_run.append(args.benchmark)
+    elif args.report:
+        pass
     else:
         parser.print_help()
         return 1
 
-    print(f"Running PlanReader Benchmarks: {', '.join(benchmarks_to_run)}")
+    if benchmarks_to_run:
+        print(f"Running PlanReader Benchmarks: {', '.join(benchmarks_to_run)}")
     all_passed = True
+    benchmark_results = []
 
     for bid in benchmarks_to_run:
         try:
@@ -90,6 +95,7 @@ def main() -> int:
                 takeoff_path_override=args.takeoff,
             )
             print_result_summary(res)
+            benchmark_results.append(res)
             # If comparison blocked on a benchmark that expects allowed comparison, flag failure
             if bid == "school_rd_60_62" and not res.comparison_allowed:
                 all_passed = False
@@ -98,6 +104,25 @@ def main() -> int:
             import traceback
             traceback.print_exc()
             all_passed = False
+
+    if args.all or args.report:
+        from pb_takeoff_learning_ledger import generate_golden_plan_accuracy_report
+        report = generate_golden_plan_accuracy_report(
+            benchmark_dir=args.benchmarks_dir,
+            output_dir=args.results_dir,
+            results=benchmark_results if benchmark_results else None,
+        )
+        report_md_path = Path(args.results_dir) / "accuracy_report.md"
+        print("=" * 70)
+        print(f"Consolidated Golden Plan Accuracy Report written to: {report_md_path}")
+        print(f"Total Evaluated:      {report['total_benchmarks_evaluated']} benchmarks ({report['total_expected_quantities']} expected quantities)")
+        print(f"Exact Matches:        {report['exact_matches']}")
+        print(f"Within Tolerance:     {report['within_tolerance']}")
+        print(f"Outside Tolerance:    {report['outside_tolerance']}")
+        print(f"Provisional / Ref:    {report['provisional']}")
+        print(f"Overall Accuracy:     {report['accuracy_percentage']}%")
+        print(f"Commercial Readiness: {report['commercial_readiness_percentage']}%")
+        print("=" * 70)
 
     return 0 if all_passed else 1
 

@@ -415,3 +415,18 @@ class PlanReaderBenchmarkRunner:
             json.dump(result.to_dict(), f, indent=2)
 
         return result
+
+
+def run_all_benchmarks(
+    benchmarks_dir: str | Path = "benchmarks/plans",
+    results_dir: str | Path = "benchmark_results",
+) -> List[BenchmarkResult]:
+    """Discover and execute all available benchmark plans."""
+    b_dir = Path(benchmarks_dir)
+    runner = PlanReaderBenchmarkRunner(benchmarks_dir=b_dir, results_dir=results_dir)
+    results: List[BenchmarkResult] = []
+    if b_dir.exists():
+        for child in sorted(b_dir.iterdir()):
+            if child.is_dir() and (child / "source_manifest.json").exists():
+                results.append(runner.run_benchmark(child.name))
+    return results

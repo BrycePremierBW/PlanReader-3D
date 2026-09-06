@@ -1,0 +1,79 @@
+{
+  "generated_at": "2026-09-06T14:39:33.101047+00:00",
+  "total_benchmarks_evaluated": 4,
+  "total_expected_quantities": 19,
+  "exact_matches": 16,
+  "within_tolerance": 0,
+  "outside_tolerance": 1,
+  "missing": 1,
+  "blocked": 0,
+  "provisional": 1,
+  "accuracy_percentage": 84.2,
+  "commercial_readiness_percentage": 94.7,
+  "top_error_reasons": [
+    [
+      "project_mismatch",
+      0
+    ],
+    [
+      "scale_error",
+      0
+    ],
+    [
+      "height_unknown",
+      0
+    ]
+  ],
+  "benchmarks": [
+    {
+      "benchmark_id": "king_st_122_126",
+      "project_name": "122-126 King St, Buderim - Construction Issue 4 (G)",
+      "status": "VERIFIED / BENCHMARKED",
+      "matched": true,
+      "expected_quantities_count": 1,
+      "exact_matches": 1,
+      "within_tolerance": 0,
+      "provisional_count": 0,
+      "error_reasons": []
+    },
+    {
+      "benchmark_id": "lago_britinya",
+      "project_name": "CUBE DEVELOPMENTS - LAGO DD",
+      "status": "VERIFIED / BENCHMARKED",
+      "matched": true,
+      "expected_quantities_count": 4,
+      "exact_matches": 4,
+      "within_tolerance": 0,
+      "provisional_count": 0,
+      "error_reasons": []
+    },
+    {
+      "benchmark_id": "school_rd_60_62",
+      "project_name": "60-62 School Rd Maroochydore - Proposed Townhouse Development",
+      "status": "VERIFIED / BENCHMARKED",
+      "matched": true,
+      "expected_quantities_count": 10,
+      "exact_matches": 9,
+      "within_tolerance": 0,
+      "provisional_count": 1,
+      "error_reasons": []
+    },
+    {
+      "benchmark_id": "school_rd_92_94",
+      "project_name": "COX PROPERTY GROUP - ELISE",
+      "status": "VERIFIED / BENCHMARKED",
+      "matched": true,
+      "expected_quantities_count": 4,
+      "exact_matches": 2,
+      "within_tolerance": 0,
+      "provisional_count": 0,
+      "error_reasons": []
+    }
+  ],
+  "recommended_next_fixes": [
+    "Maintain project identity matching gate to keep cross-project takeoffs blocked.",
+    "Enforce AS 4041 opening deductions (>0.5 m2 deduct, <=0.5 m2 do not) across all wall takeoff paths.",
+    "Promote provisional geometry to firm only upon explicit estimator approval.",
+    "Publish only firm, verified quantities with non-stale preflight fingerprints to JobHub."
+  ]
+}
