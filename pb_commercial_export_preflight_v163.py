@@ -590,12 +590,13 @@ def verify_toctou_and_publish_jobhub(
         except (AttributeError, TypeError, sqlite3.Error, ImportError):
             pass
         try:
-            query_sql = "SELECT id, takeoff_no, notes FROM painting_takeoff_packages WHERE job_id=? AND status='Published' ORDER BY id DESC"
+            query_sql = "SELECT id, takeoff_no, notes, status FROM painting_takeoff_packages WHERE job_id=? AND status IN ('Published', 'Pending') ORDER BY id DESC"
             existing_pkgs = bridge.query(query_sql, (job_id,))
             for pkg in existing_pkgs:
+                st_str = str(pkg.get("status") or "")
                 notes_str = str(pkg.get("notes") or "")
-                if preflight.preflight_fingerprint in notes_str or preflight.payload_hash in notes_str:
-                    raise RuntimeError(f"Package for preflight fingerprint {preflight.preflight_fingerprint[:12]}... has already been published to JobHub for job #{job_id} (Package #{pkg.get('id')}).")
+                if st_str in ("Pending", "Published") or preflight.preflight_fingerprint in notes_str or preflight.payload_hash in notes_str:
+                    raise RuntimeError(f"Package for preflight fingerprint {preflight.preflight_fingerprint[:12]}... is already in progress or published on JobHub for job #{job_id} (Package #{pkg.get('id')}).")
         except RuntimeError:
             raise
         except (sqlite3.OperationalError, sqlite3.DatabaseError, TypeError, ValueError, AttributeError) as exc:
