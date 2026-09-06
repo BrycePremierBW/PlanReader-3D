@@ -317,6 +317,8 @@ def collect_takeoff_review_signals(app: Any, workspace_id: int) -> List[Commerci
                 reasons.append(f"Quantity status is provisional ('{qty_status}')")
             else:
                 reasons.append("Quantity status is unrecorded or missing")
+        elif qty_status.lower() not in ("measured", "allowance", "excluded", "not applicable", "n/a"):
+            reasons.append(f"Quantity status is unrecognised ('{qty_status}')")
 
         # Rule 2: Numeric quantity check for Measured or Allowance rows
         if qty_status.lower() in ("measured", "allowance"):
@@ -340,6 +342,10 @@ def collect_takeoff_review_signals(app: Any, workspace_id: int) -> List[Commerci
         # Rule 4: Inclusion status semantics
         if incl in ("clarification", "provisional"):
             reasons.append(f"Scope inclusion status requires review ('{incl}')")
+            if primary_category == "Measurement" and not any("Quantity" in r or "Measured" in r for r in reasons):
+                primary_category = "Scope / inclusion"
+        elif incl and incl not in ("inclusion", "include", "included", "exclusion", "exclude", "excluded"):
+            reasons.append(f"Scope inclusion status is unrecognised ('{incl}')")
             if primary_category == "Measurement" and not any("Quantity" in r or "Measured" in r for r in reasons):
                 primary_category = "Scope / inclusion"
 
