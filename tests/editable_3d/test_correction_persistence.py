@@ -20,7 +20,6 @@ from pb_editable_3d_model import WallHeightAuthority, WallModel
 from pb_editable_3d_model_bridge import wall_model_to_editable_geometry_object
 from pb_editable_3d_correction_persistence import (
     ReplayWarning,
-    _resync_length_geometry,
     correction_event_to_row,
     object_state_row,
     replay_persisted_corrections,
@@ -85,29 +84,6 @@ class TestSerializationRoundTrip:
         assert row["revision_hash"] == obj.revision_hash
         assert row["authority_status"] == obj.authority_status
         assert row["correction_ids_json"] == "[]"
-
-
-class TestResyncLengthGeometry:
-    def test_end_point_moves_along_the_original_direction_to_the_new_length(self):
-        original = _wall(start_pt=(0.0, 0.0), end_pt=(6.0, 0.0))
-        corrected = _wall(length_m=8.0)
-        _resync_length_geometry(original, corrected)
-        assert corrected.start_pt == (0.0, 0.0)
-        assert corrected.end_pt == (8.0, 0.0)
-
-    def test_diagonal_wall_keeps_its_real_direction(self):
-        original = _wall(start_pt=(0.0, 0.0), end_pt=(3.0, 4.0))  # real 3-4-5 direction
-        corrected = _wall(length_m=10.0)
-        _resync_length_geometry(original, corrected)
-        assert corrected.start_pt == (0.0, 0.0)
-        assert abs(corrected.end_pt[0] - 6.0) < 1e-9  # 10 * (3/5)
-        assert abs(corrected.end_pt[1] - 8.0) < 1e-9  # 10 * (4/5)
-
-    def test_degenerate_original_segment_is_left_untouched(self):
-        original = _wall(start_pt=(2.0, 2.0), end_pt=(2.0, 2.0))
-        corrected = _wall(length_m=10.0, start_pt=(2.0, 2.0), end_pt=(2.0, 2.0))
-        _resync_length_geometry(original, corrected)
-        assert corrected.end_pt == (2.0, 2.0)  # no direction to extend along — left alone
 
 
 class TestReplayReproducesCorrectedGeometry:

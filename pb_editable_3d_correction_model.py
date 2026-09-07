@@ -109,6 +109,49 @@ def _compute_revision_hash(previous_revision_hash: Optional[str], object_id: str
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
+def _resync_line_segment_endpoint(
+    measurements: Mapping[str, Any], new_length: float,
+) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """Keep a straight-segment object's endpoint consistent with a corrected
+    length (PR D.11F.1).
+
+    A wall (or any other object whose measurements describe a straight
+    start_pt -> end_pt segment) must never end up with a `length` value that
+    disagrees with its own `end_pt` — that internal inconsistency is exactly
+    what D.11F left behind (the ledger's own object kept the *old* end_pt
+    after a length correction; only a downstream, best-effort copy built for
+    the 3D viewer resynced it). This recomputes end_pt along the segment's
+    existing direction, at the new length, so the canonical object stored in
+    the ledger is self-consistent the moment the correction is applied —
+    live or replayed, identically, since both paths call apply_correction().
+
+    Returns (resynced_measurements, None) on success. Objects with no
+    start_pt/end_pt at all (rooms, most non-linear shapes) have nothing to
+    resync and pass through unchanged. Returns (None, reason) when a
+    direction genuinely cannot be determined (missing/invalid coordinates,
+    or an existing zero-length segment) — the caller must fail the
+    correction closed rather than silently keep a stale endpoint next to a
+    corrected length.
+    """
+    start_pt = measurements.get("start_pt")
+    end_pt = measurements.get("end_pt")
+    if start_pt is None or end_pt is None:
+        return dict(measurements), None
+    try:
+        x0, y0 = float(start_pt[0]), float(start_pt[1])
+        x1, y1 = float(end_pt[0]), float(end_pt[1])
+    except (TypeError, ValueError, IndexError):
+        return None, "existing start_pt/end_pt are not valid 2D coordinates"
+    dx, dy = x1 - x0, y1 - y0
+    seg_len = math.hypot(dx, dy)
+    if seg_len <= 0.0:
+        return None, "existing start_pt and end_pt are identical — no direction to preserve"
+    ux, uy = dx / seg_len, dy / seg_len
+    resynced = dict(measurements)
+    resynced["end_pt"] = [x0 + ux * new_length, y0 + uy * new_length]
+    return resynced, None
+
+
 # ---------------------------------------------------------------------------
 # Core Data Objects
 # ---------------------------------------------------------------------------
@@ -436,14 +479,23 @@ class Editable3DCorrectionLedger:
         if not outcome.ok or outcome.event is None:
             return outcome
 
-        self._events.append(outcome.event)
-
         updated_measurements = dict(obj.coordinates_or_measurements)
         attr_overrides: Dict[str, Any] = {}
         if field in _OBJECT_ATTRIBUTE_FIELDS:
             attr_overrides[_OBJECT_ATTRIBUTE_FIELDS[field]] = new_value
         else:
             updated_measurements[field] = new_value
+
+        if field == CorrectionField.LENGTH.value:
+            resynced, resync_failure = _resync_line_segment_endpoint(updated_measurements, float(new_value))
+            if resync_failure is not None:
+                return CorrectionOutcome(
+                    ok=False, event=None,
+                    blocking_reasons=[f"Cannot apply length correction: {resync_failure}"],
+                )
+            updated_measurements = resynced
+
+        self._events.append(outcome.event)
 
         updated_obj = replace(
             obj,
