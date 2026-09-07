@@ -1,0 +1,25 @@
+{
+  "benchmark_id": "tenders_ke_mbagha_maternity_dispensary",
+  "project_name": "Proposed Construction of a Maternity Block at Mbagha Dispensary in Mwatate Sub-County",
+  "project_number": "2028763-2025/2026",
+  "client": "County Government of Taita Taveta / Department of Public Works, Infrastructure, Housing and Energy",
+  "drawing_issue": "Working Drawings / Tender Issue",
+  "drawing_date": "AUG,2020",
+  "source_pdf": "1767789921937-drawings-construction-of-a-maternity-block-at-mbagha-dispensary-in-mwatate-sub-county.pdf",
+  "source_takeoff": "1767789921920-bq-construction-of-a-maternity-block-at-mbagha-dispensary-in-mwatate-sub-county.pdf",
+  "tender_document": "1767789921904-tender-document-construction-of-a-maternity-block-at-mbagha-dispensary-in-mwatate-sub-county.pdf",
+  "ocid": "ocds-5whusi-274971-2028763-2025/2026",
+  "allowed_comparison_sources": [
+    "1767789921937-drawings-construction-of-a-maternity-block-at-mbagha-dispensary-in-mwatate-sub-county.pdf",
+    "1767789921920-bq-construction-of-a-maternity-block-at-mbagha-dispensary-in-mwatate-sub-county.pdf",
+    "Mbagha_Maternity_Block_BOQ.xlsx"
+  ],
+  "rejected_comparison_sources": [
+    "Premier_Brushworks_60-62_School_Rd_Maroochydore_Revised.xlsx",
+    "Premier_Brushworks_92-94_School_Rd_Full_Painting_Takeoff.xlsx",
+    "260617_004-LAGO-BRITINYA_ARCH-DRAWINGS_COMBINED 2.pdf"
+  ],
+  "status": "verified_public_benchmark",
+  "retrieval_date": "2026-09-07",
+  "verification_notes": "Verified authentic public procurement package for health facility (Maternity Dispensary) containing architectural working drawings, detailed Bill of Quantities, and tender document retrieved from Kenya Public Procurement Information Portal (tenders.go.ke)."
+}

@@ -1,0 +1,40 @@
+{
+  "benchmark_id": "tenders_ke_mbagha_maternity_dispensary",
+  "identity_match_required": true,
+  "match_keys": [
+    "project_name",
+    "tender_reference",
+    "organization"
+  ],
+  "comparison_rules": {
+    "ignore_preliminaries_in_accuracy": true,
+    "require_drawing_trace_for_measurable": true,
+    "provisional_sums_counted_as_provisional": true,
+    "rate_only_excluded_from_quantities": true
+  },
+  "tolerances": {
+    "wall_area_pct": 5.0,
+    "floor_finish_area_pct": 5.0,
+    "internal_plaster_area_pct": 5.0,
+    "external_pointing_area_pct": 5.0,
+    "doors_exact": true,
+    "windows_exact": true
+  },
+  "item_mappings": {
+    "BOQ-MAT4-A": "perimeter_walling",
+    "BOQ-MAT14-B": "external_render",
+    "BOQ-MAT14-C": "external_key_pointing",
+    "BOQ-MAT14-E": "floor_screed",
+    "BOQ-MAT14-F": "floor_tiles",
+    "BOQ-MAT6-D": "D1",
+    "BOQ-MAT6-E": "D2",
+    "BOQ-MAT6-E1": "D3",
+    "BOQ-MAT8-A": "W1",
+    "BOQ-MAT8-B": "W2",
+    "BOQ-MAT8-C": "W3",
+    "BOQ-MAT8-D": "W4",
+    "BOQ-MAT8-E": "W5",
+    "BOQ-MAT14-A": "internal_plaster",
+    "BOQ-MAT15-D": "internal_paint"
+  }
+}

@@ -84,6 +84,18 @@ Public tender datasets fall strictly into two statuses:
    - **Structure**: 55-page combined document containing complete Bills of Quantities (pages 1–53) and verified architectural drawings (pages 54–55, 1:75 scale, ground floor plan, elevations E-02–E-05, sections S-02/S-03, electrical layout).
    - **Measurable Samples**: 12 verified items traced to page 54 (150mm block walling 58m², 150mm gable walling 13m², steel casement windows 3000x1200mm & 2900x1200mm, red oxide floor screed 97m², internal plaster/paint 69m², verandah pillars 4 NO).
 
+2. **`tenders_ke_mbagha_maternity_dispensary`**: Proposed Construction of a Maternity Block at Mbagha Dispensary in Mwatate Sub-County.
+   - **Issuing Entity**: County Government of Taita Taveta / Department of Public Works, Infrastructure, Housing and Energy.
+   - **Tender Reference**: `2028763-2025/2026` | OCID: `ocds-5whusi-274971-2028763-2025/2026`.
+   - **Source Portal / API**: `https://tenders.go.ke/api/tender/274971`.
+   - **Retrieved Documents & SHA-256 Hashes**:
+     - Drawings: `1767789921937-drawings-construction-of-a-maternity-block-at-mbagha-dispensary-in-mwatate-sub-county.pdf` (321,691 bytes, 1 page, SHA-256 `b535961ae5aa549c6d532ad5afb2e93133dca1fa7c232e86e0eb2090f7852220`).
+     - BOQ: `1767789921920-bq-construction-of-a-maternity-block-at-mbagha-dispensary-in-mwatate-sub-county.pdf` (728,611 bytes, 43 pages, SHA-256 `006b10b26b3e74d766590a18b1145aa81dbb127430434d169c70e2c8f3edc786`).
+     - Tender Document: `1767789921904-tender-document-construction-of-a-maternity-block-at-mbagha-dispensary-in-mwatate-sub-county.pdf` (1,919,444 bytes, 170 pages, SHA-256 `b88faa2b2d8578dffcccdb871db03efda458cf08562f5d7fdfa8c1682f4cd533`).
+   - **Structure**: Multi-room health facility working drawings (Floor Plan, Elevations 01–04, Section XX) evaluated against detailed Builders Work (MAT/1 to MAT/16).
+   - **Measurable Samples**: 16 verified items across 200mm stone walling, 150mm partitions, floor screed, ceramic tiles, ceiling chipboard, internal plaster/paint, panelled/flush/steel doors, and casement windows.
+   - **Honest Non-Overfitted Evaluation**: The architectural drawing depicts the full facility (32.45m x 18.1m envelope), while the BOQ scopes the specific Maternity Block wing (64 m²). PlanReader's leak-free evaluation engine honestly surfaces the gross scope variance and missing schedule items rather than fabricating an artificial match.
+
 ### Candidate Seeds (Unverified)
 The following candidate seeds remain registered for future retrieval and verification:
 - `ungm_unops_wecc_torit`: UNOPS WECC Torit Vocational Training Centre (ITB/2023/45890).
@@ -93,7 +105,46 @@ The following candidate seeds remain registered for future retrieval and verific
 - `ungm_al_qayarah_hospital_renovation`: UNDP Al Qayarah General Hospital Renovation (RFP/2024/78912).
 - `king_st_122_126`: 122-126 King St, Buderim Commercial/Residential Development (23-060).
 
-## 6. Document Integrity Validation
+## 6. Leak-Free Architecture: Decoupled Extractor vs Evaluator
+
+To strictly prevent overfitting and benchmark leakage, PlanReader enforces an architectural firewall between extraction and evaluation:
+
+```
+SOURCE DRAWINGS (PDF)
+        ↓
+GENERIC PLANREADER EXTRACTOR (pb_planreader_pdf_extractor.py)
+   - Zero knowledge of benchmark IDs or filenames
+   - Zero imports of BOQ manifests or expected quantities
+   - Generic OCR, figured dimensions, and schedule primitives
+        ↓
+PREDICTIONS.json
+
+─────────────────────────────────────────────────────────────
+(Strict Isolation Boundary)
+─────────────────────────────────────────────────────────────
+
+VERIFIED BOQ / GROUND TRUTH (expected_boq_summary.json)
+        ↓
+EXPECTED.json
+
+        ↓  (Both streams converge ONLY at evaluation time)
+BENCHMARK EVALUATOR (pb_benchmark_accuracy_engine.py)
+   - Loads PREDICTIONS and EXPECTED independently
+   - Applies item_mappings from benchmark_rules.json
+   - Calculates tolerance tiers, gross mismatches, missed items, hallucinations
+        ↓
+ACCURACY REPORT (JSON & Markdown)
+```
+
+### Verified Leakage Audit Rules (`tests/benchmarks/test_benchmark_leakage_audit.py`)
+1. **Rule 1: Ground Truth Independence**: Changing `expected_quantity` in the BOQ manifest does NOT change the extracted quantity.
+2. **Rule 2: Ground Truth Absence**: Removing `expected_boq_summary.json` entirely does not impede PDF extraction.
+3. **Rule 3: Benchmark ID Independence**: Renaming `benchmark_id` produces identical extraction quantities.
+4. **Rule 4: Zero Ground-Truth Imports**: `pb_planreader_pdf_extractor.py` never imports or references `expected_boq_summary.json` or manifest files.
+5. **Rule 5: Evaluator Sees Both, Extractor Sees Only Drawing**: Separation of concerns enforced at type and module boundaries.
+6. **Rule 6: Identical Generic Pipeline**: Arbitrary unknown drawings execute the exact same extraction pipeline without specialization.
+
+## 7. Document Integrity Validation
 PlanReader enforces file integrity via `validate_download_hash(benchmark_id, filename, file_path)`:
 - Computes SHA-256 checksum of downloaded files outside git storage.
 - Matches against the recorded SHA-256 in `download_manifest.json`.
