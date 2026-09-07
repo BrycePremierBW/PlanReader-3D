@@ -1,4 +1,4 @@
-"""pb_editable_3d_inspector_panel.py — Editable 3D Inspector Panel (PR D.11A/D.11B/D.11C).
+"""pb_editable_3d_inspector_panel.py — Editable 3D Inspector Panel (PR D.11A/D.11B/D.11C/D.11D).
 
 A read-only Streamlit panel that surfaces the real editable-3D correction/
 approval/quantity backend (D.1-D.10) inside the PlanReader app. No mutation
@@ -16,17 +16,26 @@ The panel offers two data sources, switchable at the top of the page:
   - "Demo scenario" (D.11A): an in-session scenario built entirely from real
     backend calls (not fabricated data, not new logic), used to prove the
     four authority distinctions with objects nothing in the app persists yet.
-  - "Real workspace objects" (D.11B/D.11C): the current workspace's actual
-    `model_masses`/`model_openings` rows, hydrated fresh on every render via
-    pb_editable_3d_workspace_hydration — no caching, no DB writes, always
-    reflecting the live database state — rendered as an interactive,
-    read-only 3D scene (orbit/pan/zoom, hover-to-identify) alongside the same
+  - "Real workspace objects" (D.11B/D.11C/D.11D): the current workspace's
+    actual `model_masses`/`model_openings`/`mapped_zones` rows, hydrated
+    fresh on every render via pb_editable_3d_workspace_hydration — no
+    caching, no DB writes, always reflecting the live database state —
+    rendered as an interactive, read-only 3D scene (orbit/pan/zoom,
+    hover-to-identify, real room/floor footprints) alongside the same
     inspector detail view D.11A introduced. Object selection is via the
     dropdown, not by clicking inside the 3D canvas: Plotly.js does not fire
     click/selection events for 3D scatter traces (confirmed empirically —
     hover works reliably, click never reaches Streamlit's on_select), so
     building the "click a wall to select it" flow on top of it would be
-    presenting a control that silently does nothing.
+    presenting a control that silently does nothing. The dropdown's current
+    selection is instead drawn highlighted in the 3D scene itself (D.11D),
+    so the selected object is obvious in both places at once.
+
+A "Legend" expander (D.11D) at the top of the page explains what every
+color/badge means across both the 3D view and the detail sections below —
+including which states (FIRM approval, stale/publishable quantities) are
+simply not reachable yet in "Real workspace objects" mode, since correction
+and approval workflows for real geometry don't exist until a future PR.
 
 Neither mode ever calls a correction or approval function in response to a
 user action — the only backend calls happen while building the display data.
@@ -254,6 +263,58 @@ def _publishable_badge(is_publishable: bool) -> str:
     return "✅ PUBLISHABLE" if is_publishable else "⛔ NOT PUBLISHABLE (provisional/blocked)"
 
 
+def _render_trust_legend() -> None:
+    with st.expander("Legend — what the colors and statuses mean"):
+        st.markdown(
+            "**Authority status** (wall panels, markers, badges)\n"
+            "- 🟢 FIRM / USER_APPROVED — explicitly approved at this exact "
+            "revision (only `approve_corrected_geometry()` grants this; real "
+            "workspace objects can't reach it yet — there is no approval "
+            "workflow until a future PR)\n"
+            "- 🟡 PROVISIONAL / REVIEW_REQUIRED — not yet approved; a "
+            "correction always resets an object to REVIEW_REQUIRED, never "
+            "straight to approved\n"
+            "- 🔴 BLOCKED — height (or other authority) isn't known or "
+            "trusted; drawn as a footprint outline only in the 3D view, "
+            "never extruded to a guessed height\n\n"
+            "**Quantity status** (dependent take-off rows — demo mode only "
+            "today; real workspace objects have no linked quantities until "
+            "there's a real schema link from geometry to take-off rows)\n"
+            "- 🟢 CURRENT — reflects the object's latest geometry\n"
+            "- 🔴 STALE — a correction landed on the object since this "
+            "quantity was computed\n"
+            "- ✅ PUBLISHABLE / ⛔ NOT PUBLISHABLE — whether the row can "
+            "enter commercial pricing right now\n\n"
+            "**Room/floor footprints** (3D view, real workspace objects)\n"
+            "- 🟢 filled green — an evidence-backed exact rectangle "
+            "(Measured)\n"
+            "- 🟡 filled amber — a real recorded shape, not yet proven "
+            "exact (Provisional or a flagged approximation) — the real "
+            "vertices are shown, never straightened into a rectangle they "
+            "aren't\n"
+            "- ⚪ dotted outline only — the zone has a real internal void; "
+            "filling it solid would fabricate over a hole that genuinely "
+            "exists\n"
+        )
+
+
+def _render_quick_summary(obj: EditableGeometryObject) -> None:
+    """A one-line, at-a-glance summary shown right next to the selection
+    control — the full breakdown (source trace, geometry, correction
+    history, linked quantities) stays in the detailed sections below."""
+    height = obj.coordinates_or_measurements.get("height")
+    height_str = f"{height:.2f} m" if isinstance(height, (int, float)) else "—"
+    if obj.source_page is not None:
+        source = f"{obj.source_sheet or '—'} / p{obj.source_page}"
+    else:
+        source = obj.source_sheet or "—"
+    st.info(
+        f"**Selected: {obj.object_id}** ({obj.object_type}) — "
+        f"{_authority_badge(obj.authority_status)} · height {height_str} · "
+        f"source {source}"
+    )
+
+
 def _render_object_summary(obj: EditableGeometryObject) -> None:
     st.subheader(f"{obj.object_id}  ({obj.object_type})")
 
@@ -383,6 +444,7 @@ def render_editable_3d_inspector_panel(workspace: Optional[Dict[str, Any]] = Non
         "Data source", ["Demo scenario", "Real workspace objects"],
         horizontal=True, key="_editable_3d_inspector_mode",
     )
+    _render_trust_legend()
 
     skipped: List[HydrationSkip] = []
     block_reason = ""
@@ -426,19 +488,24 @@ def render_editable_3d_inspector_panel(workspace: Optional[Dict[str, Any]] = Non
             )
             return
 
+        # Resolve the current selection *before* building the figure, so the
+        # selected wall can be drawn highlighted in the scene rather than
+        # only described in the text below it.
+        if st.session_state.get(_SELECTED_REAL_OBJECT_KEY) not in object_ids:
+            st.session_state[_SELECTED_REAL_OBJECT_KEY] = object_ids[0]
+
         st.markdown("### 3D view")
         st.caption(
             "Read-only — orbit (drag), pan (right-drag/shift-drag), zoom (scroll). "
             "Solid panels are walls with an authoritative height; dashed lines are "
             "walls whose height isn't authoritative (shown at footprint only). "
-            "Hover a wall's marker dot to see its object id, then pick it in the "
-            "dropdown below to inspect it."
+            "The selected wall (dropdown below) is drawn with a highlighted "
+            "outline. Hover a wall's marker dot to see its object id."
         )
-        fig = build_workspace_3d_figure(walls, zone_rows)
+        fig = build_workspace_3d_figure(
+            walls, zone_rows, selected_wall_id=st.session_state[_SELECTED_REAL_OBJECT_KEY],
+        )
         st.plotly_chart(fig, key="_editable_3d_viewer")
-
-        if st.session_state.get(_SELECTED_REAL_OBJECT_KEY) not in object_ids:
-            st.session_state[_SELECTED_REAL_OBJECT_KEY] = object_ids[0]
 
     if mode == "Real workspace objects":
         selected = st.selectbox(
@@ -451,6 +518,7 @@ def render_editable_3d_inspector_panel(workspace: Optional[Dict[str, Any]] = Non
         st.error(f"Object {selected!r} not found in the ledger.")
         return
 
+    _render_quick_summary(obj)
     _render_object_summary(obj)
 
     if mode == "Demo scenario" and selected == "WALL-DEMO-3" and block_reason:

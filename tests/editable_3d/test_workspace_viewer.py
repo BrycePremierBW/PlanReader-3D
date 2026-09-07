@@ -43,7 +43,12 @@ class TestAuthoritativeHeightsOnly:
     def test_wall_with_trusted_height_gets_a_mesh_extrusion(self):
         fig = build_workspace_3d_figure([_wall(height_authority=WallHeightAuthority.USER_ENTERED.value)])
         assert "MASS-1" in _mesh_names(fig)
-        assert _scatter_lines(fig) == []
+        # An authoritative wall gets exactly one line trace: its solid (not
+        # dashed) edge-outline border — never the dashed footprint-only line
+        # a non-authoritative wall gets.
+        lines = _scatter_lines(fig)
+        assert len(lines) == 1
+        assert lines[0].line.dash is None
 
     def test_wall_with_unknown_height_never_gets_a_mesh_extrusion(self):
         wall = _wall(height_authority=WallHeightAuthority.UNKNOWN_HEIGHT.value)
@@ -170,3 +175,107 @@ class TestEmptyInputs:
     def test_no_walls_and_no_zones_produces_an_empty_figure(self):
         fig = build_workspace_3d_figure([], zone_rows=[])
         assert fig.data == ()
+
+
+class TestSelectionHighlighting:
+    def test_selected_authoritative_wall_gets_a_highlighted_border(self):
+        walls = [_wall(wall_id="MASS-1"), _wall(wall_id="MASS-2", start_pt=(0, 4), end_pt=(6, 4))]
+        fig = build_workspace_3d_figure(walls, selected_wall_id="MASS-2")
+        lines_by_name = {t.name: t for t in _scatter_lines(fig)}
+        assert lines_by_name["MASS-1"].line.color != lines_by_name["MASS-2"].line.color
+        assert lines_by_name["MASS-2"].line.width > lines_by_name["MASS-1"].line.width
+
+    def test_selected_non_authoritative_wall_gets_a_highlighted_dashed_line(self):
+        walls = [
+            _wall(wall_id="MASS-1", height_authority=WallHeightAuthority.UNKNOWN_HEIGHT.value),
+            _wall(wall_id="MASS-2", height_authority=WallHeightAuthority.UNKNOWN_HEIGHT.value, start_pt=(0, 4), end_pt=(6, 4)),
+        ]
+        fig = build_workspace_3d_figure(walls, selected_wall_id="MASS-2")
+        lines_by_name = {t.name: t for t in _scatter_lines(fig)}
+        assert lines_by_name["MASS-1"].line.color != lines_by_name["MASS-2"].line.color
+        assert lines_by_name["MASS-1"].line.dash == "dash"
+        assert lines_by_name["MASS-2"].line.dash == "dash"
+
+    def test_selected_wall_marker_is_larger_than_unselected(self):
+        walls = [_wall(wall_id="MASS-1"), _wall(wall_id="MASS-2", start_pt=(0, 4), end_pt=(6, 4))]
+        fig = build_workspace_3d_figure(walls, selected_wall_id="MASS-2")
+        markers_by_id = {m.customdata[0][0]: m for m in _markers(fig)}
+        assert markers_by_id["MASS-2"].marker.size > markers_by_id["MASS-1"].marker.size
+
+    def test_no_selection_means_no_wall_is_highlighted(self):
+        walls = [_wall(wall_id="MASS-1"), _wall(wall_id="MASS-2", start_pt=(0, 4), end_pt=(6, 4))]
+        fig = build_workspace_3d_figure(walls, selected_wall_id=None)
+        lines_by_name = {t.name: t for t in _scatter_lines(fig)}
+        assert lines_by_name["MASS-1"].line.color == lines_by_name["MASS-2"].line.color
+
+    def test_selecting_an_id_not_present_highlights_nothing(self):
+        fig = build_workspace_3d_figure([_wall(wall_id="MASS-1")], selected_wall_id="MASS-DOES-NOT-EXIST")
+        lines = _scatter_lines(fig)
+        assert len(lines) == 1
+        assert lines[0].line.width == 2  # unselected border width, not the highlighted one
+
+
+class TestZoneRealGeometryClassification:
+    def _zone(self, **overrides):
+        row = {
+            "name": "Living Room", "view_type": "floor plan",
+            "x_px": 0.0, "y_px": 0.0, "w_px": 300.0, "h_px": 400.0, "px_per_m": 100.0,
+        }
+        row.update(overrides)
+        return row
+
+    def test_evidence_backed_exact_rectangle_renders_trusted_and_filled(self):
+        import json
+        polygon = json.dumps([[0, 0], [300, 0], [300, 400], [0, 400]])
+        fig = build_workspace_3d_figure([], zone_rows=[self._zone(polygon_json=polygon, quantity_status="Measured")])
+        mesh = next(t for t in fig.data if isinstance(t, go.Mesh3d) and t.name == "Living Room")
+        assert mesh.color == "#2E8B57"
+
+    def test_approximation_flag_renders_provisional_not_trusted(self):
+        import json
+        polygon = json.dumps([{"approximation": True}])
+        fig = build_workspace_3d_figure([], zone_rows=[self._zone(polygon_json=polygon)])
+        mesh = next(t for t in fig.data if isinstance(t, go.Mesh3d) and t.name == "Living Room")
+        assert mesh.color == "#D7A21B"
+
+    def test_real_l_shaped_polygon_is_filled_with_its_own_vertices_not_a_rectangle(self):
+        import json
+        # A real L-shape: 6 vertices, not a rectangle.
+        l_shape = [[0, 0], [200, 0], [200, 200], [300, 200], [300, 400], [0, 400]]
+        fig = build_workspace_3d_figure([], zone_rows=[self._zone(polygon_json=json.dumps(l_shape))])
+        mesh = next(t for t in fig.data if isinstance(t, go.Mesh3d) and t.name == "Living Room")
+        assert len(mesh.x) == 6  # the real 6 vertices, not a 4-corner bounding box
+        assert mesh.color == "#D7A21B"  # non-rectangular polygon: provisional, not trusted
+
+    def test_zone_with_a_real_void_is_outline_only_never_filled(self):
+        import json
+        geometry = {
+            "outer": [[0, 0], [400, 0], [400, 400], [0, 400]],
+            "voids": [[[100, 100], [200, 100], [200, 200], [100, 200]]],
+        }
+        fig = build_workspace_3d_figure([], zone_rows=[self._zone(polygon_json=json.dumps(geometry))])
+        assert "Living Room" not in _mesh_names(fig)
+        lines = _scatter_lines(fig)
+        assert len(lines) == 1
+        assert lines[0].line.dash == "dot"
+
+    def test_zone_with_no_geometry_at_all_and_no_bbox_is_skipped(self):
+        fig = build_workspace_3d_figure([], zone_rows=[self._zone(x_px=None, y_px=None, w_px=None, h_px=None)])
+        assert fig.data == ()
+
+
+class TestSceneBoundsFraming:
+    def test_axis_ranges_cover_the_real_wall_bounding_box(self):
+        wall = _wall(start_pt=(1.0, 2.0), end_pt=(7.0, 2.0), height_m=2.7)
+        fig = build_workspace_3d_figure([wall])
+        xr = fig.layout.scene.xaxis.range
+        yr = fig.layout.scene.yaxis.range
+        zr = fig.layout.scene.zaxis.range
+        assert xr[0] <= 1.0 and xr[1] >= 7.0
+        assert yr[0] <= 2.0 and yr[1] >= 2.0
+        assert zr[0] <= 0.0 and zr[1] >= 2.7
+
+    def test_empty_scene_still_produces_a_valid_default_range(self):
+        fig = build_workspace_3d_figure([], zone_rows=[])
+        xr = fig.layout.scene.xaxis.range
+        assert xr[0] < xr[1]
