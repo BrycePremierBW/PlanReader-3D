@@ -118,6 +118,17 @@ from pb_editable_3d_correction_persistence import (
 )
 from pb_editable_3d_workspace_hydration import HydrationSkip, hydrate_masses_to_wall_models
 from pb_editable_3d_workspace_viewer import build_workspace_3d_figure
+from pb_editable_3d_commercial_sync import build_model_surface_row_candidate, check_sync_eligibility
+from pb_takeoff_authority_v164 import (
+    AUTHORITY_FINGERPRINT_FIELD,
+    AUTHORITY_REVIEWED_AT_FIELD,
+    AUTHORITY_REVIEWED_BY_FIELD,
+    AUTHORITY_SOURCE_FIELD,
+    AUTHORITY_STATUS_FIELD,
+    approve_model_surface_row,
+    is_jobhub_eligible_row,
+    takeoff_row_publishability,
+)
 from pb_takeoff_output_authority import (
     TakeoffOutputRow,
     TakeoffSourceType,
@@ -625,6 +636,230 @@ def _render_approval_form(
 
 
 # ---------------------------------------------------------------------------
+# Commercial sync (D.11H) — one-way bridge into the real takeoff_rows table,
+# reusing pb_takeoff_authority_v164's existing model-surface commercial-
+# authority mechanism verbatim. See pb_editable_3d_commercial_sync.py for the
+# pure eligibility/candidate-building logic; everything here is Streamlit UI
+# and the DB glue (INSERT into takeoff_rows, INSERT into the append-only
+# editable_3d_commercial_sync_events audit table). Never UPDATEs or DELETEs
+# an existing takeoff_rows row.
+# ---------------------------------------------------------------------------
+
+def _current_quantity_rows_for_object(
+    obj: EditableGeometryObject, rows: Dict[str, TakeoffOutputRow],
+) -> List[TakeoffOutputRow]:
+    """The object's current (non-stale) dependent quantity rows — the only
+    ones that can ever be sync-eligible, since a stale row's revision_hash
+    can never match obj.revision_hash (see check_sync_eligibility)."""
+    result: List[TakeoffOutputRow] = []
+    for qid in obj.dependent_quantity_ids:
+        row = rows.get(qid)
+        if row is not None and row.revision_hash == obj.revision_hash:
+            result.append(row)
+    return result
+
+
+def _load_commercial_sync_state(workspace_id: int, object_id: str) -> List[Dict[str, Any]]:
+    """Fetch this object's full, append-only commercial-sync audit history,
+    in recorded order — see _load_persisted_correction_state for the same
+    local-import pattern."""
+    from pb_planreader_3d_app import lquery
+
+    return lquery(
+        "SELECT * FROM editable_3d_commercial_sync_events WHERE workspace_id=? AND object_id=? ORDER BY id",
+        (workspace_id, object_id),
+    )
+
+
+def _perform_commercial_sync(
+    workspace_id: int, obj: EditableGeometryObject, row: TakeoffOutputRow, synced_by: str, synced_at: str,
+) -> tuple[int, Dict[str, Any]]:
+    """Create exactly one new takeoff_rows row for this object's current,
+    approved quantity, granted real commercial authority via
+    approve_model_surface_row() (pb_takeoff_authority_v164, unchanged) — the
+    same mechanism the existing "3D surface commercial authority" review on
+    the 3D Building Model page already uses. Records the append-only sync
+    audit event in the same call so the two writes always land together.
+    Never touches any other takeoff_rows row. Returns (new row id, the
+    approved row dict) so a caller can prove eligibility against the real,
+    just-approved row instead of reconstructing one and guessing its
+    fingerprint."""
+    from pb_planreader_3d_app import lexecute
+
+    candidate = build_model_surface_row_candidate(workspace_id, obj, row)
+    approved = approve_model_surface_row(
+        candidate,
+        source=(
+            f"Editable 3D approval — revision {obj.revision_hash}, "
+            f"approved by {obj.approved_by} at {obj.approved_at}"
+        ),
+        reviewed_by=synced_by,
+        reviewed_at=synced_at,
+    )
+    takeoff_row_id = lexecute(
+        """INSERT INTO takeoff_rows(
+            workspace_id,section,element,location,substrate,finish_system,quantity,unit,
+            quantity_status,source_page,source_reference,inclusion_status,coats,
+            coverage_m2_per_litre,productivity_m2_per_hour,rate_per_unit,confidence,notes,
+            row_role,commercial_authority_status,commercial_authority_source,
+            commercial_authority_reviewed_by,commercial_authority_reviewed_at,
+            commercial_authority_fingerprint,ai_baseline_quantity,
+            pre_map_quantity,pre_map_quantity_status,origin,created_at,updated_at
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (
+            approved["workspace_id"], approved["section"], approved["element"], approved["location"],
+            approved["substrate"], approved["finish_system"], approved["quantity"], approved["unit"],
+            approved["quantity_status"], approved["source_page"], approved["source_reference"],
+            approved["inclusion_status"], approved["coats"], approved["coverage_m2_per_litre"],
+            approved["productivity_m2_per_hour"], approved["rate_per_unit"], approved["confidence"],
+            approved["notes"], approved["row_role"], approved[AUTHORITY_STATUS_FIELD],
+            approved[AUTHORITY_SOURCE_FIELD], approved[AUTHORITY_REVIEWED_BY_FIELD],
+            approved[AUTHORITY_REVIEWED_AT_FIELD], approved[AUTHORITY_FINGERPRINT_FIELD],
+            approved["ai_baseline_quantity"], approved["pre_map_quantity"],
+            approved["pre_map_quantity_status"], approved["origin"], synced_at, synced_at,
+        ),
+    )
+    lexecute(
+        """INSERT INTO editable_3d_commercial_sync_events(
+            workspace_id, object_id, object_type, quantity_id, revision_hash, takeoff_row_id,
+            approval_approved_by, approval_approved_at, synced_by, synced_at
+        ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+        (
+            workspace_id, obj.object_id, obj.object_type, row.quantity_id, obj.revision_hash,
+            takeoff_row_id, obj.approved_by, obj.approved_at, synced_by, synced_at,
+        ),
+    )
+    return takeoff_row_id, approved
+
+
+def _render_commercial_sync_form(
+    workspace_id: int, obj: EditableGeometryObject, rows: Dict[str, TakeoffOutputRow],
+) -> None:
+    """The one commercial-sync control in this panel (D.11H): explicit,
+    single-quantity, exact-current-revision-only copy of an already D.11G-
+    approved dependent quantity into the real takeoff_rows table. Every
+    existing commercial-publish gate (pb_takeoff_authority_v164) is what
+    actually decides whether the resulting row is eligible — this panel
+    only decides whether the *sync action itself* is allowed to run."""
+    current_rows = _current_quantity_rows_for_object(obj, rows)
+    if not current_rows:
+        return
+
+    label = f"\U0001F4E4 Sync {obj.object_id} to commercial take-off"
+    with st.expander(label):
+        st.info(
+            "Copies one approved, currently-eligible quantity into this "
+            "workspace's real commercial take-off (`takeoff_rows`) as a "
+            "**new** row, once — reusing the existing 3D model-surface "
+            "commercial-authority mechanism (the same one the \"3D Building "
+            "Model\" page's surface review already uses) verbatim. This "
+            "never edits or deletes an existing take-off row, and syncing "
+            "the same object/revision/quantity twice never creates a "
+            "duplicate."
+        )
+
+        options = {f"{r.quantity_id} — {r.value:g} {r.unit}": r for r in current_rows}
+        selected_label = st.selectbox(
+            "Quantity to sync", list(options), key=f"_sync_target_{obj.object_id}",
+        )
+        selected_row = options[selected_label]
+
+        sync_history = _load_commercial_sync_state(workspace_id, obj.object_id)
+        existing = next(
+            (
+                s for s in sync_history
+                if s["quantity_id"] == selected_row.quantity_id and s["revision_hash"] == obj.revision_hash
+            ),
+            None,
+        )
+        # _build_new_row() suffixes every recalculated quantity_id with its
+        # own -REV-{correction_id}, so a later correction always produces a
+        # brand-new quantity_id — comparing full quantity_id here would
+        # never find an older, superseded sync. Compare on the stable
+        # target root (the same suffix strip _build_new_row's own naming
+        # convention uses) instead, so "the same quantity, an earlier
+        # revision" is actually detected.
+        selected_target_root = selected_row.quantity_id.rsplit("-REV-", 1)[0]
+        superseded = [
+            s for s in sync_history
+            if s["quantity_id"].rsplit("-REV-", 1)[0] == selected_target_root
+            and s["revision_hash"] != obj.revision_hash
+        ]
+        for s in superseded:
+            st.warning(
+                f"An earlier revision (`{s['revision_hash']}`) of this exact "
+                f"quantity was already synced as takeoff_row #{s['takeoff_row_id']} "
+                f"on {s['synced_at']} — that record was **not modified**. It is "
+                f"now superseded by this newer approved revision; sync again "
+                f"below to publish the current one."
+            )
+
+        if existing is not None:
+            st.success(
+                f"Already synced at this exact revision — takeoff_row "
+                f"#{existing['takeoff_row_id']} (by {existing['synced_by']} "
+                f"at {existing['synced_at']}). Pressing sync again will not "
+                f"create a duplicate."
+            )
+            return
+
+        blocking = check_sync_eligibility(obj, selected_row)
+        if blocking:
+            st.error("Cannot sync: " + "; ".join(blocking))
+            return
+
+        session_reviewer = dict(st.session_state.get("planreader_user") or {})
+        reviewer_username = str(session_reviewer.get("username") or "").strip()
+        reviewer_role = str(session_reviewer.get("role") or "").strip()
+        reviewer_authorised = reviewer_role.lower() in {
+            "admin", "developer", "estimator", "senior estimator",
+        }
+        reviewer_name = (
+            f"{reviewer_username} ({reviewer_role})"
+            if reviewer_username and reviewer_role else reviewer_username
+        )
+        st.text_input(
+            "Syncing estimator", value=reviewer_name, disabled=True,
+            help="Reviewer identity is taken from the authenticated PlanReader session — same as the 3D Building Model page's commercial-authority review.",
+            key=f"_sync_reviewer_{obj.object_id}_{selected_row.quantity_id}",
+        )
+        if not reviewer_authorised:
+            st.error(
+                "Commercial sync requires an authenticated estimator, "
+                "senior estimator, admin, or developer role."
+            )
+
+        confirmed = st.checkbox(
+            f"I confirm approved revision `{obj.revision_hash}` is ready to "
+            f"enter the commercial take-off",
+            key=f"_sync_confirm_{obj.object_id}_{selected_row.quantity_id}",
+        )
+        if st.button(
+            "Sync to commercial take-off", type="primary",
+            disabled=not (confirmed and reviewer_authorised),
+            key=f"_sync_apply_{obj.object_id}_{selected_row.quantity_id}",
+        ):
+            from pb_planreader_3d_app import now_stamp
+
+            synced_at = now_stamp()
+            takeoff_row_id, approved_row = _perform_commercial_sync(
+                workspace_id, obj, selected_row, synced_by=reviewer_name, synced_at=synced_at,
+            )
+            # Prove the freshly-approved row is genuinely recognized by the
+            # real commercial pipeline — never asserted, always checked
+            # against the actual pb_takeoff_authority_v164 functions.
+            publishable, publishable_reason = takeoff_row_publishability(approved_row)
+            eligible, eligible_reason = is_jobhub_eligible_row(approved_row)
+            st.success(
+                f"Synced — created takeoff_row #{takeoff_row_id}. "
+                f"Commercial pipeline recognition: publishable="
+                f"{publishable} ({publishable_reason}), JobHub-eligible="
+                f"{eligible} ({eligible_reason})."
+            )
+            st.rerun()
+
+
+# ---------------------------------------------------------------------------
 # Display helpers
 # ---------------------------------------------------------------------------
 
@@ -927,6 +1162,7 @@ def render_editable_3d_inspector_panel(workspace: Optional[Dict[str, Any]] = Non
         walls_by_id = {w.wall_id: w for w in walls}
         _render_correction_form(workspace_id, ledger, selected, walls_by_id.get(selected))
         _render_approval_form(workspace_id, ledger, selected, obj)
+        _render_commercial_sync_form(workspace_id, obj, rows)
 
     _render_object_summary(obj)
 
