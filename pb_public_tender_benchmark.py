@@ -1,8 +1,8 @@
-"""pb_public_tender_benchmark.py — Public Tender Benchmark and BOQ Classification Framework.
+"""pb_public_tender_benchmark.py — Public Tender Benchmark & BOQ Classification Framework.
 
-PR F.1: External Public Tender Benchmark Expansion.
+PR F.1 / F.2: External Public Tender Benchmark Expansion.
 Enables PlanReader to verify accuracy against independent third-party public tender
-datasets (UNGM / UNOPS, UN-Habitat, IOM, UNDP, commercial public tenders).
+datasets (UNGM / UNOPS, UN-Habitat, IOM, UNDP, tenders.go.ke, commercial public tenders).
 
 Provides:
 - Standardized 9-category BOQ line taxonomy.
@@ -10,14 +10,27 @@ Provides:
 - Drawing traceability validator for measurable takeoff items.
 - Fail-closed project identity matching between tender drawings and BOQ schedules.
 - Benchmark discovery, loading, and non-penalization of preliminaries.
+- Strict accuracy scoring: unscored/missing predictions yield accuracy_score=None.
+- Integrity verification with actual SHA-256 validation.
+- Fail-closed error recording during benchmark discovery.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
+
+
+# Global registry of benchmark load errors for transparency
+_LAST_BENCHMARK_LOAD_ERRORS: Dict[str, str] = {}
+
+
+def get_benchmark_load_errors() -> Dict[str, str]:
+    """Return dictionary of any benchmark directories that failed validation."""
+    return dict(_LAST_BENCHMARK_LOAD_ERRORS)
 
 
 class BOQLineCategory(str, Enum):
@@ -109,6 +122,8 @@ def classify_boq_line(
         "contractual overhead",
         "site security",
         "cleaning",
+        "labour camp",
+        "clearing away",
     ]
     if any(k in desc_lower for k in prelim_keywords):
         return BOQLineCategory.PRELIMINARIES
@@ -121,6 +136,7 @@ def classify_boq_line(
         "switchboard",
         "3-phase",
         "electrical distribution",
+        "electrical works",
         "hvac",
         "ductwork",
         "substation",
@@ -146,6 +162,11 @@ def classify_boq_line(
         "acoustic timber door",
         "sliding hospital door",
         "glazed sliding entry door",
+        "steel casement window",
+        "mild steel pannelled door",
+        "mild steel panelled door",
+        "double door overall size",
+        "window overall size",
         "ironmongery",
         "flyscreen",
     ]
@@ -180,6 +201,15 @@ def classify_boq_line(
         "coating",
         "concrete block",
         "external cement",
+        "red oxide",
+        "screed",
+        "walling",
+        "chalkboard",
+        "blackboard",
+        "blockboard",
+        "plaster to",
+        "pointing externally",
+        "pillars",
     ]
     if any(k in desc_lower for k in measurable_keywords):
         return BOQLineCategory.MEASURABLE_FROM_DRAWINGS
@@ -255,11 +285,22 @@ class PublicTenderBenchmark:
     project_name: str
     organization: str
     tender_reference: str
+    status: str = "candidate_seed"
     source_manifest: Dict[str, Any] = field(default_factory=dict)
     download_manifest: Dict[str, Any] = field(default_factory=dict)
     expected_project: Dict[str, Any] = field(default_factory=dict)
     expected_boq_summary: Dict[str, Any] = field(default_factory=dict)
     benchmark_rules: Dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def is_verified(self) -> bool:
+        """True only if benchmark is verified against real retrieved tender files."""
+        return self.status == "verified_public_benchmark"
+
+    @property
+    def is_candidate_unverified(self) -> bool:
+        """True if benchmark is an unverified candidate seed."""
+        return self.status in ("candidate_unverified", "candidate_seed")
 
     @classmethod
     def load(
@@ -283,6 +324,7 @@ class PublicTenderBenchmark:
             project_name=project.get("project_name", source.get("project_name", "")),
             organization=project.get("organization", source.get("client", "")),
             tender_reference=download.get("tender_reference", source.get("project_number", "")),
+            status=source.get("status", "candidate_seed"),
             source_manifest=source,
             download_manifest=download,
             expected_project=project,
@@ -306,8 +348,43 @@ class PublicTenderBenchmark:
 
         return True, "project_identity_confirmed"
 
-    def evaluate_accuracy_summary(self, predictions: Optional[List[Any]] = None) -> Dict[str, Any]:
-        """Evaluate accuracy score while excluding preliminaries from scoring denominator."""
+    def validate_download_hash(
+        self,
+        filepath: Path | str,
+        filename: Optional[str] = None,
+    ) -> Tuple[bool, str]:
+        """Compute SHA-256 of file and verify against download_manifest."""
+        f_path = Path(filepath)
+        if not f_path.exists() or not f_path.is_file():
+            return False, f"file_not_found: {f_path}"
+
+        h = hashlib.sha256(f_path.read_bytes()).hexdigest()
+        lookup_name = filename or f_path.name
+
+        docs = self.download_manifest.get("documents", [])
+        matching_doc = next((d for d in docs if d.get("filename") == lookup_name), None)
+        if not matching_doc:
+            # Fallback to first document if single
+            if len(docs) == 1:
+                matching_doc = docs[0]
+            else:
+                return False, f"document_not_in_manifest: {lookup_name}"
+
+        expected_sha = matching_doc.get("sha256", "")
+        if h.lower() != expected_sha.lower():
+            return False, f"sha256_mismatch: expected {expected_sha} got {h}"
+
+        return True, "sha256_verified"
+
+    def evaluate_accuracy_summary(
+        self,
+        predictions: Optional[Sequence[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
+        """Evaluate accuracy score while strictly excluding preliminaries from scoring denominator.
+
+        When no real predictions exist, accuracy_score is None and is_scored is False.
+        Never awards 100% accuracy merely because predictions are absent.
+        """
         boq = self.expected_boq_summary
         breakdown = boq.get("classified_breakdown", {})
 
@@ -320,25 +397,158 @@ class PublicTenderBenchmark:
         )
         total_items = boq.get("total_line_items", 0)
 
-        # Accuracy score defaults to 1.0 (seed proof agreement)
-        accuracy_score = 1.0
+        # Fail-closed guard: Unverified candidate seeds cannot be scored in headline metrics
+        if self.is_candidate_unverified and predictions is not None:
+            return {
+                "benchmark_id": self.benchmark_id,
+                "status": self.status,
+                "total_line_items": total_items,
+                "measurable_items_count": measurable_count,
+                "preliminaries_excluded_count": prelim_count,
+                "provisional_sums_count": provisional_count,
+                "rate_only_count": rate_only_count,
+                "accuracy_score": None,
+                "benchmark_status": "candidate_unverified",
+                "is_scored": False,
+                "is_valid": False,
+                "error": "unverified_candidate_seed_cannot_contribute_to_accuracy_metrics",
+            }
+
+        # If no predictions provided, return candidate_unscored
+        if predictions is None or len(predictions) == 0:
+            return {
+                "benchmark_id": self.benchmark_id,
+                "status": self.status,
+                "total_line_items": total_items,
+                "measurable_items_count": measurable_count,
+                "preliminaries_excluded_count": prelim_count,
+                "provisional_sums_count": provisional_count,
+                "rate_only_count": rate_only_count,
+                "accuracy_score": None,
+                "benchmark_status": "candidate_unscored" if not self.is_candidate_unverified else "candidate_unverified",
+                "is_scored": False,
+                "is_valid": True,
+            }
+
+        # Real predictions provided: compare against expected sample measurable items
+        sample_items = boq.get("sample_measurable_items", [])
+        if not sample_items:
+            return {
+                "benchmark_id": self.benchmark_id,
+                "status": self.status,
+                "total_line_items": total_items,
+                "measurable_items_count": measurable_count,
+                "accuracy_score": None,
+                "benchmark_status": "no_sample_items_defined",
+                "is_scored": False,
+                "is_valid": False,
+            }
+
+        pred_map: Dict[str, float] = {}
+        for p in predictions:
+            pid = str(p.get("item_id", p.get("line_id", p.get("quantity_id", ""))))
+            val = float(p.get("value", p.get("quantity", p.get("actual", 0.0))))
+            if pid:
+                pred_map[pid] = val
+
+        item_results = []
+        pass_count = 0
+        fail_count = 0
+        missing_count = 0
+
+        tolerances = self.benchmark_rules.get("tolerances", {})
+
+        for exp in sample_items:
+            iid = exp.get("item_id", "")
+            exp_val = float(exp.get("expected_quantity", 0.0))
+            category = exp.get("category", "")
+
+            # Preliminaries and provisional sums must never be penalized
+            if category in (BOQLineCategory.PRELIMINARIES.value, BOQLineCategory.PROVISIONAL_SUM.value):
+                continue
+
+            if iid not in pred_map:
+                item_results.append({
+                    "item_id": iid,
+                    "description": exp.get("description", ""),
+                    "expected": exp_val,
+                    "actual": None,
+                    "status": "missing",
+                    "drawing_sheet": exp.get("drawing_sheet"),
+                    "drawing_page": exp.get("drawing_page"),
+                })
+                missing_count += 1
+                fail_count += 1
+                continue
+
+            act_val = pred_map[iid]
+            delta = act_val - exp_val
+            pct_delta = (abs(delta) / exp_val * 100.0) if exp_val != 0 else 0.0
+
+            # Determine tolerance
+            is_exact = any(k in iid.lower() or k in exp.get("description", "").lower() for k in ["door", "window", "chalkboard", "pillar"])
+            tol_pct = 5.0  # default 5% tolerance
+
+            if is_exact:
+                is_pass = abs(delta) < 1e-4
+            else:
+                is_pass = pct_delta <= tol_pct
+
+            if is_pass:
+                pass_count += 1
+                status = "pass"
+            else:
+                fail_count += 1
+                status = "fail"
+
+            item_results.append({
+                "item_id": iid,
+                "description": exp.get("description", ""),
+                "expected": exp_val,
+                "actual": act_val,
+                "delta": round(delta, 4),
+                "pct_delta": round(pct_delta, 2),
+                "tolerance": "exact" if is_exact else f"{tol_pct}%",
+                "status": status,
+                "drawing_sheet": exp.get("drawing_sheet"),
+                "drawing_page": exp.get("drawing_page"),
+            })
+
+        total_compared = pass_count + fail_count
+        score = (pass_count / total_compared) if total_compared > 0 else 0.0
 
         return {
             "benchmark_id": self.benchmark_id,
+            "status": self.status,
             "total_line_items": total_items,
             "measurable_items_count": measurable_count,
+            "compared_items_count": total_compared,
+            "passed_items_count": pass_count,
+            "failed_items_count": fail_count,
+            "missing_items_count": missing_count,
             "preliminaries_excluded_count": prelim_count,
             "provisional_sums_count": provisional_count,
             "rate_only_count": rate_only_count,
-            "accuracy_score": accuracy_score,
+            "accuracy_score": round(score, 4),
+            "benchmark_status": "scored",
+            "is_scored": True,
             "is_valid": True,
+            "detailed_results": item_results,
         }
 
 
 def list_available_public_tender_benchmarks(
     directory: Path | str = "benchmarks/public_tenders",
+    strict: bool = False,
 ) -> List[PublicTenderBenchmark]:
-    """Discover and load all registered public tender benchmarks."""
+    """Discover and load all registered public tender benchmarks.
+
+    Records load failures in _LAST_BENCHMARK_LOAD_ERRORS rather than silently
+    swallowing them.
+    """
+    global _LAST_BENCHMARK_LOAD_ERRORS
+    _LAST_BENCHMARK_LOAD_ERRORS.clear()
+
     base = Path(directory)
     manifest_path = base / "manifest.json"
     if not manifest_path.exists():
@@ -349,11 +559,14 @@ def list_available_public_tender_benchmarks(
 
     for entry in data.get("benchmarks", []):
         b_id = entry.get("benchmark_id")
-        if b_id:
-            try:
-                bench = PublicTenderBenchmark.load(b_id, base_dir=base)
-                benchmarks.append(bench)
-            except Exception:
-                pass
+        if not b_id:
+            continue
+        try:
+            bench = PublicTenderBenchmark.load(b_id, base_dir=base)
+            benchmarks.append(bench)
+        except Exception as err:
+            _LAST_BENCHMARK_LOAD_ERRORS[b_id] = str(err)
+            if strict:
+                raise ValueError(f"Malformed public tender benchmark '{b_id}': {err}") from err
 
     return benchmarks

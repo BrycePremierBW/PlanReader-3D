@@ -22,6 +22,7 @@ def test_list_available_public_tender_benchmarks():
     assert len(benchmarks) >= 5
 
     expected_ids = {
+        "tenders_ke_kstvet_cbc_classroom",
         "ungm_unops_wecc_torit",
         "ungm_category_iv_housing_units",
         "ungm_category_iv_shelters",

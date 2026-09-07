@@ -69,21 +69,54 @@ To ensure cross-project data contamination does not occur:
 - If a candidate comparison involves mismatched projects (e.g., comparing a UNGM hospital drawing set against a residential townhouse BOQ), the comparison fails closed immediately with:
   `wrong_project_source_mismatch`
 
-## 5. Registered Seed Benchmarks
-1. **`ungm_unops_wecc_torit`**: UNOPS WECC Torit Vocational Training Centre (ITB/2023/45890).
-2. **`ungm_category_iv_housing_units`**: UN-Habitat Category IV Housing Units (ITB/2023/CAT4-H).
-3. **`ungm_category_iv_shelters`**: IOM Category IV Shelters / House Units (RFP/2024/CAT4-S).
-4. **`ungm_fmns_faculty_building`**: UNDP FMNS Faculty Building (ITB/2023/FMNS-08).
-5. **`ungm_al_qayarah_hospital_renovation`**: UNDP Al Qayarah General Hospital Renovation (RFP/2024/78912).
-6. **`king_st_122_126`**: 122-126 King St, Buderim Commercial/Residential Development (23-060).
+## 5. Benchmark Verification Statuses and Registered Datasets
 
-## 6. How to Add a New Public Tender Benchmark
-1. Create directory `benchmarks/public_tenders/<new_benchmark_id>/`.
-2. Populate the 5 required JSON manifests conforming to schema.
-3. Register the benchmark entry in `benchmarks/public_tenders/manifest.json`.
-4. Run validation tests:
+Public tender datasets fall strictly into two statuses:
+- `verified_public_benchmark`: Real public tender documents have been retrieved, page counts and SHA-256 integrity hashes computed from actual files, project identity confirmed between drawings and BOQ, and measurable lines mapped to exact drawing sheets. Only verified benchmarks may contribute to headline accuracy metrics.
+- `candidate_unverified`: Manifest seed metadata awaiting verified document retrieval. Candidate seeds are barred from contributing to headline accuracy metrics (`error="unverified_candidate_seed_cannot_contribute_to_accuracy_metrics"`).
+
+### Verified Public Benchmarks (Tier 1)
+1. **`tenders_ke_kstvet_cbc_classroom`**: Proposed Construction of CBC Classroom and Integrated Resource Center.
+   - **Issuing Entity**: Ministry of Education / State Department of Basic Education, Republic of Kenya / Kenya School of TVET (KSTVET).
+   - **Tender Reference**: `KSTVET/008/24` | Drawing No: `KSTVET/08/2024-AD01`, `E-1`.
+   - **Source URL**: `https://tenders.go.ke/storage/Documents/1727358888238-bq-nd-drawing.pdf`.
+   - **File Size / SHA-256**: 1,273,202 bytes | `6856bfa739aa136dd8e0bf17cb25fd43d0d31c9c3dfe3252525454f09d8fa4dc`.
+   - **Structure**: 55-page combined document containing complete Bills of Quantities (pages 1–53) and verified architectural drawings (pages 54–55, 1:75 scale, ground floor plan, elevations E-02–E-05, sections S-02/S-03, electrical layout).
+   - **Measurable Samples**: 12 verified items traced to page 54 (150mm block walling 58m², 150mm gable walling 13m², steel casement windows 3000x1200mm & 2900x1200mm, red oxide floor screed 97m², internal plaster/paint 69m², verandah pillars 4 NO).
+
+### Candidate Seeds (Unverified)
+The following candidate seeds remain registered for future retrieval and verification:
+- `ungm_unops_wecc_torit`: UNOPS WECC Torit Vocational Training Centre (ITB/2023/45890).
+- `ungm_category_iv_housing_units`: UN-Habitat Category IV Housing Units (ITB/2023/CAT4-H).
+- `ungm_category_iv_shelters`: IOM Category IV Shelters / House Units (RFP/2024/CAT4-S).
+- `ungm_fmns_faculty_building`: UNDP FMNS Faculty Building (ITB/2023/FMNS-08).
+- `ungm_al_qayarah_hospital_renovation`: UNDP Al Qayarah General Hospital Renovation (RFP/2024/78912).
+- `king_st_122_126`: 122-126 King St, Buderim Commercial/Residential Development (23-060).
+
+## 6. Document Integrity Validation
+PlanReader enforces file integrity via `validate_download_hash(benchmark_id, filename, file_path)`:
+- Computes SHA-256 checksum of downloaded files outside git storage.
+- Matches against the recorded SHA-256 in `download_manifest.json`.
+- Mismatched hashes or missing files raise explicit validation errors and fail closed.
+
+## 7. Accuracy Scoring Rules & Fail-Closed Guardrails
+When running `evaluate_accuracy_summary()` against a benchmark:
+1. **Unscored Candidate State**: If no predictions are supplied (`predictions=None`), the evaluation returns `accuracy_score = None`, `benchmark_status = "candidate_unscored"`, and `is_scored = False`. PlanReader never awards 100% or synthetic scores when predictions have not been evaluated.
+2. **Candidate Gate**: Candidate unverified benchmarks raise a blocked evaluation error if attempted in headline scoring.
+3. **Physical Denominator**: Only items marked `measurable_from_drawings` or `schedule_extractable` form the accuracy denominator. Preliminaries, provisional sums, and rate-only items are completely excluded.
+4. **Tolerance Matching**: Quantities within defined tolerances (e.g. ±5% for walling/render, exact count for doors/windows) pass; missing or out-of-tolerance items fail.
+
+## 8. How to Add or Verify a Public Tender Benchmark
+1. Search public procurement portals for packages containing both drawings and BOQ/takeoffs.
+2. Download documents to external storage outside git and calculate SHA-256 and page counts.
+3. Confirm project identity matches between drawing title blocks and BOQ cover/summary.
+4. Create or update directory `benchmarks/public_tenders/<benchmark_id>/` with the 5 required JSON manifests.
+5. Set `status: "verified_public_benchmark"` in `source_manifest.json` and `manifest.json`.
+6. Trace measurable items to specific drawing sheets and page numbers.
+7. Run validation tests:
    ```bash
    python -m pytest -q tests/benchmarks/test_public_tender_manifest_schema.py
    python -m pytest -q tests/benchmarks/test_public_tender_project_matching.py
    python -m pytest -q tests/benchmarks/test_public_tender_benchmark_runner.py
+   python -m pytest -q tests/benchmarks/test_public_tender_verified_benchmark.py
    ```

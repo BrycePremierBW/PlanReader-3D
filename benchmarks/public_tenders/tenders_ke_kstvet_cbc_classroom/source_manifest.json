@@ -1,0 +1,22 @@
+{
+  "benchmark_id": "tenders_ke_kstvet_cbc_classroom",
+  "project_name": "Proposed Construction of CBC Classroom and Integrated Resource Center",
+  "project_number": "KSTVET/008/24",
+  "client": "Kenya School of TVET / Ministry of Education",
+  "drawing_issue": "Tender Issue",
+  "drawing_date": "04.04.2024",
+  "source_pdf": "1727358888238-bq-nd-drawing.pdf",
+  "source_takeoff": "1727358888238-bq-nd-drawing.pdf",
+  "allowed_comparison_sources": [
+    "1727358888238-bq-nd-drawing.pdf",
+    "KSTVET_CBC_Classroom_BOQ.xlsx"
+  ],
+  "rejected_comparison_sources": [
+    "Premier_Brushworks_60-62_School_Rd_Maroochydore_Revised.xlsx",
+    "Premier_Brushworks_92-94_School_Rd_Full_Painting_Takeoff.xlsx",
+    "260617_004-LAGO-BRITINYA_ARCH-DRAWINGS_COMBINED 2.pdf"
+  ],
+  "status": "verified_public_benchmark",
+  "retrieval_date": "2026-09-07",
+  "verification_notes": "Verified authentic public procurement package containing both architectural drawings and Bill of Quantities retrieved from Kenyan Government Public Procurement Portal (tenders.go.ke)."
+}

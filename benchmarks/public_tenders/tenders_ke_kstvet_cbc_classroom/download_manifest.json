@@ -1,0 +1,36 @@
+{
+  "benchmark_id": "tenders_ke_kstvet_cbc_classroom",
+  "tender_reference": "KSTVET/008/24",
+  "publisher": "Kenya School of TVET (KSTVET), Gigiri, Nairobi / Ministry of Education",
+  "source_url": "https://tenders.go.ke/storage/Documents/1727358888238-bq-nd-drawing.pdf",
+  "retrieval_date": "2026-09-07",
+  "documents": [
+    {
+      "filename": "1727358888238-bq-nd-drawing.pdf",
+      "role": "architectural_drawings",
+      "description": "Architectural Working Drawings: Ground Floor Plan, Roof Plan, Elevations E-02 to E-05, Sections S-02 & S-03, Electrical Layout",
+      "sha256": "6856bfa739aa136dd8e0bf17cb25fd43d0d31c9c3dfe3252525454f09d8fa4dc",
+      "file_size_bytes": 1273202,
+      "expected_pages": 55,
+      "drawing_pages": [
+        54,
+        55
+      ],
+      "total_pages": 55
+    },
+    {
+      "filename": "1727358888238-bq-nd-drawing.pdf",
+      "role": "bill_of_quantities",
+      "description": "Detailed Bill of Quantities covering Particular & General Preliminaries, Builders Work, and Provisional Sums",
+      "sha256": "6856bfa739aa136dd8e0bf17cb25fd43d0d31c9c3dfe3252525454f09d8fa4dc",
+      "file_size_bytes": 1273202,
+      "expected_pages": 55,
+      "boq_pages": [
+        1,
+        53
+      ],
+      "total_pages": 55
+    }
+  ],
+  "download_notes": "Direct open download from tenders.go.ke storage. Computed SHA-256 matches downloaded file."
+}
