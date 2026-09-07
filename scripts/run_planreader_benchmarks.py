@@ -55,6 +55,7 @@ def print_result_summary(result) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description="PlanReader Accuracy Benchmark CLI Runner")
     parser.add_argument("--benchmark", help="Benchmark ID to run (e.g. school_rd_60_62, lago_britinya)")
+    parser.add_argument("--public-tender", help="Run public tender benchmark evaluation (e.g. tenders_ke_kstvet_cbc_classroom)")
     parser.add_argument("--all", action="store_true", help="Run all available benchmark seeds")
     parser.add_argument("--report", action="store_true", help="Generate consolidated golden plan accuracy report")
     parser.add_argument("--pdf", help="Optional override path to source PDF")
@@ -62,6 +63,29 @@ def main() -> int:
     parser.add_argument("--benchmarks-dir", default="benchmarks/plans", help="Directory containing benchmark folders")
     parser.add_argument("--results-dir", default="benchmark_results", help="Directory to save benchmark reports")
     args = parser.parse_args()
+
+    if args.public_tender:
+        from pb_benchmark_accuracy_engine import run_public_tender_benchmark
+        p_dir = args.benchmarks_dir if args.benchmarks_dir != "benchmarks/plans" else "benchmarks/public_tenders"
+        report = run_public_tender_benchmark(
+            benchmark_id=args.public_tender,
+            pdf_path=args.pdf,
+            auto_extract=True,
+            benchmarks_dir=p_dir,
+            output_dir=args.results_dir,
+        )
+        print("=" * 70)
+        print(f"Public Tender Benchmark: {report.benchmark_id}")
+        print(f"Project Name:            {report.project_name}")
+        print(f"Status:                  {report.status}")
+        print(f"Overall Accuracy:        " + (f"{report.overall_accuracy_percentage:.1f}%" if report.overall_accuracy_percentage is not None else "N/A"))
+        print(f"Exact Matches:           {report.exact_matches}")
+        print(f"Within 5%:               {report.within_5_percent}")
+        print(f"Gross Mismatches:        {report.gross_mismatches}")
+        print(f"Missed Items:            {report.missed_items}")
+        print(f"Hallucinated Items:      {report.hallucinated_items}")
+        print("=" * 70)
+        return 0 if report.is_scored else 1
 
     runner = PlanReaderBenchmarkRunner(
         benchmarks_dir=args.benchmarks_dir,
