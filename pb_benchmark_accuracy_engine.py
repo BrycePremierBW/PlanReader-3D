@@ -26,6 +26,7 @@ from pb_public_tender_benchmark import (
     PublicTenderBenchmark,
     classify_boq_line,
     compare_tender_drawings_and_boq,
+    list_available_public_tender_benchmarks,
 )
 from pb_benchmark_runner import resolve_file_path
 
@@ -270,6 +271,232 @@ class BenchmarkAccuracyReport:
         return "\n".join(lines)
 
 
+@dataclass
+class HeadlineAccuracyDashboard:
+    """Consolidated headline accuracy dashboard aggregating all public tender benchmarks.
+
+    Enforces strict headline accuracy standards:
+    - Only benchmarks with verified 1:1 physical scope match (verified_scored_benchmark)
+      contribute to the official headline accuracy metrics.
+    - Verified packages with scope divergence (verified_scope_mismatch) are isolated as
+      real-world stress tests and never dilute headline accuracy.
+    - Candidate seeds (candidate_unverified) are tracked as pipeline inventory but
+      completely excluded from accuracy metrics.
+    """
+
+    timestamp: str
+    headline_overall_accuracy: Optional[float]
+    headline_strict_exact_accuracy: Optional[float]
+    total_headline_benchmarks: int
+    total_headline_measurable_expected: int
+    total_headline_items_compared: int
+    total_headline_exact_matches: int
+    total_headline_within_5_percent: int
+    total_headline_within_10_percent: int
+    total_headline_within_20_percent: int
+    total_headline_gross_mismatches: int
+    total_headline_missed_items: int
+    total_headline_hallucinated_items: int
+    total_preliminaries_excluded: int
+    total_provisional_sums_excluded: int
+    total_non_architectural_excluded: int
+    total_stress_test_benchmarks: int
+    total_candidate_seeds: int
+    headline_reports: List[BenchmarkAccuracyReport] = field(default_factory=list)
+    stress_test_reports: List[BenchmarkAccuracyReport] = field(default_factory=list)
+    candidate_seed_reports: List[BenchmarkAccuracyReport] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert dashboard to serializable dictionary."""
+        return {
+            "timestamp": self.timestamp,
+            "headline_metrics": {
+                "overall_accuracy_percentage": self.headline_overall_accuracy,
+                "strict_exact_accuracy_percentage": self.headline_strict_exact_accuracy,
+                "total_headline_benchmarks": self.total_headline_benchmarks,
+                "total_measurable_expected": self.total_headline_measurable_expected,
+                "total_items_compared": self.total_headline_items_compared,
+                "exact_matches": self.total_headline_exact_matches,
+                "within_5_percent": self.total_headline_within_5_percent,
+                "within_10_percent": self.total_headline_within_10_percent,
+                "within_20_percent": self.total_headline_within_20_percent,
+                "gross_mismatches": self.total_headline_gross_mismatches,
+                "missed_items": self.total_headline_missed_items,
+                "hallucinated_items": self.total_headline_hallucinated_items,
+            },
+            "non_penalized_exclusions": {
+                "preliminaries_excluded": self.total_preliminaries_excluded,
+                "provisional_sums_excluded": self.total_provisional_sums_excluded,
+                "non_architectural_excluded": self.total_non_architectural_excluded,
+            },
+            "summary_counts": {
+                "headline_benchmarks": self.total_headline_benchmarks,
+                "stress_test_benchmarks": self.total_stress_test_benchmarks,
+                "candidate_seeds": self.total_candidate_seeds,
+                "total_registered": (
+                    self.total_headline_benchmarks
+                    + self.total_stress_test_benchmarks
+                    + self.total_candidate_seeds
+                ),
+            },
+            "headline_reports": [r.to_dict() for r in self.headline_reports],
+            "stress_test_reports": [r.to_dict() for r in self.stress_test_reports],
+            "candidate_seed_reports": [r.to_dict() for r in self.candidate_seed_reports],
+        }
+
+    def to_json(self, indent: int = 2) -> str:
+        """Serialize dashboard to formatted JSON string."""
+        return json.dumps(self.to_dict(), indent=indent)
+
+    def to_markdown(self) -> str:
+        """Generate human-readable Markdown dashboard report."""
+        lines = [
+            "# PlanReader Public Tender Benchmark — Executive Headline Accuracy Dashboard",
+            "",
+            f"**Generated**: `{self.timestamp}`",
+            "",
+        ]
+
+        acc_str = (
+            f"{self.headline_overall_accuracy:.1f}%"
+            if self.headline_overall_accuracy is not None
+            else "N/A"
+        )
+        exact_str = (
+            f"{self.headline_strict_exact_accuracy:.1f}%"
+            if self.headline_strict_exact_accuracy is not None
+            else "N/A"
+        )
+
+        lines.append(
+            f"> **Official Headline Accuracy**: **`{acc_str}`** across `{self.total_headline_benchmarks}` headline-verified public tender benchmark(s).  \n"
+            f"> **Strict Exact Accuracy** (zero-tolerance): **`{exact_str}`**."
+        )
+        lines.append("")
+
+        lines.append("## 1. Executive Headline Metrics (1:1 Material Scope Packages)")
+        lines.append("")
+        lines.append("| Metric | Value | Description |")
+        lines.append("| :--- | :--- | :--- |")
+        lines.append(
+            f"| **Headline Overall Accuracy (<= 5% tol)** | **`{acc_str}`** | Combined exact matches and <= 5% tolerance across headline benchmarks |"
+        )
+        lines.append(
+            f"| **Headline Strict Exact Accuracy** | **`{exact_str}`** | Zero-tolerance exact numerical matches across headline benchmarks |"
+        )
+        lines.append(
+            f"| Scored Headline Benchmarks | `{self.total_headline_benchmarks}` | Verified packages with 1:1 physical drawing-to-BOQ scope match |"
+        )
+        lines.append(
+            f"| Measurable Items Evaluated | `{self.total_headline_measurable_expected}` | Total expected architectural takeoff items |"
+        )
+        lines.append(
+            f"| Total Items Compared (Denominator) | `{self.total_headline_items_compared}` | Expected items + hallucinated extra predictions across packages |"
+        )
+        lines.append(
+            f"| Exact Matches | `{self.total_headline_exact_matches}` | Exactly matched quantities |"
+        )
+        lines.append(
+            f"| Within 5% Tolerance | `{self.total_headline_within_5_percent}` | Minor variations within 5% tolerance |"
+        )
+        lines.append(
+            f"| Within 10% Tolerance | `{self.total_headline_within_10_percent}` | Minor variations (5% to 10%) |"
+        )
+        lines.append(
+            f"| Within 20% Tolerance | `{self.total_headline_within_20_percent}` | Moderate variations (10% to 20%) |"
+        )
+        lines.append(
+            f"| Gross Mismatches (> 20%) | `{self.total_headline_gross_mismatches}` | Discrepancies exceeding 20% |"
+        )
+        lines.append(
+            f"| Missed in Extraction | `{self.total_headline_missed_items}` | BOQ items missing from drawing predictions |"
+        )
+        lines.append(
+            f"| Hallucinated Extra Predictions | `{self.total_headline_hallucinated_items}` | Predictions with no counterpart in BOQ |"
+        )
+        lines.append("")
+
+        lines.append("## 2. Headline Benchmark Breakdown (1:1 Physical Scope Match)")
+        lines.append("")
+        lines.append(
+            "| Benchmark ID | Project Name | Scope | Expected | Compared | Exact | <= 5% | Gross | Missed | Halluc. | Accuracy | Strict % | Status |"
+        )
+        lines.append(
+            "| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
+        )
+        for r in self.headline_reports:
+            r_acc = (
+                f"{r.overall_accuracy_percentage:.1f}%"
+                if r.overall_accuracy_percentage is not None
+                else "N/A"
+            )
+            r_strict = (
+                f"{r.strict_exact_accuracy_percentage:.1f}%"
+                if r.strict_exact_accuracy_percentage is not None
+                else "N/A"
+            )
+            lines.append(
+                f"| `{r.benchmark_id}` | {r.project_name} | 1:1 Match | `{r.total_measurable_expected}` | `{r.total_items_compared}` | `{r.exact_matches}` | `{r.within_5_percent}` | `{r.gross_mismatches}` | `{r.missed_items}` | `{r.hallucinated_items}` | **`{r_acc}`** | `{r_strict}` | `verified_scored_benchmark` |"
+            )
+        lines.append("")
+
+        lines.append("## 3. Real-World Scope Divergence Stress Tests (Excluded from Headline)")
+        lines.append("")
+        lines.append(
+            "> **Scope Divergence Stress Tests**: These packages represent authentic tender documents where the architectural "
+            "drawing set and the Bill of Quantities cover different physical boundaries (e.g., drawings cover a whole facility while "
+            "the BOQ covers a single wing). They are preserved as real-world stress tests and are excluded from primary headline accuracy scoring."
+        )
+        lines.append("")
+        lines.append(
+            "| Benchmark ID | Project Name | Scope Divergence | Total BOQ Items | Evaluated | Exact | Gross | Missed | Overall Acc | Status |"
+        )
+        lines.append(
+            "| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
+        )
+        for r in self.stress_test_reports:
+            r_acc = (
+                f"{r.overall_accuracy_percentage:.1f}%"
+                if r.overall_accuracy_percentage is not None
+                else "N/A"
+            )
+            lines.append(
+                f"| `{r.benchmark_id}` | {r.project_name} | Facility drawings vs single-wing BOQ | `{r.total_boq_items}` | `{r.total_items_compared}` | `{r.exact_matches}` | `{r.gross_mismatches}` | `{r.missed_items}` | `{r_acc}` | `{r.status}` |"
+            )
+        lines.append("")
+
+        lines.append("## 4. Candidate Seed Inventory (Unverified / Excluded)")
+        lines.append("")
+        lines.append(
+            "> **Candidate Seeds**: Prospective tender references. They are strictly excluded from headline accuracy "
+            "metrics until physical drawing and matching BOQ files are retrieved, verified, and scope-audited."
+        )
+        lines.append("")
+        lines.append(
+            "| Benchmark ID | Project Name | Organization | Reference | Status | Headline Eligible |"
+        )
+        lines.append(
+            "| :--- | :--- | :--- | :--- | :--- | :--- |"
+        )
+        for r in self.candidate_seed_reports:
+            lines.append(
+                f"| `{r.benchmark_id}` | {r.project_name} | {r.organization or '-'} | {r.tender_reference or '-'} | `{r.status}` | **No** (Unverified) |"
+            )
+        lines.append("")
+
+        lines.append("## 5. Non-Penalized Denominator Exclusions")
+        lines.append("")
+        lines.append(
+            "Contractor overheads, site preliminaries, and provisional budget allowances are transparently excluded from physical geometric accuracy:"
+        )
+        lines.append(f"- **Total Preliminaries Excluded**: `{self.total_preliminaries_excluded}`")
+        lines.append(f"- **Total Provisional Sums Excluded**: `{self.total_provisional_sums_excluded}`")
+        lines.append(f"- **Total Non-Architectural Excluded**: `{self.total_non_architectural_excluded}`")
+        lines.append("")
+
+        return "\n".join(lines)
+
+
 class BenchmarkAccuracyEngine:
     """Engine for extracting quantities, evaluating accuracy, and generating reports."""
 
@@ -382,9 +609,22 @@ class BenchmarkAccuracyEngine:
             p_cand = Path(pdf_path)
             if p_cand.exists():
                 resolved_pdf = p_cand.resolve()
-        elif auto_extract and bench.download_manifest.get("documents"):
-            doc_fn = bench.download_manifest["documents"][0].get("filename")
-            resolved_pdf = resolve_file_path(doc_fn)
+        elif auto_extract:
+            if bench.download_manifest.get("documents"):
+                for doc in bench.download_manifest["documents"]:
+                    doc_fn = doc.get("filename")
+                    if doc_fn:
+                        resolved_pdf = resolve_file_path(doc_fn)
+                        if resolved_pdf:
+                            break
+            if not resolved_pdf and bench.source_manifest.get("source_pdf"):
+                resolved_pdf = resolve_file_path(bench.source_manifest.get("source_pdf"))
+            if not resolved_pdf and bench.source_manifest.get("allowed_comparison_sources"):
+                for src in bench.source_manifest["allowed_comparison_sources"]:
+                    if src.lower().endswith(".pdf"):
+                        resolved_pdf = resolve_file_path(src)
+                        if resolved_pdf:
+                            break
 
         # 3. Resolve predictions: either supplied directly or extracted from PDF
         active_predictions: List[Dict[str, Any]] = []
@@ -413,7 +653,7 @@ class BenchmarkAccuracyEngine:
                 tender_reference=bench.tender_reference,
                 status="candidate_unscored",
                 is_scored=False,
-                is_headline_eligible=False,
+                is_headline_eligible=bench.is_headline_eligible,
                 source_pdf=str(resolved_pdf) if resolved_pdf else None,
                 total_boq_items=bench.expected_boq_summary.get("total_line_items", 0),
                 total_measurable_expected=bench.expected_boq_summary.get("measurable_items_count", 0),
@@ -721,6 +961,142 @@ class BenchmarkAccuracyEngine:
 
         return json_path, md_path
 
+    def evaluate_suite(
+        self,
+        benchmarks_dir: Optional[Path | str] = None,
+        auto_extract: bool = True,
+        predictions_by_benchmark: Optional[Dict[str, Sequence[Dict[str, Any]]]] = None,
+        output_dir: Optional[Path | str] = None,
+    ) -> HeadlineAccuracyDashboard:
+        """Evaluate all registered public tender benchmarks and generate headline dashboard.
+
+        Rules:
+        - Only benchmarks with verified 1:1 physical scope match (verified_scored_benchmark)
+          contribute to the official headline accuracy metrics.
+        - Verified packages with scope divergence (verified_scope_mismatch) are isolated as
+          real-world stress tests and never dilute headline accuracy.
+        - Candidate seeds (candidate_unverified) are tracked as pipeline inventory but
+          completely excluded from accuracy metrics.
+        """
+        b_dir = Path(benchmarks_dir or self.benchmarks_dir)
+        benchmarks = list_available_public_tender_benchmarks(b_dir)
+
+        headline_reports: List[BenchmarkAccuracyReport] = []
+        stress_test_reports: List[BenchmarkAccuracyReport] = []
+        candidate_seed_reports: List[BenchmarkAccuracyReport] = []
+
+        now_ts = datetime.now(timezone.utc).isoformat()
+
+        for bench in benchmarks:
+            preds = (
+                predictions_by_benchmark.get(bench.benchmark_id)
+                if predictions_by_benchmark
+                else None
+            )
+
+            if bench.is_candidate_unverified:
+                rep = self.evaluate_benchmark(
+                    benchmark_id=bench.benchmark_id,
+                    predictions=preds,
+                    auto_extract=False,
+                )
+                candidate_seed_reports.append(rep)
+            elif bench.is_scope_mismatch:
+                rep = self.evaluate_benchmark(
+                    benchmark_id=bench.benchmark_id,
+                    predictions=preds,
+                    auto_extract=auto_extract,
+                )
+                stress_test_reports.append(rep)
+            elif bench.is_headline_eligible:
+                rep = self.evaluate_benchmark(
+                    benchmark_id=bench.benchmark_id,
+                    predictions=preds,
+                    auto_extract=auto_extract,
+                )
+                headline_reports.append(rep)
+            else:
+                rep = self.evaluate_benchmark(
+                    benchmark_id=bench.benchmark_id,
+                    predictions=preds,
+                    auto_extract=auto_extract,
+                )
+                candidate_seed_reports.append(rep)
+
+        # Aggregate headline metrics across headline-eligible benchmarks only
+        tot_exact = sum(r.exact_matches for r in headline_reports)
+        tot_w5 = sum(r.within_5_percent for r in headline_reports)
+        tot_w10 = sum(r.within_10_percent for r in headline_reports)
+        tot_w20 = sum(r.within_20_percent for r in headline_reports)
+        tot_gross = sum(r.gross_mismatches for r in headline_reports)
+        tot_missed = sum(r.missed_items for r in headline_reports)
+        tot_halluc = sum(r.hallucinated_items for r in headline_reports)
+        tot_expected = sum(r.total_measurable_expected for r in headline_reports)
+        tot_compared = sum(r.total_items_compared for r in headline_reports)
+
+        tot_prelim = sum(r.preliminaries_excluded for r in headline_reports) + sum(
+            r.preliminaries_excluded for r in stress_test_reports
+        )
+        tot_provis = sum(r.provisional_sums_excluded for r in headline_reports) + sum(
+            r.provisional_sums_excluded for r in stress_test_reports
+        )
+        tot_non_arch = sum(r.non_architectural_excluded for r in headline_reports) + sum(
+            r.non_architectural_excluded for r in stress_test_reports
+        )
+
+        accepted = tot_exact + tot_w5
+        overall_acc = (
+            round((accepted / tot_compared) * 100.0, 2) if tot_compared > 0 else 0.0
+        )
+        strict_acc = (
+            round((tot_exact / tot_compared) * 100.0, 2) if tot_compared > 0 else 0.0
+        )
+
+        dashboard = HeadlineAccuracyDashboard(
+            timestamp=now_ts,
+            headline_overall_accuracy=overall_acc,
+            headline_strict_exact_accuracy=strict_acc,
+            total_headline_benchmarks=len(headline_reports),
+            total_headline_measurable_expected=tot_expected,
+            total_headline_items_compared=tot_compared,
+            total_headline_exact_matches=tot_exact,
+            total_headline_within_5_percent=tot_w5,
+            total_headline_within_10_percent=tot_w10,
+            total_headline_within_20_percent=tot_w20,
+            total_headline_gross_mismatches=tot_gross,
+            total_headline_missed_items=tot_missed,
+            total_headline_hallucinated_items=tot_halluc,
+            total_preliminaries_excluded=tot_prelim,
+            total_provisional_sums_excluded=tot_provis,
+            total_non_architectural_excluded=tot_non_arch,
+            total_stress_test_benchmarks=len(stress_test_reports),
+            total_candidate_seeds=len(candidate_seed_reports),
+            headline_reports=headline_reports,
+            stress_test_reports=stress_test_reports,
+            candidate_seed_reports=candidate_seed_reports,
+        )
+
+        out_d = Path(output_dir or self.output_dir)
+        self.save_dashboard(dashboard, output_dir=out_d)
+        return dashboard
+
+    def save_dashboard(
+        self,
+        dashboard: HeadlineAccuracyDashboard,
+        output_dir: Optional[Path | str] = None,
+    ) -> Tuple[Path, Path]:
+        """Save dashboard as JSON and Markdown files in output directory."""
+        target_dir = Path(output_dir or self.output_dir)
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        json_path = target_dir / "headline_accuracy_dashboard.json"
+        md_path = target_dir / "headline_accuracy_dashboard.md"
+
+        json_path.write_text(dashboard.to_json(indent=2), encoding="utf-8")
+        md_path.write_text(dashboard.to_markdown(), encoding="utf-8")
+
+        return json_path, md_path
+
 
 def run_public_tender_benchmark(
     benchmark_id: str,
@@ -742,10 +1118,27 @@ def run_public_tender_benchmark(
     return report
 
 
+def run_public_tender_benchmark_suite(
+    benchmarks_dir: Path | str = "benchmarks/public_tenders",
+    output_dir: Path | str = "benchmark_results",
+    auto_extract: bool = True,
+    predictions_by_benchmark: Optional[Dict[str, Sequence[Dict[str, Any]]]] = None,
+) -> HeadlineAccuracyDashboard:
+    """Convenience function to evaluate the full public tender suite and save headline dashboard."""
+    engine = BenchmarkAccuracyEngine(benchmarks_dir=benchmarks_dir, output_dir=output_dir)
+    return engine.evaluate_suite(
+        benchmarks_dir=benchmarks_dir,
+        auto_extract=auto_extract,
+        predictions_by_benchmark=predictions_by_benchmark,
+        output_dir=output_dir,
+    )
+
+
 def main() -> int:
     """CLI entrypoint for PlanReader Public Tender Benchmark Accuracy Engine."""
     parser = argparse.ArgumentParser(description="PlanReader Public Tender Benchmark Accuracy Engine")
     parser.add_argument("--benchmark", default="tenders_ke_kstvet_cbc_classroom", help="Public tender benchmark ID")
+    parser.add_argument("--all", "--suite", action="store_true", help="Evaluate all registered benchmarks and produce headline dashboard")
     parser.add_argument("--pdf", help="Optional override path to source tender PDF")
     parser.add_argument("--auto-extract", action="store_true", default=True, help="Auto-extract from downloaded PDF if available")
     parser.add_argument("--benchmarks-dir", default="benchmarks/public_tenders", help="Path to public tender benchmarks directory")
@@ -753,6 +1146,43 @@ def main() -> int:
     args = parser.parse_args()
 
     engine = BenchmarkAccuracyEngine(benchmarks_dir=args.benchmarks_dir, output_dir=args.output_dir)
+
+    if args.all:
+        dashboard = engine.evaluate_suite(
+            benchmarks_dir=args.benchmarks_dir,
+            auto_extract=args.auto_extract,
+            output_dir=args.output_dir,
+        )
+        j_path, m_path = engine.save_dashboard(dashboard, output_dir=args.output_dir)
+        acc_s = (
+            f"{dashboard.headline_overall_accuracy:.1f}%"
+            if dashboard.headline_overall_accuracy is not None
+            else "N/A"
+        )
+        exact_s = (
+            f"{dashboard.headline_strict_exact_accuracy:.1f}%"
+            if dashboard.headline_strict_exact_accuracy is not None
+            else "N/A"
+        )
+        print("=" * 75)
+        print("PLANREADER PUBLIC TENDER BENCHMARK — EXECUTIVE HEADLINE ACCURACY DASHBOARD")
+        print("=" * 75)
+        print(f"Official Headline Accuracy (<= 5% tol): {acc_s}")
+        print(f"Strict Exact Accuracy:                  {exact_s}")
+        print(f"Scored Headline Benchmarks:            {dashboard.total_headline_benchmarks}")
+        print(f"Total Measurable Items Evaluated:       {dashboard.total_headline_measurable_expected}")
+        print(f"Total Items Compared (Denominator):     {dashboard.total_headline_items_compared}")
+        print(f"Exact Matches:                         {dashboard.total_headline_exact_matches}")
+        print(f"Within 5% Tolerance:                   {dashboard.total_headline_within_5_percent}")
+        print(f"Gross Mismatches (> 20%):              {dashboard.total_headline_gross_mismatches}")
+        print(f"Missed Items:                          {dashboard.total_headline_missed_items}")
+        print(f"Hallucinated Extra Predictions:        {dashboard.total_headline_hallucinated_items}")
+        print(f"Scope Divergence Stress Tests:         {dashboard.total_stress_test_benchmarks}")
+        print(f"Candidate Seeds (Unverified):          {dashboard.total_candidate_seeds}")
+        print(f"Dashboard reports written to:          {j_path} and {m_path}")
+        print("=" * 75)
+        return 0
+
     report = engine.evaluate_benchmark(
         benchmark_id=args.benchmark,
         pdf_path=args.pdf,
