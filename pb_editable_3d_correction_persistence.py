@@ -40,6 +40,20 @@ correction was recorded (someone edited the mass's dimensions on the "3D
 Building Model" page afterwards) — real information worth surfacing, not
 something to paper over. Replay still proceeds (a correction is never
 silently dropped), but a warning is returned.
+
+Canonical geometry consistency (PR D.11F.1)
+--------------------------------------------
+D.11F left one inconsistency behind: `Editable3DCorrectionLedger.apply_correction()`
+only ever updated the flat `length` measurement, never the wall's `end_pt` —
+so the ledger's own object could report a corrected length right next to a
+stale, pre-correction endpoint. This module used to paper over that for the
+3D viewer with a local, best-effort resync applied only to the *derived*
+WallModel copy it returned, leaving the canonical object itself (and
+anything else that reads it, e.g. the inspector's raw geometry JSON) still
+inconsistent. That resync now lives inside `apply_correction()` itself
+(pb_editable_3d_correction_model.py), so both a live correction and a
+replayed one produce a canonically self-consistent object — this module no
+longer needs its own resync step at all.
 """
 from __future__ import annotations
 
@@ -48,7 +62,6 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Mapping, Sequence, Tuple
 
 from pb_editable_3d_correction_model import (
-    CorrectionField,
     Editable3DCorrectionEvent,
     Editable3DCorrectionLedger,
     EditableGeometryObject,
@@ -114,26 +127,6 @@ def object_state_row(workspace_id: int, obj: EditableGeometryObject) -> Dict[str
     }
 
 
-def _resync_length_geometry(original_wall: WallModel, corrected_wall: WallModel) -> None:
-    """Editable3DCorrectionLedger.apply_correction() only updates the flat
-    'length' measurement — it has no notion of start_pt/end_pt, so a length
-    correction alone would leave the 3D viewer drawing the wall at its old,
-    now-inconsistent endpoints. Re-derive end_pt along the wall's real
-    original direction at the new length (same direction, new distance) —
-    this is not a guessed position, it's the same operation typing a new
-    length into a CAD line tool would perform on a line anchored at its
-    start point."""
-    x0, y0 = original_wall.start_pt
-    x1, y1 = original_wall.end_pt
-    dx, dy = x1 - x0, y1 - y0
-    seg_len = (dx * dx + dy * dy) ** 0.5
-    if seg_len <= 0:
-        return
-    ux, uy = dx / seg_len, dy / seg_len
-    corrected_wall.start_pt = (x0, y0)
-    corrected_wall.end_pt = (x0 + ux * corrected_wall.length_m, y0 + uy * corrected_wall.length_m)
-
-
 @dataclass
 class ReplayWarning:
     object_id: str
@@ -148,11 +141,12 @@ def replay_persisted_corrections(
     """Replay every persisted correction event (grouped by object, in the
     order they were originally recorded — insertion/id order, since the
     table is append-only) through the real
-    Editable3DCorrectionLedger.apply_correction() pipeline. Mutates `ledger`
-    in place (so ledger.get_object()/events_for_object() reflect the full
-    persisted history); returns the geometrically-resynced wall list for the
-    3D viewer and any integrity warnings. Never raises, never silently drops
-    a real persisted correction."""
+    Editable3DCorrectionLedger.apply_correction() pipeline (which keeps a
+    wall's end_pt canonically consistent with any corrected length as of
+    D.11F.1). Mutates `ledger` in place (so ledger.get_object()/
+    events_for_object() reflect the full persisted history); returns the
+    wall list for the 3D viewer and any integrity warnings. Never raises,
+    never silently drops a real persisted correction."""
     walls_by_id = {w.wall_id: w for w in walls}
     corrected_walls = list(walls)
     warnings: List[ReplayWarning] = []
@@ -188,7 +182,6 @@ def replay_persisted_corrections(
                 ),
             ))
 
-        any_length_field = False
         for event in events:
             outcome = ledger.apply_correction(
                 correction_id=event.correction_id, object_id=object_id,
@@ -205,8 +198,6 @@ def replay_persisted_corrections(
                     ),
                 ))
                 continue
-            if event.field == CorrectionField.LENGTH.value:
-                any_length_field = True
 
         obj_after = ledger.get_object(object_id)
         if obj_after is None:
@@ -223,9 +214,11 @@ def replay_persisted_corrections(
                 ),
             ))
 
+        # apply_correction() itself now keeps a wall's end_pt canonically in
+        # sync with any corrected length (PR D.11F.1) — no separate resync
+        # step needed here; the conversion below reads the already-consistent
+        # measurements straight off the replayed ledger object.
         corrected_wall = editable_geometry_object_to_wall_model(obj_after)
-        if any_length_field:
-            _resync_length_geometry(original_wall, corrected_wall)
         corrected_walls = [corrected_wall if w.wall_id == object_id else w for w in corrected_walls]
 
     return corrected_walls, warnings
