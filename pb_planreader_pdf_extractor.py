@@ -222,6 +222,7 @@ class GenericPlanReaderExtractor:
         _addr_kws = ("P.O. BOX", "P.O BOX", "PO BOX", "P O BOX", "TEL:", "FAX:", "EMAIL:", "BOX 100727", "BOX 9656")
         detected_span: Optional[float] = None
         global_verandah_width: Optional[float] = None  # None unless explicitly parsed
+        global_has_verandah_mention = False
         global_roof_pitch_deg: Optional[float] = None
         global_has_dpc = False
         global_has_dpm = False
@@ -234,6 +235,10 @@ class GenericPlanReaderExtractor:
             if not self.is_drawing_page(pg_txt):
                 continue
             norm_pg = re.sub(r"\s+", " ", pg_txt.lower())
+
+            # Track verandah mention across drawings
+            if any(k in norm_pg for k in ("verandah", "veranda")):
+                global_has_verandah_mention = True
 
             # Only record verandah width if an explicit dimension is figured in text
             if global_verandah_width is None:
@@ -310,20 +315,36 @@ class GenericPlanReaderExtractor:
             length_m, width_m = self._detect_outer_envelope(parsed_dims_m, detected_span, is_elevation_page)
 
             if length_m is not None and width_m is not None:
-                room_area = round(length_m * width_m, 2)
+                from pb_multi_space_footprint_geometry import MultiSpaceFootprintBuilder
+
+                builder = MultiSpaceFootprintBuilder()
+                builder.add_main_room(
+                    length_m=length_m,
+                    width_m=width_m,
+                    label=f"Main Building Envelope ({length_m}m x {width_m}m)",
+                    source_page=page_num,
+                )
+
+                if global_has_verandah_mention:
+                    builder.add_verandah(
+                        length_m=length_m,
+                        width_m=global_verandah_width,
+                        adjacency="front",
+                        label="Verandah",
+                        source_page=page_num,
+                    )
+
+                footprint_res = builder.build()
+                total_floor_screed = footprint_res.gross_floor_area_m2
+                perimeter_m = round(2 * (length_m + width_m), 2)
+
                 existing_area = pred_dict.get("floor_screed")
                 current_best_area = existing_area.quantity if existing_area else 0.0
 
-                if room_area > current_best_area or current_best_area == 0:
-                    perimeter_m = round(2 * (length_m + width_m), 2)
-
-                    # Verandah: ONLY added if an explicit figured width was parsed from drawing evidence
+                if total_floor_screed > current_best_area or current_best_area == 0:
                     if global_verandah_width is not None and global_verandah_width > 0:
-                        verandah_addition = round(length_m * global_verandah_width, 2)
-                        total_floor_screed = round(room_area + verandah_addition, 2)
                         desc_flr = f"Floor screed ({length_m}m x {width_m}m envelope + {length_m}m x {global_verandah_width}m verandah)"
                     else:
-                        total_floor_screed = room_area
                         desc_flr = f"Floor screed ({length_m}m x {width_m}m envelope)"
 
                     # External wall area: derived deterministically from perimeter * height
@@ -340,6 +361,17 @@ class GenericPlanReaderExtractor:
                         source_page=page_num,
                         sheet_number=sheet_no,
                         dimensions=[length_m, width_m],
+                        metadata={
+                            "component_areas": footprint_res.component_areas,
+                            "gross_floor_area_m2": footprint_res.gross_floor_area_m2,
+                            "dpm_area_m2": footprint_res.dpm_area_m2,
+                            "mesh_area_m2": footprint_res.mesh_area_m2,
+                            "external_perimeter_m": footprint_res.external_perimeter_m,
+                            "enclosed_wall_perimeter_m": perimeter_m,
+                            "shared_edge_length_m": footprint_res.shared_edge_length_m,
+                            "footprint_status": footprint_res.status,
+                            "missing_components": footprint_res.missing_components,
+                        },
                     )
 
                     pred_dict["perimeter_walling"] = ExtractedPrediction(
@@ -352,6 +384,12 @@ class GenericPlanReaderExtractor:
                         source_page=page_num,
                         sheet_number=sheet_no,
                         dimensions=[perimeter_m, self.default_ceiling_height_m],
+                        metadata={
+                            "external_perimeter_m": footprint_res.external_perimeter_m,
+                            "enclosed_wall_perimeter_m": perimeter_m,
+                            "shared_edge_length_m": footprint_res.shared_edge_length_m,
+                            "footprint_status": footprint_res.status,
+                        },
                     )
 
                     # Gable walling: ONLY emitted if roof pitch or gable height was parsed from drawing
@@ -437,6 +475,7 @@ class GenericPlanReaderExtractor:
                 # Substructure DPM & mesh: exactly equal to floor slab area
                 # NO 1.06 magic multiplier
                 tot_flr = pred_dict["floor_screed"].quantity
+                flr_meta = pred_dict["floor_screed"].metadata or {}
                 if global_has_dpm and "substructure_bed_dpm" not in pred_dict and tot_flr > 0:
                     pred_dict["substructure_bed_dpm"] = ExtractedPrediction(
                         tag="substructure_bed_dpm",
@@ -447,6 +486,7 @@ class GenericPlanReaderExtractor:
                         confidence=0.90,
                         source_page=page_num,
                         sheet_number=sheet_no,
+                        metadata=flr_meta,
                     )
                 if global_has_mesh and "substructure_a142_mesh" not in pred_dict and tot_flr > 0:
                     pred_dict["substructure_a142_mesh"] = ExtractedPrediction(
@@ -458,6 +498,7 @@ class GenericPlanReaderExtractor:
                         confidence=0.90,
                         source_page=page_num,
                         sheet_number=sheet_no,
+                        metadata=flr_meta,
                     )
 
             # ------------------------------------------------------------------
