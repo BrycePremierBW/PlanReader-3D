@@ -1,0 +1,18 @@
+{
+  "benchmark_id": "ungm_category_iv_shelters",
+  "project_name": "UNGM Category IV Shelters / House Units",
+  "project_number": "RFP/2024/CAT4-S",
+  "client": "IOM / UNGM",
+  "drawing_issue": "Standard Humanitarian Shelter Issue",
+  "drawing_date": "14.02.2024",
+  "source_pdf": "IOM_Cat4_Shelters_Standard_Drawings.pdf",
+  "source_takeoff": "IOM_Cat4_Shelters_BOQ_Priced.xlsx",
+  "allowed_comparison_sources": [
+    "IOM_Cat4_Shelters_BOQ_Priced.xlsx"
+  ],
+  "rejected_comparison_sources": [
+    "Premier_Brushworks_60-62_School_Rd_Maroochydore_Revised.xlsx",
+    "Premier_Brushworks_92-94_School_Rd_Full_Painting_Takeoff.xlsx"
+  ],
+  "status": "public_tender_seed"
+}

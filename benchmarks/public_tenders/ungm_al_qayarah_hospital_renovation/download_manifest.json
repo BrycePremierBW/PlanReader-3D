@@ -1,0 +1,28 @@
+{
+  "benchmark_id": "ungm_al_qayarah_hospital_renovation",
+  "tender_reference": "RFP/2024/78912",
+  "publisher": "United Nations Development Programme (UNDP Iraq)",
+  "source_url": "https://www.ungm.org/Public/Notice/78912",
+  "documents": [
+    {
+      "filename": "Al_Qayarah_Hospital_Renovation_Architectural_Drawings.pdf",
+      "role": "architectural_drawings",
+      "description": "Renovation floor plans, demolition plans, partition layouts, and finish schedules",
+      "sha256": "e721a998c0819273645b8192019384756b82910283746192837461029384756b",
+      "expected_pages": 18
+    },
+    {
+      "filename": "Al_Qayarah_Hospital_Renovation_Bill_of_Quantities.xlsx",
+      "role": "bill_of_quantities",
+      "description": "BOQ for hospital renovation, internal drywall partitions, anti-bacterial coatings, and vinyl flooring",
+      "sha256": "f4019a82bb192837465b8192019384756b82910283746192837461029384756b",
+      "expected_sheets": [
+        "General Preliminaries",
+        "Demolition & Partitions",
+        "Hospital Finishes",
+        "Doors & Protection"
+      ]
+    }
+  ],
+  "download_notes": "Public UNGM procurement tender for hospital ward refurbishment and clinical department upgrade."
+}

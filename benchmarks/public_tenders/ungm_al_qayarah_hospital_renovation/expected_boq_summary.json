@@ -1,0 +1,49 @@
+{
+  "benchmark_id": "ungm_al_qayarah_hospital_renovation",
+  "total_line_items": 115,
+  "measurable_items_count": 68,
+  "preliminaries_count": 12,
+  "provisional_sums_count": 3,
+  "rate_only_count": 4,
+  "not_architectural_count": 28,
+  "classified_breakdown": {
+    "measurable_from_drawings": 56,
+    "schedule_extractable": 12,
+    "scope_allowance_only": 0,
+    "provisional_sum": 3,
+    "rate_only": 4,
+    "preliminaries": 12,
+    "not_architectural": 28,
+    "not_applicable_to_planreader": 0,
+    "unknown_requires_review": 0
+  },
+  "sample_measurable_items": [
+    {
+      "item_id": "BOQ-AQH-02-04",
+      "description": "Heavy duty hygienic vinyl flooring 2.5mm with coved skirting to surgical suites",
+      "expected_quantity": 480.0,
+      "unit": "m\u00b2",
+      "category": "measurable_from_drawings",
+      "drawing_sheet": "A-102",
+      "drawing_page": 3
+    },
+    {
+      "item_id": "BOQ-AQH-03-01",
+      "description": "Lead-lined gypsum board wall partition 150mm for X-ray room protection",
+      "expected_quantity": 110.0,
+      "unit": "m\u00b2",
+      "category": "measurable_from_drawings",
+      "drawing_sheet": "A-104",
+      "drawing_page": 5
+    },
+    {
+      "item_id": "BOQ-AQH-04-02",
+      "description": "Hermetically sealed sliding hospital door Type HD-01 (1500x2100mm)",
+      "expected_quantity": 8.0,
+      "unit": "ea",
+      "category": "schedule_extractable",
+      "drawing_sheet": "A-301",
+      "drawing_page": 11
+    }
+  ]
+}

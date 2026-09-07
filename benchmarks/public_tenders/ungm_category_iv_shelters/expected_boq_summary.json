@@ -1,0 +1,49 @@
+{
+  "benchmark_id": "ungm_category_iv_shelters",
+  "total_line_items": 74,
+  "measurable_items_count": 48,
+  "preliminaries_count": 6,
+  "provisional_sums_count": 2,
+  "rate_only_count": 4,
+  "not_architectural_count": 14,
+  "classified_breakdown": {
+    "measurable_from_drawings": 38,
+    "schedule_extractable": 10,
+    "scope_allowance_only": 0,
+    "provisional_sum": 2,
+    "rate_only": 4,
+    "preliminaries": 6,
+    "not_architectural": 14,
+    "not_applicable_to_planreader": 0,
+    "unknown_requires_review": 0
+  },
+  "sample_measurable_items": [
+    {
+      "item_id": "BOQ-SHELTER-01-02",
+      "description": "Corrugated galvanized iron (CGI) wall sheeting 0.4mm gauge including fixings",
+      "expected_quantity": 420.0,
+      "unit": "m²",
+      "category": "measurable_from_drawings",
+      "drawing_sheet": "S-02",
+      "drawing_page": 2
+    },
+    {
+      "item_id": "BOQ-SHELTER-02-04",
+      "description": "Fibre cement board internal lining 6mm thick to wet areas",
+      "expected_quantity": 180.0,
+      "unit": "m²",
+      "category": "measurable_from_drawings",
+      "drawing_sheet": "S-04",
+      "drawing_page": 4
+    },
+    {
+      "item_id": "BOQ-SHELTER-03-01",
+      "description": "Timber braced and ledged external door (900x2050mm) complete",
+      "expected_quantity": 10.0,
+      "unit": "ea",
+      "category": "schedule_extractable",
+      "drawing_sheet": "S-06",
+      "drawing_page": 6
+    }
+  ]
+}

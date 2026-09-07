@@ -1,0 +1,49 @@
+{
+  "benchmark_id": "ungm_fmns_faculty_building",
+  "total_line_items": 168,
+  "measurable_items_count": 98,
+  "preliminaries_count": 16,
+  "provisional_sums_count": 5,
+  "rate_only_count": 8,
+  "not_architectural_count": 41,
+  "classified_breakdown": {
+    "measurable_from_drawings": 82,
+    "schedule_extractable": 16,
+    "scope_allowance_only": 0,
+    "provisional_sum": 5,
+    "rate_only": 8,
+    "preliminaries": 16,
+    "not_architectural": 41,
+    "not_applicable_to_planreader": 0,
+    "unknown_requires_review": 0
+  },
+  "sample_measurable_items": [
+    {
+      "item_id": "BOQ-FMNS-03-05",
+      "description": "200mm reinforced blockwork wall to lecture hall perimeter",
+      "expected_quantity": 940.0,
+      "unit": "m\u00b2",
+      "category": "measurable_from_drawings",
+      "drawing_sheet": "A-201",
+      "drawing_page": 6
+    },
+    {
+      "item_id": "BOQ-FMNS-04-12",
+      "description": "Epoxy floor coating 2mm thick to science laboratories",
+      "expected_quantity": 620.0,
+      "unit": "m\u00b2",
+      "category": "measurable_from_drawings",
+      "drawing_sheet": "A-202",
+      "drawing_page": 7
+    },
+    {
+      "item_id": "BOQ-FMNS-05-03",
+      "description": "Acoustic timber door Type D04 (single leaf 900x2100mm)",
+      "expected_quantity": 28.0,
+      "unit": "ea",
+      "category": "schedule_extractable",
+      "drawing_sheet": "A-501",
+      "drawing_page": 22
+    }
+  ]
+}

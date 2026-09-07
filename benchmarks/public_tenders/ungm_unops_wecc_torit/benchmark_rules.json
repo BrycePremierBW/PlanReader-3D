@@ -1,0 +1,17 @@
+{
+  "benchmark_id": "ungm_unops_wecc_torit",
+  "identity_match_required": true,
+  "match_keys": ["project_name", "tender_reference", "organization"],
+  "comparison_rules": {
+    "ignore_preliminaries_in_accuracy": true,
+    "require_drawing_trace_for_measurable": true,
+    "provisional_sums_counted_as_provisional": true,
+    "rate_only_excluded_from_quantities": true
+  },
+  "tolerances": {
+    "masonry_wall_area_pct": 5.0,
+    "finishes_area_pct": 5.0,
+    "scheduled_doors_exact": true,
+    "scheduled_windows_exact": true
+  }
+}

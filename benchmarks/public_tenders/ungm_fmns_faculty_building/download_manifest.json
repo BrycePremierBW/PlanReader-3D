@@ -1,0 +1,28 @@
+{
+  "benchmark_id": "ungm_fmns_faculty_building",
+  "tender_reference": "ITB/2023/FMNS-08",
+  "publisher": "United Nations Development Programme (UNDP)",
+  "source_url": "https://www.ungm.org/Public/Notice/46781",
+  "documents": [
+    {
+      "filename": "FMNS_Faculty_Building_Architectural_Drawings.pdf",
+      "role": "architectural_drawings",
+      "description": "Architectural floor plans, lecture theatres, labs, elevations, and sections",
+      "sha256": "b947c6e08df1a5b8109312fe2938a1928374a56b829103c84758b91823746a89",
+      "expected_pages": 36
+    },
+    {
+      "filename": "FMNS_Faculty_Building_Bill_of_Quantities.xlsx",
+      "role": "bill_of_quantities",
+      "description": "Detailed BOQ covering concrete works, masonry, finishes, doors, windows, and fittings",
+      "sha256": "c185a7320bd918274619a82736b48192019384756b8291028374619283746102",
+      "expected_sheets": [
+        "Prelims",
+        "Concrete & Masonry",
+        "Finishes",
+        "Openings"
+      ]
+    }
+  ],
+  "download_notes": "Public UNGM procurement tender for educational laboratory and classroom infrastructure."
+}
