@@ -1,0 +1,16 @@
+{
+  "benchmark_id": "ungm_category_iv_housing_units",
+  "identity_match_required": true,
+  "match_keys": ["project_name", "tender_reference", "organization"],
+  "comparison_rules": {
+    "ignore_preliminaries_in_accuracy": true,
+    "require_drawing_trace_for_measurable": true,
+    "provisional_sums_counted_as_provisional": true,
+    "rate_only_excluded_from_quantities": true
+  },
+  "tolerances": {
+    "wall_panel_area_pct": 5.0,
+    "tile_finish_area_pct": 5.0,
+    "scheduled_openings_exact": true
+  }
+}

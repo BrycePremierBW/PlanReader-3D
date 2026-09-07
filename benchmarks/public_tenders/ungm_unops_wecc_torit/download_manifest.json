@@ -1,0 +1,23 @@
+{
+  "benchmark_id": "ungm_unops_wecc_torit",
+  "tender_reference": "ITB/2023/45890",
+  "publisher": "United Nations Office for Project Services (UNOPS)",
+  "source_url": "https://www.ungm.org/Public/Notice/45890",
+  "documents": [
+    {
+      "filename": "UNOPS_WECC_Torit_Architectural_Drawings.pdf",
+      "role": "architectural_drawings",
+      "description": "Architectural floor plans, elevations, and sections for vocational training workshops and classrooms",
+      "sha256": "4a77e8a93cb03bb47492c687b328a6f91f7c11f786d79051052843bb36a0f671",
+      "expected_pages": 24
+    },
+    {
+      "filename": "UNOPS_WECC_Torit_Bill_of_Quantities.xlsx",
+      "role": "bill_of_quantities",
+      "description": "Standard UN BOQ covering earthworks, substructure, masonry, finishes, doors, and fittings",
+      "sha256": "81f7d92823aa045bfd336829774d081bcefa7a884d528b491681ba49405d4529",
+      "expected_sheets": ["Section 1 Prelims", "Section 2 Substructure", "Section 3 Masonry", "Section 4 Finishes"]
+    }
+  ],
+  "download_notes": "Public procurement notice published via UNGM. Files can be fetched via UNGM public notice documents section or UNOPS eSourcing platform."
+}

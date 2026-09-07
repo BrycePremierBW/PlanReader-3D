@@ -1,0 +1,49 @@
+{
+  "benchmark_id": "ungm_category_iv_housing_units",
+  "total_line_items": 98,
+  "measurable_items_count": 64,
+  "preliminaries_count": 8,
+  "provisional_sums_count": 2,
+  "rate_only_count": 4,
+  "not_architectural_count": 20,
+  "classified_breakdown": {
+    "measurable_from_drawings": 52,
+    "schedule_extractable": 12,
+    "scope_allowance_only": 0,
+    "provisional_sum": 2,
+    "rate_only": 4,
+    "preliminaries": 8,
+    "not_architectural": 20,
+    "not_applicable_to_planreader": 0,
+    "unknown_requires_review": 0
+  },
+  "sample_measurable_items": [
+    {
+      "item_id": "BOQ-CAT4-02-01",
+      "description": "Precast concrete wall panels 150mm thick with smooth cast finish",
+      "expected_quantity": 540.0,
+      "unit": "m²",
+      "category": "measurable_from_drawings",
+      "drawing_sheet": "A-101",
+      "drawing_page": 2
+    },
+    {
+      "item_id": "BOQ-CAT4-03-05",
+      "description": "Ceramic wall tiles to kitchen and ablution areas up to 2.1m height",
+      "expected_quantity": 210.0,
+      "unit": "m²",
+      "category": "measurable_from_drawings",
+      "drawing_sheet": "A-104",
+      "drawing_page": 5
+    },
+    {
+      "item_id": "BOQ-CAT4-04-02",
+      "description": "Glazed sliding aluminium window Type W02 (1200x1200mm)",
+      "expected_quantity": 24.0,
+      "unit": "ea",
+      "category": "schedule_extractable",
+      "drawing_sheet": "A-202",
+      "drawing_page": 10
+    }
+  ]
+}

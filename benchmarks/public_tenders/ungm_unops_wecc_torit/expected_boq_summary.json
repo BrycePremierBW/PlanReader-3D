@@ -1,0 +1,49 @@
+{
+  "benchmark_id": "ungm_unops_wecc_torit",
+  "total_line_items": 142,
+  "measurable_items_count": 86,
+  "preliminaries_count": 14,
+  "provisional_sums_count": 4,
+  "rate_only_count": 6,
+  "not_architectural_count": 32,
+  "classified_breakdown": {
+    "measurable_from_drawings": 72,
+    "schedule_extractable": 14,
+    "scope_allowance_only": 0,
+    "provisional_sum": 4,
+    "rate_only": 6,
+    "preliminaries": 14,
+    "not_architectural": 32,
+    "not_applicable_to_planreader": 0,
+    "unknown_requires_review": 0
+  },
+  "sample_measurable_items": [
+    {
+      "item_id": "BOQ-WECC-03-01",
+      "description": "200mm solid concrete block masonry wall to perimeter",
+      "expected_quantity": 780.0,
+      "unit": "m²",
+      "category": "measurable_from_drawings",
+      "drawing_sheet": "A-102",
+      "drawing_page": 4
+    },
+    {
+      "item_id": "BOQ-WECC-04-02",
+      "description": "Cement plaster 15mm thick to internal walls including 3 coats emulsion paint",
+      "expected_quantity": 1420.0,
+      "unit": "m²",
+      "category": "measurable_from_drawings",
+      "drawing_sheet": "A-103",
+      "drawing_page": 5
+    },
+    {
+      "item_id": "BOQ-WECC-05-01",
+      "description": "Metal double door Type D01 (1800x2100mm) including frame and ironmongery",
+      "expected_quantity": 12.0,
+      "unit": "ea",
+      "category": "schedule_extractable",
+      "drawing_sheet": "A-201",
+      "drawing_page": 12
+    }
+  ]
+}

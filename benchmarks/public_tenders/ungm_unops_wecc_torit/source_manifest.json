@@ -1,0 +1,20 @@
+{
+  "benchmark_id": "ungm_unops_wecc_torit",
+  "project_name": "UNOPS WECC Torit Vocational Training Centre",
+  "project_number": "ITB/2023/45890",
+  "client": "UNOPS",
+  "drawing_issue": "Tender Issue Rev 0",
+  "drawing_date": "15.05.2023",
+  "source_pdf": "UNOPS_WECC_Torit_Architectural_Drawings.pdf",
+  "source_takeoff": "UNOPS_WECC_Torit_Bill_of_Quantities.xlsx",
+  "allowed_comparison_sources": [
+    "UNOPS_WECC_Torit_Bill_of_Quantities.xlsx",
+    "WECC_Torit_BOQ_Final.xlsx"
+  ],
+  "rejected_comparison_sources": [
+    "Premier_Brushworks_60-62_School_Rd_Maroochydore_Revised.xlsx",
+    "Premier_Brushworks_92-94_School_Rd_Full_Painting_Takeoff.xlsx",
+    "260617_004-LAGO-BRITINYA_ARCH-DRAWINGS_COMBINED 2.pdf"
+  ],
+  "status": "public_tender_seed"
+}

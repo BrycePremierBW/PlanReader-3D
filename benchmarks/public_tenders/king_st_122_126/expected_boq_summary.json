@@ -1,0 +1,49 @@
+{
+  "benchmark_id": "king_st_122_126",
+  "total_line_items": 135,
+  "measurable_items_count": 82,
+  "preliminaries_count": 15,
+  "provisional_sums_count": 5,
+  "rate_only_count": 5,
+  "not_architectural_count": 28,
+  "classified_breakdown": {
+    "measurable_from_drawings": 68,
+    "schedule_extractable": 14,
+    "scope_allowance_only": 0,
+    "provisional_sum": 5,
+    "rate_only": 5,
+    "preliminaries": 15,
+    "not_architectural": 28,
+    "not_applicable_to_planreader": 0,
+    "unknown_requires_review": 0
+  },
+  "sample_measurable_items": [
+    {
+      "item_id": "BOQ-KS-02-01",
+      "description": "13mm plasterboard wall linings on 90mm timber studs with insulation",
+      "expected_quantity": 1850.0,
+      "unit": "m\u00b2",
+      "category": "measurable_from_drawings",
+      "drawing_sheet": "A-101",
+      "drawing_page": 4
+    },
+    {
+      "item_id": "BOQ-KS-03-02",
+      "description": "External acrylic texture render finish to blockwork walls",
+      "expected_quantity": 620.0,
+      "unit": "m\u00b2",
+      "category": "measurable_from_drawings",
+      "drawing_sheet": "A-201",
+      "drawing_page": 8
+    },
+    {
+      "item_id": "BOQ-KS-04-01",
+      "description": "Aluminium framed glazed sliding entry door Type D-01 (2400x2100mm)",
+      "expected_quantity": 16.0,
+      "unit": "ea",
+      "category": "schedule_extractable",
+      "drawing_sheet": "A-401",
+      "drawing_page": 18
+    }
+  ]
+}

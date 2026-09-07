@@ -1,0 +1,18 @@
+{
+  "benchmark_id": "ungm_category_iv_housing_units",
+  "project_name": "UNGM Category IV Housing Units",
+  "project_number": "ITB/2023/CAT4-H",
+  "client": "UN-Habitat",
+  "drawing_issue": "Standard Tender Design",
+  "drawing_date": "10.08.2023",
+  "source_pdf": "UN_Habitat_Cat4_Housing_Architectural.pdf",
+  "source_takeoff": "UN_Habitat_Cat4_Housing_BOQ.xlsx",
+  "allowed_comparison_sources": [
+    "UN_Habitat_Cat4_Housing_BOQ.xlsx"
+  ],
+  "rejected_comparison_sources": [
+    "Premier_Brushworks_60-62_School_Rd_Maroochydore_Revised.xlsx",
+    "Premier_Brushworks_92-94_School_Rd_Full_Painting_Takeoff.xlsx"
+  ],
+  "status": "public_tender_seed"
+}

@@ -1,0 +1,62 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PublicTenderBenchmarksIndex",
+  "description": "Index of external public tender benchmark seeds for PlanReader accuracy verification",
+  "updated_at": "2026-09-07T00:00:00Z",
+  "benchmarks": [
+    {
+      "benchmark_id": "ungm_unops_wecc_torit",
+      "project_name": "UNOPS WECC Torit Vocational Training Centre",
+      "organization": "UNOPS",
+      "tender_reference": "ITB/2023/45890",
+      "source_url": "https://www.ungm.org/Public/Notice/45890",
+      "country": "South Sudan",
+      "status": "metadata_seed"
+    },
+    {
+      "benchmark_id": "ungm_category_iv_housing_units",
+      "project_name": "UNGM Category IV Housing Units",
+      "organization": "UN-Habitat",
+      "tender_reference": "ITB/2023/CAT4-H",
+      "source_url": "https://www.ungm.org/Public/Notice/48201",
+      "country": "International",
+      "status": "metadata_seed"
+    },
+    {
+      "benchmark_id": "ungm_category_iv_shelters",
+      "project_name": "UNGM Category IV Shelters / House Units",
+      "organization": "IOM / UNGM",
+      "tender_reference": "RFP/2024/CAT4-S",
+      "source_url": "https://www.ungm.org/Public/Notice/51092",
+      "country": "International",
+      "status": "metadata_seed"
+    },
+    {
+      "benchmark_id": "ungm_fmns_faculty_building",
+      "project_name": "UNGM FMNS Faculty of Mathematical and Natural Sciences Building",
+      "organization": "UNDP / UNGM",
+      "tender_reference": "ITB/2023/FMNS-08",
+      "source_url": "https://www.ungm.org/Public/Notice/46781",
+      "country": "International",
+      "status": "metadata_seed"
+    },
+    {
+      "benchmark_id": "ungm_al_qayarah_hospital_renovation",
+      "project_name": "UNGM Al Qayarah General Hospital Renovation",
+      "organization": "UNDP / UNGM",
+      "tender_reference": "RFP/2024/78912",
+      "source_url": "https://www.ungm.org/Public/Notice/78912",
+      "country": "Iraq",
+      "status": "metadata_seed"
+    },
+    {
+      "benchmark_id": "king_st_122_126",
+      "project_name": "122-126 King St, Buderim - Construction Issue",
+      "organization": "Public Tender / Commercial Client",
+      "tender_reference": "23-060",
+      "source_url": "https://tenders.net/commercial/23-060-king-st-buderim",
+      "country": "Australia",
+      "status": "metadata_seed"
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "benchmark_id": "king_st_122_126",
+  "tender_reference": "23-060",
+  "publisher": "Commercial Tender Authority / Tenders.Net",
+  "source_url": "https://tenders.net/commercial/23-060-king-st-buderim",
+  "documents": [
+    {
+      "filename": "King_St_122-126_Architectural_Drawings.pdf",
+      "role": "architectural_drawings",
+      "description": "Architectural drawings: floor plans, elevations, sections, schedules",
+      "sha256": "d54a2b109eb819273645b8192019384756b82910283746192837461029384756",
+      "expected_pages": 32
+    },
+    {
+      "filename": "King_St_122-126_Bill_of_Quantities.xlsx",
+      "role": "bill_of_quantities",
+      "description": "Trade bill of quantities for multi-unit commercial/residential development",
+      "sha256": "a681c902ff192837465b8192019384756b82910283746192837461029384756b",
+      "expected_sheets": [
+        "Preliminaries",
+        "Drywall & Plasterboard",
+        "Painting & Coatings",
+        "Doors & Windows"
+      ]
+    }
+  ],
+  "download_notes": "Public commercial tender documentation for multi-unit construction."
+}

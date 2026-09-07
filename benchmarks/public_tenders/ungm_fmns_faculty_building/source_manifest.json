@@ -1,0 +1,19 @@
+{
+  "benchmark_id": "ungm_fmns_faculty_building",
+  "project_name": "UNGM FMNS Faculty of Mathematical and Natural Sciences Building",
+  "project_number": "ITB/2023/FMNS-08",
+  "client": "UNDP / UNGM",
+  "drawing_issue": "Tender Issue Rev 1",
+  "drawing_date": "20.08.2023",
+  "source_pdf": "FMNS_Faculty_Building_Architectural_Drawings.pdf",
+  "source_takeoff": "FMNS_Faculty_Building_Bill_of_Quantities.xlsx",
+  "allowed_comparison_sources": [
+    "FMNS_Faculty_Building_Bill_of_Quantities.xlsx",
+    "FMNS_Faculty_BOQ_Final.xlsx"
+  ],
+  "rejected_comparison_sources": [
+    "Premier_Brushworks_60-62_School_Rd_Maroochydore_Revised.xlsx",
+    "Premier_Brushworks_92-94_School_Rd_Full_Painting_Takeoff.xlsx"
+  ],
+  "status": "public_tender_seed"
+}

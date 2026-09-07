@@ -1,0 +1,19 @@
+{
+  "benchmark_id": "ungm_al_qayarah_hospital_renovation",
+  "project_name": "UNGM Al Qayarah General Hospital Renovation",
+  "project_number": "RFP/2024/78912",
+  "client": "UNDP / UNGM",
+  "drawing_issue": "Tender Issue Rev 0",
+  "drawing_date": "10.02.2024",
+  "source_pdf": "Al_Qayarah_Hospital_Renovation_Architectural_Drawings.pdf",
+  "source_takeoff": "Al_Qayarah_Hospital_Renovation_Bill_of_Quantities.xlsx",
+  "allowed_comparison_sources": [
+    "Al_Qayarah_Hospital_Renovation_Bill_of_Quantities.xlsx",
+    "Al_Qayarah_Hospital_BOQ_Final.xlsx"
+  ],
+  "rejected_comparison_sources": [
+    "Premier_Brushworks_60-62_School_Rd_Maroochydore_Revised.xlsx",
+    "Premier_Brushworks_92-94_School_Rd_Full_Painting_Takeoff.xlsx"
+  ],
+  "status": "public_tender_seed"
+}

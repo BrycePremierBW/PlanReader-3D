@@ -1,0 +1,23 @@
+{
+  "benchmark_id": "ungm_category_iv_shelters",
+  "tender_reference": "RFP/2024/CAT4-S",
+  "publisher": "International Organization for Migration (IOM)",
+  "source_url": "https://www.ungm.org/Public/Notice/51092",
+  "documents": [
+    {
+      "filename": "IOM_Cat4_Shelters_Standard_Drawings.pdf",
+      "role": "architectural_drawings",
+      "description": "Architectural drawings and structural timber framing plans for Category IV transitional shelters",
+      "sha256": "3d55ab10e98a3b832103fca53940176ab1330fa602058b762512f4c1936b801a",
+      "expected_pages": 12
+    },
+    {
+      "filename": "IOM_Cat4_Shelters_BOQ_Priced.xlsx",
+      "role": "bill_of_quantities",
+      "description": "Bill of quantities for timber framing, CGI cladding, thermal insulation, doors, and hardware",
+      "sha256": "4e7208d13264c919a0082ea57092bb469032688da3b10bca03fbc173160a28f1",
+      "expected_sheets": ["General", "Superstructure", "Roofing & Cladding", "Joinery"]
+    }
+  ],
+  "download_notes": "Published via UNGM public procurement portal under IOM global emergency shelter framework."
+}

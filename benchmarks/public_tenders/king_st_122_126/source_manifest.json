@@ -1,0 +1,19 @@
+{
+  "benchmark_id": "king_st_122_126",
+  "project_name": "122-126 King St, Buderim - Construction Issue",
+  "project_number": "23-060",
+  "client": "Public Tender / Commercial Client",
+  "drawing_issue": "Construction Issue Rev C",
+  "drawing_date": "12.11.2023",
+  "source_pdf": "King_St_122-126_Architectural_Drawings.pdf",
+  "source_takeoff": "King_St_122-126_Bill_of_Quantities.xlsx",
+  "allowed_comparison_sources": [
+    "King_St_122-126_Bill_of_Quantities.xlsx",
+    "King_St_122_126_BOQ_Final.xlsx"
+  ],
+  "rejected_comparison_sources": [
+    "Premier_Brushworks_60-62_School_Rd_Maroochydore_Revised.xlsx",
+    "Premier_Brushworks_92-94_School_Rd_Full_Painting_Takeoff.xlsx"
+  ],
+  "status": "public_tender_seed"
+}
