@@ -43,6 +43,7 @@ class ExtractedPrediction:
     source_page: int
     sheet_number: Optional[str] = None
     dimensions: Optional[List[float]] = None
+    bounding_box: Optional[List[float]] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -56,6 +57,7 @@ class ExtractedPrediction:
             "source_page": self.source_page,
             "sheet_number": self.sheet_number,
             "dimensions": self.dimensions,
+            "bounding_box": self.bounding_box,
             "metadata": self.metadata,
         }
 
@@ -69,6 +71,10 @@ class GenericPlanReaderExtractor:
     def is_drawing_page(self, page_text: str) -> bool:
         """Heuristically determine if a PDF page contains architectural drawings."""
         t_lower = page_text.lower()
+        # Bill of Quantities text pages with item rates/amounts are not drawing sheets
+        if re.search(r"bills?\s*of\s*quantit|rate\s*amount|\bamount\s*\(?kshs?\)?", t_lower):
+            return False
+
         drawing_indicators = [
             "scale 1:",
             "scale: 1:",
@@ -84,6 +90,11 @@ class GenericPlanReaderExtractor:
             "drawing no",
             "drawing title",
             "sheet no",
+            "window schedule",
+            "door schedule",
+            "schedule of doors",
+            "schedule of windows",
+            "schedule of finishes",
         ]
         return any(ind in t_lower for ind in drawing_indicators)
 
@@ -691,6 +702,35 @@ class GenericPlanReaderExtractor:
                     source_page=page_num,
                     sheet_number=sheet_no,
                 )
+
+        # ------------------------------------------------------------------
+        # Generic Schedule & Table Extraction (Phase F.8)
+        # ------------------------------------------------------------------
+        try:
+            from pb_raster_schedule_extractor import GenericScheduleTableExtractor
+            schedule_extractor = GenericScheduleTableExtractor()
+            dwg_pages = [p for p in target_pages if 0 <= p < len(doc) and self.is_drawing_page(doc[p].get_text("text"))]
+            schedule_rows = schedule_extractor.extract_from_document(doc, pages=dwg_pages)
+
+            for s_row in schedule_rows:
+                if s_row.is_provisional or s_row.quantity is None or s_row.quantity <= 0:
+                    continue
+                # Merge into predictions if not already predicted with higher confidence
+                if s_row.tag not in pred_dict or s_row.confidence >= pred_dict[s_row.tag].confidence:
+                    pred_dict[s_row.tag] = ExtractedPrediction(
+                        tag=s_row.tag,
+                        trade_type=s_row.trade_type,
+                        description=s_row.description,
+                        quantity=s_row.quantity,
+                        unit=s_row.unit,
+                        confidence=s_row.confidence,
+                        source_page=s_row.source_page,
+                        sheet_number=s_row.sheet_number,
+                        dimensions=s_row.dimensions,
+                        bounding_box=list(s_row.bbox) if s_row.bbox else None,
+                    )
+        except Exception:
+            pass
 
         doc.close()
         return list(pred_dict.values())
