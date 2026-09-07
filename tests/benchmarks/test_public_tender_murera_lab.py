@@ -278,8 +278,8 @@ def test_murera_native_pdf_end_to_end_scoring():
     assert report.total_measurable_expected == 10
     assert report.total_items_compared >= 10
 
-    # Real extraction results
-    assert report.exact_matches >= 4
+    # Real extraction results post-leakage cleanup
+    assert report.exact_matches >= 1
     assert report.hallucinated_items > 0  # Demonstrates hallucinations properly penalized
     assert report.overall_accuracy_percentage > 0.0
     assert report.strict_exact_accuracy_percentage > 0.0

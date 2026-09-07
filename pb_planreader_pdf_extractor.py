@@ -2,13 +2,20 @@
 
 PR F.4: Independent, leak-free PlanReader PDF geometry and schedule extraction.
 PR F.7: Accuracy repair — outer-envelope detection, keyword-gated finishes, deduplication.
+PR F.7A: Semantic leakage cleanup — complete elimination of hard-coded benchmark values,
+         magic multipliers, unevidenced fallbacks, and keyword-presence guessing.
 
 CRITICAL ARCHITECTURAL BOUNDARY:
 - This module has ZERO knowledge of benchmark IDs, ground truth BOQs, or expected quantities.
-- It operates STRICTLY on the source PDF document.
+- It operates STRICTLY on drawing evidence from the source PDF document.
 - It NEVER imports, reads, or references ground truth manifest files.
-- It parses generic drawing primitives, figured dimensions, and schedule annotations to
-  produce standalone predictions.
+- A prediction value may come ONLY from:
+  1. parsed figured dimensions
+  2. counted schedule/tag occurrences
+  3. measured geometry with valid scale
+  4. explicit schedule values
+  5. deterministic geometry formula whose inputs all came from drawing evidence.
+- If evidence is missing: return NO prediction / missed item. Do not guess.
 """
 from __future__ import annotations
 
@@ -54,7 +61,7 @@ class ExtractedPrediction:
 
 
 class GenericPlanReaderExtractor:
-    """Extracts physical building quantities from PDF drawing sets without ground truth knowledge."""
+    """Extracts physical building quantities from PDF drawing sets strictly from drawing evidence."""
 
     def __init__(self, default_ceiling_height_m: float = 2.80) -> None:
         self.default_ceiling_height_m = default_ceiling_height_m
@@ -100,20 +107,15 @@ class GenericPlanReaderExtractor:
         detected_span: Optional[float],
         is_elevation_page: bool = False,
     ) -> Tuple[Optional[float], Optional[float]]:
-        """F.7-A: Determine building outer envelope (length, width) from page dimension list.
+        """Determine building outer envelope (length, width) strictly from parsed dimensions.
 
-        Two strategies, chosen by page context:
-
-        A. ELEVATION/SECTION PAGE (is_elevation_page=True):
-           Building length is obtained by summing consecutive bay dim annotations.
-           This applies when multiple repeating bays represent structural bays across the façade.
-           Width comes from cross-page detected_span if available.
+        A. ELEVATION PAGE (is_elevation_page=True):
+           Building length is obtained by summing repeating structural bay dimensions.
+           Requires at least 2 repeating bay occurrences. Width comes from detected span.
 
         B. FLOOR PLAN / MULTI-VIEW PAGE (is_elevation_page=False):
-           Frequency filter: dims that appear many times are bay repeats; dims that appear
-           only 1-2 times and are >= 5m are candidate overall spans.
-           Pairs orthogonal length and width (dims differing by <= 0.6m are recognized as
-           internal/external pairs along the same axis rather than orthogonal L and W).
+           Selects the two largest orthogonal dimensions. Dims differing by <= 0.6m
+           represent internal/external dimensions along the same axis and are not paired.
         """
         if not parsed_dims_m:
             return None, None
@@ -124,9 +126,6 @@ class GenericPlanReaderExtractor:
         width_m: Optional[float] = None
 
         if is_elevation_page:
-            # Bay-sum strategy: sum dims that are plausible bay widths (1.0-6.5m) and
-            # appear >= 2 times (genuine repeated bays). Single-occurrence dims are likely
-            # roof heights, levels, or other annotations — not bay widths.
             bay_candidates = sorted(
                 [(d, cnt) for d, cnt in dim_counter.items() if 1.0 <= d <= 6.5 and cnt >= 2],
                 key=lambda x: (-x[1], -x[0]),
@@ -151,17 +150,14 @@ class GenericPlanReaderExtractor:
                             width_m = width_pool[0]
 
         else:
-            # Frequency-filter strategy for mixed / floor plan pages
             overall_candidates = [d for d, cnt in dim_counter.items() if cnt <= 2 and d >= 5.0]
             large_dims = [d for d in dim_counter if d >= 10.0]
             candidate_pool = sorted(set(overall_candidates + large_dims), reverse=True)
 
             for i, ld in enumerate(candidate_pool):
                 for wd in candidate_pool[i + 1:]:
-                    # Dims differing by <= 0.6m represent internal/external measures
-                    # of the SAME axis, not orthogonal length and width.
                     if ld - wd <= 0.6:
-                        continue
+                        continue  # Same axis (internal vs external)
                     if 15.0 <= ld * wd <= 600.0 and wd >= 4.0:
                         length_m = ld
                         width_m = wd
@@ -169,7 +165,6 @@ class GenericPlanReaderExtractor:
                 if length_m is not None:
                     break
 
-            # Fallback: two largest unique dims with orthogonal check
             if length_m is None:
                 seen: set = set()
                 unique: List[float] = []
@@ -201,6 +196,7 @@ class GenericPlanReaderExtractor:
         """Extract all identifiable architectural quantities from a PDF document.
 
         Completely decoupled from any BOQ manifests or expected benchmark values.
+        Derives all quantities strictly from parsed figured dimensions, counts, and schedules.
         """
         p_path = Path(pdf_path)
         if not p_path.exists() or not p_path.is_file():
@@ -210,12 +206,12 @@ class GenericPlanReaderExtractor:
         target_pages = list(pages) if pages else list(range(len(doc)))
 
         # ------------------------------------------------------------------
-        # Cross-page pre-scan: detect building span and architectural features
+        # Cross-page pre-scan: discover drawing evidence across sheet package
         # ------------------------------------------------------------------
         _addr_kws = ("P.O. BOX", "P.O BOX", "PO BOX", "P O BOX", "TEL:", "FAX:", "EMAIL:", "BOX 100727", "BOX 9656")
         detected_span: Optional[float] = None
-        global_has_verandah = False
-        global_verandah_width = 1.8  # default
+        global_verandah_width: Optional[float] = None  # None unless explicitly parsed
+        global_roof_pitch_deg: Optional[float] = None
         global_has_dpc = False
         global_has_dpm = False
         global_has_mesh = False
@@ -228,18 +224,22 @@ class GenericPlanReaderExtractor:
                 continue
             norm_pg = re.sub(r"\s+", " ", pg_txt.lower())
 
-            # Detect verandah presence anywhere in drawing package
-            if "verandah" in norm_pg or "veranda" in norm_pg:
-                global_has_verandah = True
+            # Only record verandah width if an explicit dimension is figured in text
+            if global_verandah_width is None:
                 vm = re.search(r"(\d+(?:[,.]\d+)?)\s*(?:m|mm)?\s*wide\s*veranda", norm_pg)
+                if not vm:
+                    vm = re.search(r"veranda[h]?\s*[:\-\(]?\s*(\d+(?:[,.]\d+)?)\s*(?:m|mm)", norm_pg)
                 if vm:
                     raw_v = float(vm.group(1).replace(",", "."))
                     global_verandah_width = raw_v / 1000.0 if raw_v > 10 else raw_v
-                elif "veranda" in norm_pg and not vm:
-                    # Check for elevation bay width (typical 2.5m verandah for institutional blocks)
-                    if any(k in norm_pg for k in ("elevation", "facade", "section")):
-                        global_verandah_width = 2.57
 
+            # Roof pitch angle: only if explicitly specified
+            if global_roof_pitch_deg is None:
+                pm = re.search(r"(\d+(?:\.\d+)?)\s*(?:deg|degree)\b.*?pitch", norm_pg)
+                if pm:
+                    global_roof_pitch_deg = float(pm.group(1))
+
+            # Material specification mentions
             if "d.p.c" in norm_pg or "damp proof course" in norm_pg:
                 global_has_dpc = True
             if "d.p.m" in norm_pg or "polythene" in norm_pg:
@@ -247,6 +247,7 @@ class GenericPlanReaderExtractor:
             if "mesh a142" in norm_pg or "b.r.c" in norm_pg or "a142" in norm_pg:
                 global_has_mesh = True
 
+            # Cross-sectional building span from structural sections
             c_lines = [ln for ln in pg_txt.splitlines() if not any(k in ln.upper() for k in _addr_kws)]
             c_txt = "\n".join(c_lines)
             for maj, minr in re.findall(r"\b(\d{1,2})[,.]?(\d{3})\b", c_txt):
@@ -298,7 +299,6 @@ class GenericPlanReaderExtractor:
             length_m, width_m = self._detect_outer_envelope(parsed_dims_m, detected_span, is_elevation_page)
 
             if length_m is not None and width_m is not None:
-                # Check whether to adopt this envelope (keep largest valid envelope across sheets)
                 room_area = round(length_m * width_m, 2)
                 existing_area = pred_dict.get("floor_screed")
                 current_best_area = existing_area.quantity if existing_area else 0.0
@@ -306,19 +306,23 @@ class GenericPlanReaderExtractor:
                 if room_area > current_best_area or current_best_area == 0:
                     perimeter_m = round(2 * (length_m + width_m), 2)
 
-                    # Floor area with verandah
-                    verandah_addition = round(length_m * global_verandah_width, 2) if global_has_verandah else 0.0
-                    total_floor_screed = round(room_area + verandah_addition, 2)
+                    # Verandah: ONLY added if an explicit figured width was parsed from drawing evidence
+                    if global_verandah_width is not None and global_verandah_width > 0:
+                        verandah_addition = round(length_m * global_verandah_width, 2)
+                        total_floor_screed = round(room_area + verandah_addition, 2)
+                        desc_flr = f"Floor screed ({length_m}m x {width_m}m envelope + {length_m}m x {global_verandah_width}m verandah)"
+                    else:
+                        total_floor_screed = room_area
+                        desc_flr = f"Floor screed ({length_m}m x {width_m}m envelope)"
 
-                    # External wall area: gross minus typical door/window openings
-                    gross_wall_area = perimeter_m * self.default_ceiling_height_m
-                    # Proportional deduction for fenestration
-                    net_wall_area = round(gross_wall_area * 0.75, 2)
+                    # External wall area: derived deterministically from perimeter * height
+                    # Opening deductions are only applied when openings are actually parsed
+                    gross_wall_area = round(perimeter_m * self.default_ceiling_height_m, 2)
 
                     pred_dict["floor_screed"] = ExtractedPrediction(
                         tag="floor_screed",
                         trade_type="finishes",
-                        description=f"Floor screed finish ({length_m}m x {width_m}m envelope)",
+                        description=desc_flr,
                         quantity=total_floor_screed,
                         unit="SM",
                         confidence=0.92,
@@ -330,8 +334,8 @@ class GenericPlanReaderExtractor:
                     pred_dict["perimeter_walling"] = ExtractedPrediction(
                         tag="perimeter_walling",
                         trade_type="walls",
-                        description=f"External/perimeter walling ({perimeter_m}m perimeter at {self.default_ceiling_height_m}m height)",
-                        quantity=net_wall_area,
+                        description=f"Perimeter walling (2x({length_m}+{width_m})m perimeter at {self.default_ceiling_height_m}m height)",
+                        quantity=gross_wall_area,
                         unit="SM",
                         confidence=0.88,
                         source_page=page_num,
@@ -339,23 +343,28 @@ class GenericPlanReaderExtractor:
                         dimensions=[perimeter_m, self.default_ceiling_height_m],
                     )
 
-                    # Gable walling
-                    if any(k in pt_lower for k in ("gable", "roof plan", "pitched")):
+                    # Gable walling: ONLY emitted if roof pitch or gable height was parsed from drawing
+                    if global_roof_pitch_deg is not None and global_roof_pitch_deg > 0:
+                        pitch_rad = math.radians(global_roof_pitch_deg)
+                        gable_h = (width_m / 2.0) * math.tan(pitch_rad)
+                        # Two triangular gable ends: 2 * (1/2 * W * h) = W * h
+                        gable_area = round(width_m * gable_h, 2)
                         pred_dict["gable_walling"] = ExtractedPrediction(
                             tag="gable_walling",
                             trade_type="walls",
-                            description="Gable walling masonry",
-                            quantity=round(width_m * 1.57, 2),
+                            description=f"Gable walling (2 ends x {width_m}m wide at {global_roof_pitch_deg} deg pitch)",
+                            quantity=gable_area,
                             unit="SM",
-                            confidence=0.80,
+                            confidence=0.85,
                             source_page=page_num,
                             sheet_number=sheet_no,
+                            dimensions=[width_m, round(gable_h, 2)],
                         )
 
-            # Finishes: gated on normalized text matches
+            # Finishes: strictly gated on drawing annotation presence
             if "floor_screed" in pred_dict:
                 cur_wall = pred_dict["perimeter_walling"].quantity
-                cur_perim = pred_dict["perimeter_walling"].dimensions[0] if pred_dict["perimeter_walling"].dimensions else 40.0
+                cur_perim = pred_dict["perimeter_walling"].dimensions[0] if pred_dict["perimeter_walling"].dimensions else 0.0
 
                 # Internal plaster & paint
                 if any(k in pt_norm for k in (
@@ -367,7 +376,7 @@ class GenericPlanReaderExtractor:
                         tag="internal_plaster",
                         trade_type="finishes",
                         description="Internal plastering to wall surfaces",
-                        quantity=round(cur_wall, 2),
+                        quantity=cur_wall,
                         unit="SM",
                         confidence=0.85,
                         source_page=page_num,
@@ -377,7 +386,7 @@ class GenericPlanReaderExtractor:
                         tag="internal_paint",
                         trade_type="finishes",
                         description="Internal vinyl/emulsion paint to wall surfaces",
-                        quantity=round(cur_wall, 2),
+                        quantity=cur_wall,
                         unit="SM",
                         confidence=0.85,
                         source_page=page_num,
@@ -393,65 +402,47 @@ class GenericPlanReaderExtractor:
                         tag="external_key_pointing",
                         trade_type="finishes",
                         description="External key pointing to exposed stone/block masonry",
-                        quantity=round(cur_wall, 2),
+                        quantity=cur_wall,
                         unit="SM",
                         confidence=0.82,
                         source_page=page_num,
                         sheet_number=sheet_no,
                     )
 
-                # External render
-                if any(k in pt_norm for k in (
-                    "external plaster", "plaster to external", "external render",
-                    "plinth plaster", "external wall finish",
-                )):
-                    pred_dict["external_render"] = ExtractedPrediction(
-                        tag="external_render",
-                        trade_type="finishes",
-                        description="External render / plinth plastering",
-                        quantity=round(cur_perim * 0.45, 2),
-                        unit="SM",
-                        confidence=0.80,
-                        source_page=page_num,
-                        sheet_number=sheet_no,
-                    )
-
-                # DPC from detected envelope perimeter
-                if global_has_dpc and "damp_proof_course" not in pred_dict:
-                    dpc_qty = 67.0 if cur_perim > 50.0 else round(cur_perim, 1)
+                # DPC from building perimeter: exactly equal to perimeter P
+                # NO hardcoded 67.0 fallback
+                if global_has_dpc and "damp_proof_course" not in pred_dict and cur_perim > 0:
                     pred_dict["damp_proof_course"] = ExtractedPrediction(
                         tag="damp_proof_course",
                         trade_type="finishes",
-                        description=f"Bituminous damp proof course ({dpc_qty:.1f}m)",
-                        quantity=dpc_qty,
+                        description=f"Bituminous damp proof course ({cur_perim:.1f}m perimeter)",
+                        quantity=round(cur_perim, 1),
                         unit="M",
                         confidence=0.90,
                         source_page=page_num,
                         sheet_number=sheet_no,
                     )
 
-                # Substructure DPM & mesh
-                if global_has_dpm and "substructure_bed_dpm" not in pred_dict:
-                    tot_flr = pred_dict["floor_screed"].quantity
-                    bed_total = round(tot_flr * 1.06, 1)
+                # Substructure DPM & mesh: exactly equal to floor slab area
+                # NO 1.06 magic multiplier
+                tot_flr = pred_dict["floor_screed"].quantity
+                if global_has_dpm and "substructure_bed_dpm" not in pred_dict and tot_flr > 0:
                     pred_dict["substructure_bed_dpm"] = ExtractedPrediction(
                         tag="substructure_bed_dpm",
                         trade_type="finishes",
-                        description=f"1000 gauge polythene damp-proof membrane ({bed_total} m2)",
-                        quantity=bed_total,
+                        description=f"Polythene damp-proof membrane under bed ({tot_flr} m2)",
+                        quantity=tot_flr,
                         unit="SM",
                         confidence=0.90,
                         source_page=page_num,
                         sheet_number=sheet_no,
                     )
-                if global_has_mesh and "substructure_a142_mesh" not in pred_dict:
-                    tot_flr = pred_dict["floor_screed"].quantity
-                    bed_total = round(tot_flr * 1.06, 1)
+                if global_has_mesh and "substructure_a142_mesh" not in pred_dict and tot_flr > 0:
                     pred_dict["substructure_a142_mesh"] = ExtractedPrediction(
                         tag="substructure_a142_mesh",
                         trade_type="structure",
-                        description=f"Fabric mesh reinforcement A142 ({bed_total} m2)",
-                        quantity=bed_total,
+                        description=f"Fabric mesh reinforcement A142 in floor bed ({tot_flr} m2)",
+                        quantity=tot_flr,
                         unit="SM",
                         confidence=0.90,
                         source_page=page_num,
@@ -459,46 +450,56 @@ class GenericPlanReaderExtractor:
                     )
 
             # ------------------------------------------------------------------
-            # 2. Structural Trusses & Columns
+            # 2. Structural Trusses & Columns: ONLY from parsed count evidence
             # ------------------------------------------------------------------
-            for t_code, t_qty_str in re.findall(
+            truss_matches = re.findall(
                 r"(?:TRUSS|TRUSSES)\s*([A-Za-z0-9\-]+)?\s*\(?(\d+)\s*(?:No\.?s?|Nos?)\)?",
                 page_text,
                 re.I,
-            ):
+            )
+            for t_code, t_qty_str in truss_matches:
                 t_qty = float(t_qty_str)
                 pred_dict["roof_trusses"] = ExtractedPrediction(
                     tag="roof_trusses",
                     trade_type="structure",
-                    description=f"Roof trusses complete ({int(t_qty)} No)",
+                    description=f"Roof trusses complete ({int(t_qty)} No parsed from drawing)",
                     quantity=t_qty,
                     unit="NO",
                     confidence=0.95,
                     source_page=page_num,
                     sheet_number=sheet_no,
                 )
-                if any(k in pt_lower for k in ("pier", "stanchion", "foundation", "footing", "wall")):
-                    pred_dict["masonry_piers"] = ExtractedPrediction(
-                        tag="masonry_piers",
-                        trade_type="walls",
-                        description=f"Masonry piers / column supports ({int(t_qty)} No)",
-                        quantity=t_qty,
-                        unit="NO",
-                        confidence=0.92,
-                        source_page=page_num,
-                        sheet_number=sheet_no,
-                    )
+
+            # Masonry piers: ONLY if explicitly called out with a count in text
+            # DO NOT copy truss count!
+            pier_matches = re.findall(
+                r"(\d+)\s*(?:No\.?s?|Nos?)\s*.*?pier|pier.*?(\d+)\s*(?:No\.?s?|Nos?)",
+                page_text,
+                re.I,
+            )
+            if pier_matches:
+                p_qty = float(pier_matches[0][0] or pier_matches[0][1])
+                pred_dict["masonry_piers"] = ExtractedPrediction(
+                    tag="masonry_piers",
+                    trade_type="walls",
+                    description=f"Masonry piers ({int(p_qty)} No parsed from drawing)",
+                    quantity=p_qty,
+                    unit="NO",
+                    confidence=0.90,
+                    source_page=page_num,
+                    sheet_number=sheet_no,
+                )
 
             # ------------------------------------------------------------------
-            # 3. Permanent / Brick Ventilation Openings
+            # 3. Permanent / Brick Ventilation Openings: EXACT count from text
             # ------------------------------------------------------------------
             pv_matches = re.findall(r"\bPV\b|\bPermanent Vent\b|\bBrick Vent\b", clean_page_text, re.I)
-            if len(pv_matches) >= 2 and any(k in pt_lower for k in ("elevation", "facade", "façade")):
-                vent_count = float(len(pv_matches) * 2) if any(k in pt_lower for k in ("e-01", "elevation e-01")) else float(len(pv_matches))
+            if len(pv_matches) >= 2 and any(k in pt_lower for k in ("elevation", "facade", "façade", "section", "wall")):
+                vent_count = float(len(pv_matches))
                 pred_dict["brick_vents"] = ExtractedPrediction(
                     tag="brick_vents",
                     trade_type="walls",
-                    description=f"Precast / brick ventilation openings ({int(vent_count)} No)",
+                    description=f"Precast / brick ventilation openings ({int(vent_count)} No parsed from drawing)",
                     quantity=vent_count,
                     unit="NO",
                     confidence=0.90,
@@ -507,47 +508,76 @@ class GenericPlanReaderExtractor:
                 )
 
             # ------------------------------------------------------------------
-            # 4. Window Schedule / Tag Extraction
+            # 4. Window Schedule / Tag Extraction: ONLY from parsed counts
             # ------------------------------------------------------------------
-            has_window_schedule = any(k in pt_lower for k in ("steel casement", "casement frames", "window schedule"))
-            is_plan_or_schedule_page = any(k in pt_lower for k in (
-                "window schedule", "floor plan", "ground floor plan", "layout plan",
-                "window overall size", "window type",
-            ))
-            casement_notes = re.findall(r"casement window", page_text, re.I)
-            window_size_matches = re.findall(
-                r"(?:window\s*(?:type|overall\s*size)?\s*)?\b(3000|2900)\b\s*[xX]\s*\b(1200|900)\b",
-                page_text, re.I,
-            )
-            if (casement_notes or window_size_matches) and is_plan_or_schedule_page:
+            w3000_matches = re.findall(r"3[,.]?000\s*mm\s*[xX]\s*(\d{1,2}[,.]?\d{3}|\d{3,4})\s*mm\s*(?:steel\s*)?casement", pt_norm, re.I)
+            w2900_matches = re.findall(r"2[,.]?900\s*mm\s*[xX]\s*(\d{1,2}[,.]?\d{3}|\d{3,4})\s*mm\s*(?:steel\s*)?casement", pt_norm, re.I)
+
+            # Schedule rows with explicit counts or dimensions (e.g. W1 - 3000 x 1200 - 2 No)
+            w1_sched = re.findall(r"\bW1\b\s*[:.\-]?\s*(\d+)\s*(?:No\.?s?|Nos?)\b|\b(\d+)\s*(?:No\.?s?|Nos?)\s*[:.\-]?\s*\bW1\b", pt_norm, re.I)
+            w2_sched = re.findall(r"\bW2\b\s*[:.\-]?\s*(\d+)\s*(?:No\.?s?|Nos?)\b|\b(\d+)\s*(?:No\.?s?|Nos?)\s*[:.\-]?\s*\bW2\b", pt_norm, re.I)
+
+            # W1: from explicit figured callouts or schedule rows
+            w1_count = 0.0
+            h_w1 = None
+            if w1_sched:
+                w1_count = float(w1_sched[0][0] or w1_sched[0][1])
+            elif w3000_matches:
+                w1_count = float(len(w3000_matches))
+                h_w1 = float(w3000_matches[0].replace(",", ".").replace(".", ""))
+
+            if w1_count > 0:
+                h_val = h_w1 if h_w1 is not None else 1200.0
                 pred_dict["W1"] = ExtractedPrediction(
                     tag="W1",
                     trade_type="windows",
-                    description="Mild steel casement window 3000 x 1200 mm high (W1)",
-                    quantity=2.0,
+                    description=f"Mild steel casement window 3000 x {int(h_val)} mm high (W1, {int(w1_count)} No)",
+                    quantity=w1_count,
                     unit="NO",
                     confidence=0.95,
                     source_page=page_num,
                     sheet_number=sheet_no,
-                    dimensions=[3000, 1200],
+                    dimensions=[3000.0, h_val],
                 )
+
+            # W2: from explicit figured callouts or schedule rows
+            w2_count = 0.0
+            h_w2 = None
+            if w2_sched:
+                w2_count = float(w2_sched[0][0] or w2_sched[0][1])
+            elif w2900_matches:
+                w2_count = float(len(w2900_matches))
+                h_w2 = float(w2900_matches[0].replace(",", ".").replace(".", ""))
+
+            if w2_count > 0:
+                h_val = h_w2 if h_w2 is not None else 1200.0
                 pred_dict["W2"] = ExtractedPrediction(
                     tag="W2",
                     trade_type="windows",
-                    description="Mild steel casement window 2900 x 1200 mm high (W2)",
-                    quantity=3.0,
+                    description=f"Mild steel casement window 2900 x {int(h_val)} mm high (W2, {int(w2_count)} No)",
+                    quantity=w2_count,
                     unit="NO",
                     confidence=0.95,
                     source_page=page_num,
                     sheet_number=sheet_no,
-                    dimensions=[2900, 1200],
+                    dimensions=[2900.0, h_val],
                 )
-            if has_window_schedule:
+
+            # steel_casement_windows: ONLY if a total schedule count is explicitly found in drawing text
+            sched_total_m = re.findall(
+                r"(?:casement\s*windows|windows\s*complete)\s*\(?(\d+)\s*(?:No\.?s?|Nos?)\)?|"
+                r"(\d+)\s*(?:No\.?s?|Nos?)\s*(?:steel\s*)?(?:casement\s*windows|windows\s*complete)",
+                pt_norm,
+                re.I,
+            )
+            if sched_total_m:
+                qty_str = sched_total_m[0][0] or sched_total_m[0][1]
+                tot_win_qty = float(qty_str)
                 pred_dict["steel_casement_windows"] = ExtractedPrediction(
                     tag="steel_casement_windows",
                     trade_type="windows",
-                    description="Steel casement windows complete (12 No)",
-                    quantity=12.0,
+                    description=f"Steel casement windows complete ({int(tot_win_qty)} No parsed from schedule)",
+                    quantity=tot_win_qty,
                     unit="NO",
                     confidence=0.92,
                     source_page=page_num,
@@ -555,29 +585,49 @@ class GenericPlanReaderExtractor:
                 )
 
             # ------------------------------------------------------------------
-            # 5. Door Schedule / Tag Extraction
+            # 5. Door Schedule / Tag Extraction: ONLY from parsed counts
             # ------------------------------------------------------------------
-            if any(k in pt_lower for k in ("door", "batten door", "panelled door")):
+            d_calls = re.findall(r"(\d{1,2}[,.]?\d{3}|\d{3,4})\s*mm\s*[xX]\s*(\d{1,2}[,.]?\d{3}|\d{3,4})\s*mm\s*(?:[^\d\n]{0,25})?(?:door|batten)", pt_norm, re.I)
+            d1_sched = re.findall(r"\bD1\b\s*[:.\-]?\s*(\d+)\s*(?:No\.?s?|Nos?)\b|\b(\d+)\s*(?:No\.?s?|Nos?)\s*[:.\-]?\s*\bD1\b", pt_norm, re.I)
+
+            d1_count = 0.0
+            d_w = 1000.0
+            d_h = 2100.0
+            if d1_sched:
+                d1_count = float(d1_sched[0][0] or d1_sched[0][1])
+            elif d_calls:
+                d1_count = float(len(d_calls))
+                d_w = float(d_calls[0][0].replace(",", "").replace(".", ""))
+                d_h = float(d_calls[0][1].replace(",", "").replace(".", ""))
+
+            if d1_count > 0:
                 pred_dict["D1"] = ExtractedPrediction(
                     tag="D1",
                     trade_type="doors",
-                    description="Mild steel panelled double door 1000 x 2100 mm high (D1)",
-                    quantity=1.0,
+                    description=f"Door {int(d_w)} x {int(d_h)} mm high (D1, {int(d1_count)} No)",
+                    quantity=d1_count,
                     unit="NO",
                     confidence=0.95,
                     source_page=page_num,
                     sheet_number=sheet_no,
-                    dimensions=[1000, 2100],
+                    dimensions=[d_w, d_h],
                 )
-            if any(k in pt_lower for k in (
-                "flush door", "flush doors", "casement doors", "door schedule",
-                "double leaf door", "steel door", "external door",
-            )):
+
+            # doors_complete: ONLY if schedule count is explicitly parsed from drawing text
+            door_sched_m = re.findall(
+                r"(?:doors\s*complete|flush\s*doors|casement\s*doors)\s*\(?(\d+)\s*(?:No\.?s?|Nos?)\)?|"
+                r"(\d+)\s*(?:No\.?s?|Nos?)\s*(?:steel\s*)?(?:doors\s*complete|flush\s*doors|casement\s*doors)",
+                pt_norm,
+                re.I,
+            )
+            if door_sched_m:
+                qty_str = door_sched_m[0][0] or door_sched_m[0][1]
+                d_tot_qty = float(qty_str)
                 pred_dict["doors_complete"] = ExtractedPrediction(
                     tag="doors_complete",
                     trade_type="doors",
-                    description="Single flush and double casement doors complete (5 No)",
-                    quantity=5.0,
+                    description=f"Doors complete ({int(d_tot_qty)} No parsed from schedule)",
+                    quantity=d_tot_qty,
                     unit="NO",
                     confidence=0.92,
                     source_page=page_num,
@@ -585,29 +635,57 @@ class GenericPlanReaderExtractor:
                 )
 
             # ------------------------------------------------------------------
-            # 6. Room Fixtures & Architectural Annotations
+            # 6. Room Fixtures: ONLY from figured dimensions or explicit counts
+            # Keyword presence alone does NOT emit a chalkboard
             # ------------------------------------------------------------------
-            if any(k in pt_norm for k in (
-                "chalkboard", "blackboard", "chalk board", "black board",
-                "black painted surface", "blaoc painted", "board painted",
-            )):
+            bb_matches = re.findall(
+                r"(\d{1,2}[,.]?\d{3}|\d{3,4})\s*mm\s*[xX]\s*(\d{1,2}[,.]?\d{3}|\d{3,4})\s*mm\s*(?:[^\d\n]{0,35})?(?:black\s*board|chalkboard|blackboard|painted\s*surface)",
+                pt_norm,
+                re.I,
+            )
+            bb_count_m = re.findall(
+                r"\b(\d+)\s*(?:No\.?s?|Nos?)\b\s*(?:[^\d\n]{0,25})?(?:black\s*board|chalkboard|blackboard)",
+                pt_norm,
+                re.I,
+            )
+
+            if bb_matches or bb_count_m:
+                bb_qty = float(bb_count_m[0]) if bb_count_m else 1.0
+                if bb_matches:
+                    bb_w = float(bb_matches[0][0].replace(",", "").replace(".", ""))
+                    bb_h = float(bb_matches[0][1].replace(",", "").replace(".", ""))
+                    bb_dims = [bb_w, bb_h]
+                    bb_desc = f"Classroom chalkboard ({int(bb_w)}mm x {int(bb_h)}mm parsed from drawing)"
+                else:
+                    bb_dims = None
+                    bb_desc = f"Classroom chalkboard ({int(bb_qty)} No parsed from schedule)"
+
                 pred_dict["chalkboard"] = ExtractedPrediction(
                     tag="chalkboard",
                     trade_type="fixtures",
-                    description="Classroom chalkboard 3200 x 1500 mm",
-                    quantity=1.0,
+                    description=bb_desc,
+                    quantity=bb_qty,
                     unit="NO",
                     confidence=0.90,
                     source_page=page_num,
                     sheet_number=sheet_no,
+                    dimensions=bb_dims,
                 )
 
-            if "pillar" in pt_lower or "verandah" in pt_lower:
+            # Verandah pillars: ONLY if explicitly called out with a count in text
+            # NO hardcoded 4.0 triggered merely by the word "verandah"!
+            pillar_matches = re.findall(
+                r"(\d+)\s*(?:No\.?s?|Nos?)\s*.*?(?:pillar|chs|circular\s*hollow|verandah\s*pillar)|(?:pillar|chs).*?(\d+)\s*(?:No\.?s?|Nos?)",
+                pt_norm,
+                re.I,
+            )
+            if pillar_matches:
+                pil_qty = float(pillar_matches[0][0] or pillar_matches[0][1])
                 pred_dict["verandah_pillars"] = ExtractedPrediction(
                     tag="verandah_pillars",
                     trade_type="structure",
-                    description="Verandah circular hollow section pillars",
-                    quantity=4.0,
+                    description=f"Verandah pillars ({int(pil_qty)} No parsed from drawing)",
+                    quantity=pil_qty,
                     unit="NO",
                     confidence=0.90,
                     source_page=page_num,
