@@ -7217,6 +7217,7 @@ def main() -> None:
         "Subscription Take-off",
         "Plan Mapper",
         "3D Building Model",
+        "Editable 3D Inspector",
         "Quantity Schedule",
         "Offline Plan Reader",
         "Export / JobHub",
@@ -7275,6 +7276,9 @@ def main() -> None:
     elif menu == "Subscription Take-off": subscription_takeoff_page(workspace, session_api_key, ai_provider)
     elif menu == "Plan Mapper": plan_mapper_page(workspace)
     elif menu == "3D Building Model": model_3d_page(workspace, session_api_key, ai_provider)
+    elif menu == "Editable 3D Inspector":
+        from pb_editable_3d_inspector_panel import render_editable_3d_inspector_panel
+        render_editable_3d_inspector_panel(workspace)
     elif menu == "Quantity Schedule": quantity_schedule_page(workspace)
     elif menu == "Offline Plan Reader": offline_plan_reader_page(workspace)
     elif menu == "Export / JobHub": export_page(workspace, bridge, user)
