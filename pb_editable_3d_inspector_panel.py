@@ -1,15 +1,20 @@
-"""pb_editable_3d_inspector_panel.py — Editable 3D Inspector Panel (PR D.11A/D.11B/D.11C/D.11D).
+"""pb_editable_3d_inspector_panel.py — Editable 3D Inspector Panel (PR D.11A/D.11B/D.11C/D.11D/D.11E).
 
-A read-only Streamlit panel that surfaces the real editable-3D correction/
-approval/quantity backend (D.1-D.10) inside the PlanReader app. No mutation
-controls, no database persistence, no new authority logic — this panel only
-displays state produced by the actual backend functions:
+A Streamlit panel that surfaces the real editable-3D correction/approval/
+quantity backend (D.1-D.10) inside the PlanReader app. No database
+persistence, no new authority logic — every state shown or produced here
+comes from the actual backend functions:
 
   pb_editable_3d_correction_model.Editable3DCorrectionLedger / EditableGeometryObject
   pb_editable_3d_quantity_recalculation.recalculate_quantities_for_correction
   pb_takeoff_output_authority.TakeoffOutputRow / create_takeoff_output_row / approve_takeoff_output_row
   pb_editable_3d_workspace_hydration.hydrate_masses_to_wall_models (D.11B)
   pb_editable_3d_workspace_viewer.build_workspace_3d_figure (D.11C)
+
+Through D.11D this panel was purely read-only. D.11E adds exactly one
+mutation control — a session-only length/height correction on a single real
+wall (see "Session-only corrections" below) — everything else stays
+read-only: no approval control exists anywhere in this file.
 
 The panel offers two data sources, switchable at the top of the page:
 
@@ -34,11 +39,23 @@ The panel offers two data sources, switchable at the top of the page:
 A "Legend" expander (D.11D) at the top of the page explains what every
 color/badge means across both the 3D view and the detail sections below —
 including which states (FIRM approval, stale/publishable quantities) are
-simply not reachable yet in "Real workspace objects" mode, since correction
-and approval workflows for real geometry don't exist until a future PR.
+simply not reachable yet in "Real workspace objects" mode, since an
+approval workflow for real geometry doesn't exist until a future PR.
 
-Neither mode ever calls a correction or approval function in response to a
-user action — the only backend calls happen while building the display data.
+Session-only corrections (D.11E): "Real workspace objects" mode has a
+"Correct {wall_id} (session-only demo)" expander for whichever wall is
+currently selected. It calls Editable3DCorrectionLedger.apply_correction()
+verbatim — no new authority logic — to correct that one wall's length or
+height. The correction is never written to the database: it's stored in
+st.session_state and replayed on top of the live-hydrated ledger on every
+render (see _apply_session_corrections()), so it survives reruns within this
+browser session but disappears on reload, on a server restart, or on any
+other device/session. A correction always lands the object at
+REVIEW_REQUIRED (the ledger's own invariant, not re-derived here) with its
+dependent quantities staled/recalculated exactly like the D.11A demo
+scenario already proves — the new quantity is real, current, and explicitly
+NOT publishable, because there is no approval control anywhere in this
+panel. Correction is never approval.
 """
 from __future__ import annotations
 
@@ -58,9 +75,13 @@ from pb_editable_3d_correction_model import (
 from pb_editable_3d_model import WallModel
 from pb_editable_3d_quantity_recalculation import (
     RecalculationTarget,
+    get_affected_targets,
     recalculate_quantities_for_correction,
 )
-from pb_editable_3d_model_bridge import wall_model_to_editable_geometry_object
+from pb_editable_3d_model_bridge import (
+    editable_geometry_object_to_wall_model,
+    wall_model_to_editable_geometry_object,
+)
 from pb_editable_3d_workspace_hydration import HydrationSkip, hydrate_masses_to_wall_models
 from pb_editable_3d_workspace_viewer import build_workspace_3d_figure
 from pb_takeoff_output_authority import (
@@ -71,6 +92,7 @@ from pb_takeoff_output_authority import (
 )
 
 _SELECTED_REAL_OBJECT_KEY = "_editable_3d_inspector_selected_real"
+_SESSION_CORRECTIONS_KEY = "_editable_3d_inspector_session_corrections"
 
 _SESSION_LEDGER_KEY = "_editable_3d_inspector_ledger"
 _SESSION_ROWS_KEY = "_editable_3d_inspector_rows"
@@ -239,6 +261,188 @@ def _load_real_workspace_objects(
         object_ids.append(wall.wall_id)
 
     return ledger, result.walls, zone_rows, object_ids, result.skipped
+
+
+# ---------------------------------------------------------------------------
+# Session-only corrections (D.11E) — never written to the database, replayed
+# fresh on top of live-hydrated geometry every render, lost on reload/restart.
+# ---------------------------------------------------------------------------
+
+_BASELINE_TARGET_INFO = {
+    RecalculationTarget.WALL_LENGTH.value: ("length_m", "m", "Length"),
+    RecalculationTarget.WALL_GROSS_AREA.value: ("gross_area_m2", "m²", "Gross Area"),
+    RecalculationTarget.WALL_NET_AREA.value: ("net_area_m2", "m²", "Net Area"),
+}
+
+
+def _build_baseline_rows(wall: WallModel, targets: List[str]) -> List[TakeoffOutputRow]:
+    """Real, currently-hydrated quantity values for the wall, expressed as
+    TakeoffOutputRow so recalculate_quantities_for_correction() has something
+    real to stale/replace. Session-only (never written to the database) and
+    never claiming authority the wall doesn't actually have: MODEL_DERIVED,
+    unapproved — exactly what such a row would be if the app tracked take-off
+    quantities for real workspace geometry today (it doesn't yet)."""
+    rows: List[TakeoffOutputRow] = []
+    for target in targets:
+        info = _BASELINE_TARGET_INFO.get(target)
+        if info is None:
+            continue
+        attr, unit, label = info
+        rows.append(create_takeoff_output_row(
+            quantity_id=f"{wall.wall_id}-{target}-SESSION",
+            description=f"Wall {wall.wall_id} — {label} (session)",
+            value=getattr(wall, attr), unit=unit, trade="general",
+            source_type=TakeoffSourceType.MODEL_DERIVED,
+            source_page=wall.source_page_no or None, source_sheet=wall.source_sheet_label or None,
+            geometry_ref=wall.wall_id, revision_hash=wall.revision_hash,
+        ))
+    return rows
+
+
+def _resync_length_geometry(original_wall: WallModel, corrected_wall: WallModel) -> None:
+    """Editable3DCorrectionLedger.apply_correction() only updates the flat
+    'length' measurement — it has no notion of start_pt/end_pt, so a length
+    correction alone would leave the 3D viewer drawing the wall at its old,
+    now-inconsistent endpoints. Re-derive end_pt along the wall's real
+    original direction at the new length (same direction, new distance) —
+    this is not a guessed position, it's the same operation typing a new
+    length into a CAD line tool would perform on a line anchored at its
+    start point."""
+    x0, y0 = original_wall.start_pt
+    x1, y1 = original_wall.end_pt
+    dx, dy = x1 - x0, y1 - y0
+    seg_len = (dx * dx + dy * dy) ** 0.5
+    if seg_len <= 0:
+        return
+    ux, uy = dx / seg_len, dy / seg_len
+    corrected_wall.start_pt = (x0, y0)
+    corrected_wall.end_pt = (x0 + ux * corrected_wall.length_m, y0 + uy * corrected_wall.length_m)
+
+
+def _apply_session_corrections(
+    ledger: Editable3DCorrectionLedger,
+    walls: List[WallModel],
+) -> tuple[List[WallModel], Dict[str, TakeoffOutputRow]]:
+    """Replay this browser session's stored corrections (if any) on top of
+    the freshly-hydrated ledger/walls. Mutates `ledger` in place (so the
+    detail sections below see the corrected object via the same
+    ledger.get_object() they already call); returns a new wall list (for the
+    3D viewer) and the quantity rows the correction produced. Never touches
+    the database — corrections live only in st.session_state, and are
+    re-derived from real, live-hydrated geometry every single render rather
+    than cached, so they always replay on top of the database's current
+    state (deliberately not "the state the DB was in when you corrected it").
+    """
+    corrections = st.session_state.get(_SESSION_CORRECTIONS_KEY, {})
+    if not corrections:
+        return walls, {}
+
+    walls_by_id = {w.wall_id: w for w in walls}
+    rows: Dict[str, TakeoffOutputRow] = {}
+    corrected_walls = list(walls)
+
+    for wall_id, correction in corrections.items():
+        original_wall = walls_by_id.get(wall_id)
+        if original_wall is None:
+            continue  # the mass no longer exists in the live DB — drop silently
+
+        field = correction["field"]
+        targets = get_affected_targets(EditableObjectType.WALL.value, field)
+        baseline_rows = _build_baseline_rows(original_wall, targets)
+        for r in baseline_rows:
+            rows[r.quantity_id] = r
+        # Pre-link the baseline so it's still visible (now stale) after the
+        # correction — recalculate_quantities_for_correction() only
+        # auto-links the *new* row it produces, never the old one it replaces.
+        ledger.link_dependent_quantities(wall_id, [r.quantity_id for r in baseline_rows])
+
+        outcome = ledger.apply_correction(
+            correction_id=correction["correction_id"], object_id=wall_id,
+            field=field, new_value=correction["new_value"],
+            reason=correction["reason"], actor=correction["actor"],
+            source=CorrectionSource.EDITOR_3D.value,
+        )
+        if not outcome.ok:
+            st.error(f"Session correction on {wall_id} failed closed: {'; '.join(outcome.blocking_reasons)}")
+            continue
+
+        obj_after = ledger.get_object(wall_id)
+        results = recalculate_quantities_for_correction(
+            outcome.event, obj_after, existing_rows=baseline_rows, ledger=ledger,
+        )
+        for r in results:
+            if r.old_row is not None:
+                rows[r.old_row.quantity_id] = r.old_row
+            if r.new_row is not None:
+                rows[r.new_row.quantity_id] = r.new_row
+
+        corrected_wall = editable_geometry_object_to_wall_model(ledger.get_object(wall_id))
+        if field == CorrectionField.LENGTH.value:
+            _resync_length_geometry(original_wall, corrected_wall)
+        corrected_walls = [corrected_wall if w.wall_id == wall_id else w for w in corrected_walls]
+
+    return corrected_walls, rows
+
+
+def _render_correction_form(wall_id: str, wall: Optional[WallModel]) -> None:
+    """A session-only mutation control, deliberately narrow: one wall, one
+    field (length or height), reusing Editable3DCorrectionLedger.apply_correction()
+    verbatim — no new authority logic. A correction always lands
+    REVIEW_REQUIRED (the ledger's own invariant, unchanged); there is no
+    approval control here, on purpose — correction is never approval."""
+    active_corrections = st.session_state.get(_SESSION_CORRECTIONS_KEY, {})
+    has_active = wall_id in active_corrections
+    label = f"\U0001F9EA Correct {wall_id} (session-only demo)" + (" — 1 active" if has_active else "")
+    with st.expander(label):
+        st.warning(
+            "**Session-only.** This correction is never written to the "
+            "database. It disappears on page reload, when this server "
+            "restarts, and does not exist on any other device or browser "
+            "session. Persisting corrections for real is a separate, "
+            "not-yet-built feature."
+        )
+        if wall is None:
+            st.caption("Select a wall above first.")
+            return
+
+        field_choice = st.radio(
+            "Field to correct", ["Length (m)", "Height (m)"],
+            horizontal=True, key=f"_correction_field_{wall_id}",
+        )
+        field = CorrectionField.LENGTH.value if field_choice.startswith("Length") else CorrectionField.HEIGHT.value
+        current_value = wall.length_m if field == CorrectionField.LENGTH.value else wall.height_m
+        st.caption(f"Current {field}: {current_value:.2f} m")
+
+        new_value = st.number_input(
+            f"New {field_choice}", min_value=0.01, value=max(current_value, 0.01),
+            step=0.05, key=f"_correction_value_{wall_id}",
+        )
+        reason = st.text_input(
+            "Reason for this correction", key=f"_correction_reason_{wall_id}",
+            placeholder="e.g. corrected against site remeasure",
+        )
+        actor = st.text_input("Your name", value="Estimator", key=f"_correction_actor_{wall_id}")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Apply correction (session-only)", key=f"_correction_apply_{wall_id}"):
+                if not reason.strip():
+                    st.error("A reason is required.")
+                else:
+                    corrections = dict(active_corrections)
+                    corrections[wall_id] = {
+                        "field": field, "new_value": float(new_value),
+                        "reason": reason.strip(), "actor": actor.strip() or "Estimator",
+                        "correction_id": f"CORR-SESSION-{wall_id}",
+                    }
+                    st.session_state[_SESSION_CORRECTIONS_KEY] = corrections
+                    st.rerun()
+        with col2:
+            if has_active and st.button("Undo session correction", key=f"_correction_undo_{wall_id}"):
+                corrections = dict(active_corrections)
+                corrections.pop(wall_id, None)
+                st.session_state[_SESSION_CORRECTIONS_KEY] = corrections
+                st.rerun()
 
 
 # ---------------------------------------------------------------------------
@@ -427,8 +631,10 @@ def _render_linked_quantities(obj: EditableGeometryObject, rows: Dict[str, Takeo
 # ---------------------------------------------------------------------------
 
 def render_editable_3d_inspector_panel(workspace: Optional[Dict[str, Any]] = None) -> None:
-    """Read-only inspector for the editable-3D correction/approval/quantity
-    backend (D.1-D.10). No mutation controls. No database persistence.
+    """Inspector for the editable-3D correction/approval/quantity backend
+    (D.1-D.10). No database persistence, no approval control anywhere. The
+    one mutation control (D.11E) is a session-only length/height correction
+    on a single real wall — see the module docstring.
 
     Offers two data sources (see module docstring): the D.11A demo scenario,
     cached once per session in st.session_state, and the D.11B real workspace
@@ -436,8 +642,9 @@ def render_editable_3d_inspector_panel(workspace: Optional[Dict[str, Any]] = Non
     """
     st.title("Editable 3D Inspector")
     st.caption(
-        "Read-only view of the correction/approval/quantity backend (D.1–D.10). "
-        "No corrections or approvals can be made from this panel."
+        "Correction/approval/quantity backend (D.1–D.10). Real workspace "
+        "objects support one session-only correction per wall (never saved "
+        "to the database). No approval control exists anywhere on this page."
     )
 
     mode = st.radio(
@@ -476,7 +683,7 @@ def render_editable_3d_inspector_panel(workspace: Optional[Dict[str, Any]] = Non
             st.warning("Open or create a workspace first.")
             return
         ledger, walls, zone_rows, object_ids, skipped = _load_real_workspace_objects(workspace)
-        rows = {}
+        walls, rows = _apply_session_corrections(ledger, walls)
         if skipped:
             with st.expander(f"{len(skipped)} item(s) skipped during hydration (fail-closed)"):
                 for s in skipped:
@@ -519,6 +726,16 @@ def render_editable_3d_inspector_panel(workspace: Optional[Dict[str, Any]] = Non
         return
 
     _render_quick_summary(obj)
+
+    if mode == "Real workspace objects":
+        if selected in st.session_state.get(_SESSION_CORRECTIONS_KEY, {}):
+            st.warning(
+                f"⚠️ **{selected} has an unsaved session-only correction applied** "
+                "(see below). It is not saved to the database and will be lost on reload."
+            )
+        walls_by_id = {w.wall_id: w for w in walls}
+        _render_correction_form(selected, walls_by_id.get(selected))
+
     _render_object_summary(obj)
 
     if mode == "Demo scenario" and selected == "WALL-DEMO-3" and block_reason:
