@@ -20,6 +20,7 @@ from pb_geometry_takeoff_model import Opening, calculate_wall_takeoff, classify_
 from pb_editable_3d_correction_model import (
     CorrectionField,
     Editable3DCorrectionEvent,
+    Editable3DCorrectionLedger,
     EditableGeometryObject,
     EditableObjectType,
     invalidate_stale_quantities_for_corrections,
@@ -332,6 +333,7 @@ def recalculate_quantities_for_correction(
     event: Editable3DCorrectionEvent,
     obj_after: EditableGeometryObject,
     existing_rows: Sequence[TakeoffOutputRow] = (),
+    ledger: Optional[Editable3DCorrectionLedger] = None,
 ) -> List[QuantityRecalculationResult]:
     """Recalculate every quantity affected by one correction event.
 
@@ -342,6 +344,12 @@ def recalculate_quantities_for_correction(
     geometry supports it; when it doesn't (unmapped combination, or malformed/
     non-finite/non-positive geometry), the result is manual_review_required with no
     fabricated new_row.
+
+    If `ledger` is given, every successfully recalculated row's quantity_id is
+    automatically linked as a dependent quantity of the object (D.4's
+    link_dependent_quantities(), not reimplemented — additive and deduplicating).
+    Omitting `ledger` (the default) preserves the exact prior behaviour with no
+    auto-linking, so every existing call site is unaffected.
     """
     object_id = obj_after.object_id
     targets = get_affected_targets(obj_after.object_type, event.field)
@@ -423,5 +431,10 @@ def recalculate_quantities_for_correction(
             old_row=old_row,
             new_row=new_row,
         ))
+
+    if ledger is not None:
+        new_quantity_ids = [r.new_row.quantity_id for r in results if r.new_row is not None]
+        if new_quantity_ids:
+            ledger.link_dependent_quantities(object_id, new_quantity_ids)
 
     return results
