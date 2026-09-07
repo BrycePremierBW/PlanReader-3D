@@ -64,7 +64,10 @@ height-specific integration tests proving it.
   documented limitation carried since D.1). Height authority enforcement lives on
   `WallModel` since that's the only place `WallHeightAuthority` exists;
   `EditableGeometryObject` has no equivalent height-provenance concept yet.
-- The raked/stair "flat formula as estimate, never silently firm" guard doesn't
-  compute a *better* formula for raked/stair geometry — it only prevents the wrong
-  formula's result from being trusted uncritically. A proper raked-wall area
-  formula (average height × length, or similar) is future work.
+- ~~The raked/stair "flat formula as estimate, never silently firm" guard doesn't
+  compute a *better* formula for raked/stair geometry~~ — **resolved for raked
+  walls in PR D.7**: `WallModel.height_start_m`/`height_end_m` enable a real
+  trapezoid area calculation (`length * average(height_start, height_end)`), and
+  the guard no longer force-downgrades a raked wall once it has real endpoint
+  data. Stair walls remain guard-only: no stair geometry model exists in this
+  codebase to build a real formula from.

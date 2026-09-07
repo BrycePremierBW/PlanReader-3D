@@ -142,6 +142,8 @@ class WallModel:
     height_m: float
     height_authority: str  # WallHeightAuthority
     wall_type: str = "standard"  # "standard", "raked", "stair", "parapet"
+    height_start_m: Optional[float] = None
+    height_end_m: Optional[float] = None
     gross_area_m2: float = 0.0
     net_area_m2: float = 0.0
     openings: List[OpeningModel] = field(default_factory=list)
@@ -162,6 +164,18 @@ class WallModel:
         if self.length_m < 0.0 or self.height_m < 0.0:
             raise ValueError("Wall dimensions cannot be negative")
         self.recalculate_areas()
+
+    def _has_valid_raked_trapezoid(self) -> bool:
+        """True only when both endpoint heights are present and give a real
+        trapezoid calculation to work with — not a guess."""
+        if self.wall_type != "raked":
+            return False
+        if self.height_start_m is None or self.height_end_m is None:
+            return False
+        for v in (self.height_start_m, self.height_end_m):
+            if not math.isfinite(v) or v <= 0.0:
+                return False
+        return True
 
     def _enforce_height_authority(self) -> None:
         """height_authority sets a ceiling on authority_status, not just a label —
@@ -188,19 +202,30 @@ class WallModel:
             self.authority_status = AuthorityStatus.PROVISIONAL.value
             self.compute_revision_hash()
 
+        # A raked wall with both endpoint heights documented gets a genuine
+        # trapezoid calculation (see recalculate_areas) — the formula now actually
+        # matches the geometry, so it's governed by height_authority like any other
+        # wall, not force-downgraded. Without real endpoint data (or for stair
+        # walls, which have no formula at all yet), the flat-formula estimate can
+        # still never silently claim firm authority on its own.
+        needs_guard = self.wall_type == "stair" or (self.wall_type == "raked" and not self._has_valid_raked_trapezoid())
         if (
-            self.wall_type in ("raked", "stair")
+            needs_guard
             and self.authority_status == AuthorityStatus.FIRM.value
             and not self.approved_by
         ):
-            # The flat rectangular formula is still computed as a visible estimate,
-            # but a raked/stair wall can never silently claim firm authority from
-            # that formula alone — only an explicit approver can promote it.
             self.authority_status = AuthorityStatus.REVIEW_REQUIRED.value
             self.compute_revision_hash()
 
     def recalculate_areas(self) -> None:
         """Recalculate gross and net wall area based on AS 4041 opening rules."""
+        if self._has_valid_raked_trapezoid():
+            # Trapezoid: area = length * average(height_start, height_end). The
+            # average height is also a correct, real height_m for AS4041 opening
+            # deduction purposes (calculate_wall_takeoff deducts by each opening's
+            # own area_m2, not by re-deriving it from height_m).
+            self.height_m = (self.height_start_m + self.height_end_m) / 2.0
+
         if self.length_m <= 0.0 or self.height_m <= 0.0:
             self.gross_area_m2 = 0.0
             self.net_area_m2 = 0.0
@@ -242,6 +267,8 @@ class WallModel:
             "length_m": round(self.length_m, 4),
             "height_m": round(self.height_m, 4),
             "height_authority": self.height_authority,
+            "height_start_m": round(self.height_start_m, 4) if self.height_start_m is not None else None,
+            "height_end_m": round(self.height_end_m, 4) if self.height_end_m is not None else None,
             "wall_type": self.wall_type,
             "gross_area_m2": round(self.gross_area_m2, 4),
             "net_area_m2": round(self.net_area_m2, 4),
