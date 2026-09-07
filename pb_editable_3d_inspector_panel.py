@@ -1,9 +1,9 @@
-"""pb_editable_3d_inspector_panel.py — Editable 3D Inspector Panel (PR D.11A-F).
+"""pb_editable_3d_inspector_panel.py — Editable 3D Inspector Panel (PR D.11A-G).
 
 A Streamlit panel that surfaces the real editable-3D correction/approval/
 quantity backend (D.1-D.10) inside the PlanReader app. No new authority
-logic, no approval control anywhere — every state shown or produced here
-comes from the actual backend functions:
+logic — every state shown or produced here comes from the actual backend
+functions:
 
   pb_editable_3d_correction_model.Editable3DCorrectionLedger / EditableGeometryObject
   pb_editable_3d_quantity_recalculation.recalculate_quantities_for_correction
@@ -15,8 +15,10 @@ comes from the actual backend functions:
 Through D.11D this panel was purely read-only. D.11E added one mutation
 control — a length/height correction on a single real wall — kept
 session-only at first. D.11F persists it for real (see "Persisted
-corrections" below): everything else stays read-only, and there is still no
-approval control anywhere in this file.
+corrections" below), and D.11F.1 made the corrected object's own geometry
+canonically self-consistent before D.11G's approval workflow could safely
+build on it. D.11G adds the second and final mutation control: an explicit,
+single-object, exact-revision approval (see "Persisted approvals" below).
 
 The panel offers two data sources, switchable at the top of the page:
 
@@ -39,10 +41,7 @@ The panel offers two data sources, switchable at the top of the page:
     so the selected object is obvious in both places at once.
 
 A "Legend" expander (D.11D) at the top of the page explains what every
-color/badge means across both the 3D view and the detail sections below —
-including which states (FIRM approval, stale/publishable quantities) are
-simply not reachable yet in "Real workspace objects" mode, since an
-approval workflow for real geometry doesn't exist until a future PR.
+color/badge means across both the 3D view and the detail sections below.
 
 Persisted corrections (D.11F): "Real workspace objects" mode has a "Correct
 {wall_id}" expander for whichever wall is currently selected. It calls
@@ -61,8 +60,28 @@ reload, navigating away and back, and a server restart. A correction always
 lands the object at REVIEW_REQUIRED (the ledger's own invariant, not
 re-derived here) with its dependent quantities staled/recalculated exactly
 like the D.11A demo scenario already proves — the new quantity is real,
-current, and explicitly NOT publishable, because there is no approval
-control anywhere in this panel. Correction is never approval.
+current, and explicitly NOT publishable until it is explicitly approved.
+Correction is never approval.
+
+Persisted approvals (D.11G): "Real workspace objects" mode also has an
+"Approve {object_id}" expander for the selected object. It calls
+approve_corrected_geometry() (D.1/D.2) verbatim, targeting the object's
+*exact current* revision_hash and nothing else — approving a superseded
+revision fails closed, the same as it always has. On success the result is
+written to `editable_3d_approval_events` (append-only, a third table
+alongside the two D.11F introduced) and `editable_3d_object_state` is
+upserted the same way a correction upserts it. Every persisted event for
+the workspace — corrections, then approvals — is replayed on every render
+(replay_persisted_corrections() then replay_persisted_approvals()), so an
+approval genuinely survives a page reload and a server restart exactly like
+a correction does. A later correction on the same object clears
+approved_by/approved_at and resets authority_status to REVIEW_REQUIRED
+automatically (apply_correction()'s own unchanged invariant) — replay never
+restores an approval whose revision_hash no longer matches the object's
+current, corrected state. Once approved, the object's current dependent
+quantity row is promoted through approve_takeoff_output_row() (D.1,
+unchanged) and becomes publishable; the old/baseline row stays exactly as
+stale and non-publishable as it already was.
 """
 from __future__ import annotations
 
@@ -89,8 +108,10 @@ from pb_editable_3d_quantity_recalculation import (
 from pb_editable_3d_model_bridge import wall_model_to_editable_geometry_object
 from pb_editable_3d_correction_persistence import (
     ReplayWarning,
+    approval_result_to_row,
     correction_event_to_row,
     object_state_row,
+    replay_persisted_approvals,
     replay_persisted_corrections,
     row_to_correction_event,
     verify_object_state_consistency,
@@ -334,29 +355,13 @@ def _load_persisted_correction_state(
     return event_rows, state_rows
 
 
-def _save_correction(workspace_id: int, event, obj: EditableGeometryObject) -> None:
-    """Append the new correction event and upsert the object's current-state
-    snapshot. Two writes, both additive: the event log is genuinely
-    append-only (no UPDATE/DELETE), and the object-state row is a fast-lookup
-    cache the ledger's own replay always double-checks (see
-    verify_object_state_consistency), never a thing hydration trusts blindly.
-    Neither statement touches model_masses/model_openings."""
+def _upsert_object_state(workspace_id: int, obj: EditableGeometryObject) -> None:
+    """Upsert the object's current-state snapshot — a fast-lookup cache the
+    ledger's own replay always double-checks (see
+    verify_object_state_consistency), never a thing hydration trusts
+    blindly. Shared by both correction and approval persistence, since both
+    actions change this same row."""
     from pb_planreader_3d_app import lexecute
-
-    row = correction_event_to_row(workspace_id, event)
-    lexecute(
-        """INSERT INTO editable_3d_correction_events(
-            workspace_id, correction_id, object_id, object_type, field,
-            old_value_json, new_value_json, reason, actor, source,
-            previous_revision_hash, new_revision_hash, created_at
-        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-        (
-            row["workspace_id"], row["correction_id"], row["object_id"], row["object_type"],
-            row["field"], row["old_value_json"], row["new_value_json"], row["reason"],
-            row["actor"], row["source"], row["previous_revision_hash"], row["new_revision_hash"],
-            row["created_at"],
-        ),
-    )
 
     state = object_state_row(workspace_id, obj)
     lexecute(
@@ -379,6 +384,64 @@ def _save_correction(workspace_id: int, event, obj: EditableGeometryObject) -> N
     )
 
 
+def _save_correction(workspace_id: int, event, obj: EditableGeometryObject) -> None:
+    """Append the new correction event and upsert the object's current-state
+    snapshot. Two writes, both additive: the event log is genuinely
+    append-only (no UPDATE/DELETE), and the object-state row is a fast-lookup
+    cache (see _upsert_object_state). Neither statement touches
+    model_masses/model_openings."""
+    from pb_planreader_3d_app import lexecute
+
+    row = correction_event_to_row(workspace_id, event)
+    lexecute(
+        """INSERT INTO editable_3d_correction_events(
+            workspace_id, correction_id, object_id, object_type, field,
+            old_value_json, new_value_json, reason, actor, source,
+            previous_revision_hash, new_revision_hash, created_at
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (
+            row["workspace_id"], row["correction_id"], row["object_id"], row["object_type"],
+            row["field"], row["old_value_json"], row["new_value_json"], row["reason"],
+            row["actor"], row["source"], row["previous_revision_hash"], row["new_revision_hash"],
+            row["created_at"],
+        ),
+    )
+    _upsert_object_state(workspace_id, obj)
+
+
+def _load_persisted_approval_state(workspace_id: int) -> List[Dict[str, Any]]:
+    """Fetch this workspace's persisted approval history, in append-only
+    (id) order — see _load_persisted_correction_state for the same
+    pattern."""
+    from pb_planreader_3d_app import lquery
+
+    return lquery(
+        "SELECT * FROM editable_3d_approval_events WHERE workspace_id=? ORDER BY id",
+        (workspace_id,),
+    )
+
+
+def _save_approval(workspace_id: int, object_type: str, result, obj: EditableGeometryObject) -> None:
+    """Append the new approval event and upsert the object's current-state
+    snapshot. The approval event log is append-only, exactly like the
+    correction event log — an approval is never edited or deleted, only
+    ever superseded by a later correction or a later approval event."""
+    from pb_planreader_3d_app import lexecute
+
+    row = approval_result_to_row(workspace_id, object_type, result)
+    lexecute(
+        """INSERT INTO editable_3d_approval_events(
+            workspace_id, object_id, object_type, revision_hash,
+            approved_by, approved_at, created_at
+        ) VALUES(?,?,?,?,?,?,?)""",
+        (
+            row["workspace_id"], row["object_id"], row["object_type"], row["revision_hash"],
+            row["approved_by"], row["approved_at"], row["created_at"],
+        ),
+    )
+    _upsert_object_state(workspace_id, obj)
+
+
 def _build_dependent_quantity_rows(
     ledger: Editable3DCorrectionLedger,
     original_walls_by_id: Dict[str, WallModel],
@@ -391,7 +454,16 @@ def _build_dependent_quantity_rows(
     persisted correction history instead of session state. Scoped to the
     single-wall-at-a-time acceptance criteria this series has kept to: the
     most recent persisted event's field decides which targets get
-    recalculated, not the full cross-product of every field ever corrected."""
+    recalculated, not the full cross-product of every field ever corrected.
+
+    Approval (D.11G): if the object is currently approved — obj_after.approved_by
+    is set — that approval is, by construction, always for obj_after's exact
+    current revision_hash: apply_correction() clears approved_by/approved_at
+    on every new correction (D.1's own invariant, unchanged), so a non-None
+    approved_by here can never be stale. The newly-recalculated *current* row
+    is promoted through approve_takeoff_output_row() (D.1, unchanged) so it
+    becomes commercially eligible; the old/baseline row is never touched and
+    stays exactly as stale/non-publishable as it already was."""
     rows: Dict[str, TakeoffOutputRow] = {}
     events_by_object: Dict[str, List[Dict[str, Any]]] = {}
     for row in event_rows:
@@ -426,7 +498,14 @@ def _build_dependent_quantity_rows(
             if r.old_row is not None:
                 rows[r.old_row.quantity_id] = r.old_row
             if r.new_row is not None:
-                rows[r.new_row.quantity_id] = r.new_row
+                new_row = r.new_row
+                if obj_after.approved_by:
+                    new_row = approve_takeoff_output_row(
+                        new_row, approved_by=obj_after.approved_by,
+                        approved_at=obj_after.approved_at,
+                        current_revision_hash=obj_after.revision_hash,
+                    )
+                rows[new_row.quantity_id] = new_row
 
     return rows
 
@@ -495,6 +574,56 @@ def _render_correction_form(
                     st.rerun()
 
 
+def _render_approval_form(
+    workspace_id: int, ledger: Editable3DCorrectionLedger, object_id: str, obj: EditableGeometryObject,
+) -> None:
+    """The one approval control in this panel (D.11G): explicit, single-object,
+    exact-revision approval, reusing approve_corrected_geometry() (D.1/D.2)
+    verbatim — no new authority logic. Approval always targets obj's exact
+    current revision_hash as of the moment the button is clicked; there is
+    no bulk approval, and there is no way to approve a past revision (the
+    backend itself rejects a mismatched hash). A subsequent correction
+    immediately invalidates this approval — apply_correction() already
+    clears approved_by/approved_at and resets authority_status to
+    REVIEW_REQUIRED on every new correction (D.1's own invariant, unchanged
+    here), so nothing extra is needed to make re-approval mandatory after a
+    later correction."""
+    label = f"✅ Approve {object_id}"
+    if obj.approved_by:
+        label += f" — approved by {obj.approved_by}"
+    with st.expander(label):
+        st.info(
+            f"Approves this object at its exact **current revision** only "
+            f"(`{obj.revision_hash}`). If it is corrected again afterwards, "
+            f"this approval no longer applies — the object automatically "
+            f"returns to REVIEW_REQUIRED and must be approved again."
+        )
+        st.caption(f"Revision being approved: `{obj.revision_hash}`")
+        actor = st.text_input(
+            "Your name (required)", key=f"_approval_actor_{object_id}",
+            placeholder="e.g. Lead Estimator",
+        )
+        if st.button("Approve current revision", key=f"_approval_apply_{object_id}"):
+            if not actor.strip():
+                st.error("An actor name is required to approve.")
+            else:
+                try:
+                    result = approve_corrected_geometry(
+                        ledger, object_id=object_id, approved_by=actor.strip(),
+                        current_revision_hash=obj.revision_hash,
+                    )
+                except ValueError as exc:
+                    st.error(f"Approval failed closed: {exc}")
+                else:
+                    obj_after = ledger.get_object(object_id)
+                    _save_approval(workspace_id, obj.object_type, result, obj_after)
+                    st.success(
+                        f"Approved by {result.approved_by} at {result.approved_at} "
+                        f"(revision `{result.revision_hash}`)."
+                    )
+                    st.rerun()
+
+
 # ---------------------------------------------------------------------------
 # Display helpers
 # ---------------------------------------------------------------------------
@@ -522,9 +651,8 @@ def _render_trust_legend() -> None:
         st.markdown(
             "**Authority status** (wall panels, markers, badges)\n"
             "- 🟢 FIRM / USER_APPROVED — explicitly approved at this exact "
-            "revision (only `approve_corrected_geometry()` grants this; real "
-            "workspace objects can't reach it yet — there is no approval "
-            "workflow until a future PR)\n"
+            "revision (only `approve_corrected_geometry()` grants this, via "
+            "the \"Approve {object_id}\" control)\n"
             "- 🟡 PROVISIONAL / REVIEW_REQUIRED — not yet approved; a "
             "correction always resets an object to REVIEW_REQUIRED, never "
             "straight to approved\n"
@@ -683,20 +811,20 @@ def _render_linked_quantities(obj: EditableGeometryObject, rows: Dict[str, Takeo
 
 def render_editable_3d_inspector_panel(workspace: Optional[Dict[str, Any]] = None) -> None:
     """Inspector for the editable-3D correction/approval/quantity backend
-    (D.1-D.10). No approval control anywhere. The one mutation control is a
-    persisted (D.11F) length/height correction on a single real wall at a
-    time — see the module docstring.
+    (D.1-D.10). Two mutation controls, both persisted: a length/height
+    correction (D.11F) and an explicit, exact-revision approval (D.11G) on
+    a single real wall at a time — see the module docstring.
 
     Offers two data sources (see module docstring): the D.11A demo scenario,
     cached once per session in st.session_state, and the D.11B real workspace
     objects, hydrated fresh from the database on every render, with any
-    persisted corrections replayed on top.
+    persisted corrections and approvals replayed on top.
     """
     st.title("Editable 3D Inspector")
     st.caption(
         "Correction/approval/quantity backend (D.1–D.10). Real workspace "
-        "objects support a real, persisted correction per wall. No approval "
-        "control exists anywhere on this page."
+        "objects support a real, persisted correction and an explicit, "
+        "exact-revision approval per wall."
     )
 
     mode = st.radio(
@@ -725,14 +853,16 @@ def render_editable_3d_inspector_panel(workspace: Optional[Dict[str, Any]] = Non
         st.info(
             "Real building masses for this workspace, hydrated fresh from "
             "model_masses/model_openings on every load, with any persisted "
-            "corrections (editable_3d_correction_events) replayed on top — "
+            "corrections and approvals (editable_3d_correction_events, "
+            "editable_3d_approval_events) replayed on top, in that order — "
             "model_masses/model_openings themselves are only ever read, never "
             "written. Hydration never grants approval: every object starts "
             "REVIEW_REQUIRED (or BLOCKED if its height isn't actually known — "
-            "see the skip/authority notes below). There is still no schema "
-            "link from building masses to real take-off rows, so a wall only "
-            "shows dependent quantities once you correct it — see "
-            "\"Correct {wall_id}\" below."
+            "see the skip/authority notes below), and stays that way until "
+            "explicitly approved via \"Approve {object_id}\" below. There is "
+            "still no schema link from building masses to real take-off "
+            "rows, so a wall only shows dependent quantities once you "
+            "correct it — see \"Correct {wall_id}\" below."
         )
         if workspace is None:
             st.warning("Open or create a workspace first.")
@@ -743,6 +873,8 @@ def render_editable_3d_inspector_panel(workspace: Optional[Dict[str, Any]] = Non
         event_rows, state_rows = _load_persisted_correction_state(workspace_id)
         walls, replay_warnings = replay_persisted_corrections(ledger, walls, event_rows)
         replay_warnings = replay_warnings + verify_object_state_consistency(ledger, state_rows)
+        approval_rows = _load_persisted_approval_state(workspace_id)
+        replay_warnings = replay_warnings + replay_persisted_approvals(ledger, approval_rows)
         rows = _build_dependent_quantity_rows(ledger, original_walls_by_id, event_rows)
         if skipped:
             with st.expander(f"{len(skipped)} item(s) skipped during hydration (fail-closed)"):
@@ -794,6 +926,7 @@ def render_editable_3d_inspector_panel(workspace: Optional[Dict[str, Any]] = Non
     if mode == "Real workspace objects":
         walls_by_id = {w.wall_id: w for w in walls}
         _render_correction_form(workspace_id, ledger, selected, walls_by_id.get(selected))
+        _render_approval_form(workspace_id, ledger, selected, obj)
 
     _render_object_summary(obj)
 

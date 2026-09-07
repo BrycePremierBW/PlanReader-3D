@@ -54,6 +54,27 @@ inconsistent. That resync now lives inside `apply_correction()` itself
 (pb_editable_3d_correction_model.py), so both a live correction and a
 replayed one produce a canonically self-consistent object — this module no
 longer needs its own resync step at all.
+
+Persisted approvals (PR D.11G)
+-------------------------------
+Approval reuses the existing D.1/D.2 backend verbatim
+(`approve_corrected_geometry()`) — this module only adds the same kind of
+persist-and-replay wrapper D.11F already gave corrections, in a third
+additive table (`editable_3d_approval_events`). It is append-only, exactly
+like the correction event log: an approval is never edited or deleted, only
+ever superseded by a later correction (which clears `approved_by`/
+`approved_at` on the ledger object itself — `apply_correction()`'s own,
+unchanged invariant) or a later, separate approval event.
+
+Replay only ever restores the *latest* persisted approval for an object,
+and only when that approval's recorded revision_hash still matches the
+object's current revision_hash after every persisted correction has
+already been replayed on top of it. If a correction landed after that
+approval was recorded, the two hashes will no longer match — the object is
+already back at REVIEW_REQUIRED from correction replay, and this module
+must not paper over that by restoring FIRM anyway. That fail-closed
+revision check is the same one `approve_corrected_geometry()` itself
+enforces for a live approval; replay does not relax it.
 """
 from __future__ import annotations
 
@@ -62,9 +83,11 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Mapping, Sequence, Tuple
 
 from pb_editable_3d_correction_model import (
+    ApprovalResult,
     Editable3DCorrectionEvent,
     Editable3DCorrectionLedger,
     EditableGeometryObject,
+    approve_corrected_geometry,
 )
 from pb_editable_3d_model import WallModel
 from pb_editable_3d_model_bridge import editable_geometry_object_to_wall_model
@@ -253,4 +276,79 @@ def verify_object_state_consistency(
                     f"drifted out of sync."
                 ),
             ))
+    return warnings
+
+
+def approval_result_to_row(workspace_id: int, object_type: str, result: ApprovalResult) -> Dict[str, Any]:
+    """The row to append to `editable_3d_approval_events` after a successful
+    approve_corrected_geometry() call — lossless, every field the result
+    actually carries."""
+    return {
+        "workspace_id": workspace_id,
+        "object_id": result.object_id,
+        "object_type": object_type,
+        "revision_hash": result.revision_hash,
+        "approved_by": result.approved_by,
+        "approved_at": result.approved_at,
+        "created_at": result.approved_at,
+    }
+
+
+def replay_persisted_approvals(
+    ledger: Editable3DCorrectionLedger,
+    approval_rows: Sequence[Mapping[str, Any]],
+) -> List[ReplayWarning]:
+    """Re-apply the latest persisted approval for each object — but only when
+    it still targets the object's current revision. Call this *after*
+    replay_persisted_corrections() has already replayed every persisted
+    correction onto the same ledger, so `ledger.get_object(object_id)`
+    reflects the object's final, corrected state.
+
+    `approval_rows` must be ordered by id (the same append-only order they
+    were recorded in) — the last row per object_id is treated as the latest
+    approval, matching how a real correction can supersede an earlier one.
+    If that approval's revision_hash no longer matches the object's current
+    revision_hash, a correction has landed since it was recorded: the
+    object is already REVIEW_REQUIRED from correction replay (D.1's own
+    apply_correction() invariant, unchanged), and this function leaves it
+    that way rather than restoring FIRM for a revision that no longer
+    exists. This mirrors the exact fail-closed rule
+    approve_corrected_geometry() enforces for a live approval — replay does
+    not relax it."""
+    warnings: List[ReplayWarning] = []
+    latest_by_object: Dict[str, Mapping[str, Any]] = {}
+    for row in approval_rows:
+        latest_by_object[row["object_id"]] = row  # last write wins — append-only id order
+
+    for object_id, row in latest_by_object.items():
+        obj = ledger.get_object(object_id)
+        if obj is None:
+            warnings.append(ReplayWarning(
+                object_id=object_id,
+                reason=(
+                    "This object no longer exists in the live database — its "
+                    "persisted approval is orphaned and was not replayed."
+                ),
+            ))
+            continue
+
+        if obj.revision_hash != row["revision_hash"]:
+            # Correctly invalidated: a correction landed after this approval
+            # was recorded. Correction replay already reset this object to
+            # REVIEW_REQUIRED — nothing to restore.
+            continue
+
+        try:
+            approve_corrected_geometry(
+                ledger, object_id=object_id,
+                approved_by=row["approved_by"],
+                current_revision_hash=row["revision_hash"],
+                approved_at=row["approved_at"],
+            )
+        except ValueError as exc:
+            warnings.append(ReplayWarning(
+                object_id=object_id,
+                reason=f"Persisted approval failed to replay: {exc}",
+            ))
+
     return warnings
