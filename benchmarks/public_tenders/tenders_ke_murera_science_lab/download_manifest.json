@@ -1,0 +1,38 @@
+{
+  "benchmark_id": "tenders_ke_murera_science_lab",
+  "tender_reference": "MOE/SEEQIP/C012/01/2026-2027",
+  "tender_id": "302507",
+  "ocid": "ocds-5whusi-302507-MOE/SEEQIP/C012/01/2026-2027",
+  "publisher": "Ministry of Education / State Department for Basic Education / County Commissioner Meru",
+  "source_url": "https://tenders.go.ke/storage/Documents/1785347143869-bqs-drawings.pdf",
+  "retrieval_date": "2026-09-07",
+  "documents": [
+    {
+      "filename": "1785347143869-bqs-drawings.pdf",
+      "role": "architectural_drawings",
+      "description": "Architectural & Structural Working Drawings: General Science Lab Floor Plan, Elevations E-01 to E-04, Sections A-A to F-F, Truss Details, Window & Door Schedules",
+      "sha256": "84dec737ede7adfa32b02c6732d4289a6a2d25f7ae50cf07209428f1b4e0c94b",
+      "file_size_bytes": 7704729,
+      "expected_pages": 238,
+      "drawing_pages": [
+        219,
+        238
+      ],
+      "total_pages": 238
+    },
+    {
+      "filename": "1785347143869-bqs-drawings.pdf",
+      "role": "bill_of_quantities",
+      "description": "Detailed Builders Work Bill of Quantities (BW/1 to BW/19) covering Substructures, RC Superstructure, Walling, Roofing, Doors, Windows, Finishes, and Joinery",
+      "sha256": "84dec737ede7adfa32b02c6732d4289a6a2d25f7ae50cf07209428f1b4e0c94b",
+      "file_size_bytes": 7704729,
+      "expected_pages": 238,
+      "boq_pages": [
+        176,
+        195
+      ],
+      "total_pages": 238
+    }
+  ],
+  "download_notes": "Direct open download from tenders.go.ke storage. Computed SHA-256 matches downloaded file."
+}

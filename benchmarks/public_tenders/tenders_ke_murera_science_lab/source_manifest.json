@@ -1,0 +1,24 @@
+{
+  "benchmark_id": "tenders_ke_murera_science_lab",
+  "project_name": "Proposed Construction of a Science Laboratory at Murera Senior School",
+  "project_number": "MOE/SEEQIP/C012/01/2026-2027",
+  "tender_id": "302507",
+  "client": "Ministry of Education / State Department for Basic Education / County Commissioner Meru",
+  "drawing_issue": "Working Drawings / Tender Issue",
+  "drawing_date": "July 2019 / 2026 Issue",
+  "source_pdf": "1785347143869-bqs-drawings.pdf",
+  "source_takeoff": "1785347143869-bqs-drawings.pdf",
+  "tender_document": "1785347143869-bqs-drawings.pdf",
+  "allowed_comparison_sources": [
+    "1785347143869-bqs-drawings.pdf",
+    "Murera_Science_Lab_BOQ.xlsx"
+  ],
+  "rejected_comparison_sources": [
+    "Premier_Brushworks_60-62_School_Rd_Maroochydore_Revised.xlsx",
+    "Premier_Brushworks_92-94_School_Rd_Full_Painting_Takeoff.xlsx",
+    "260617_004-LAGO-BRITINYA_ARCH-DRAWINGS_COMBINED 2.pdf"
+  ],
+  "status": "verified_scored_benchmark",
+  "retrieval_date": "2026-09-07",
+  "verification_notes": "Verified authentic public procurement package containing both architectural drawings and Bill of Quantities for a standard SEEQIP Science Laboratory block retrieved from Kenya Public Procurement Information Portal (tenders.go.ke). Architectural drawing scope and BOQ scope match 1:1 on a single standalone building."
+}

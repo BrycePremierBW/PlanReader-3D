@@ -46,7 +46,9 @@ def test_mbagha_manifest_registered_and_verified():
     assert bench.is_candidate_unverified is False
     assert bench.benchmark_id == BENCHMARK_ID
     assert "Mbagha" in bench.project_name
-    assert bench.status == "verified_public_benchmark"
+    assert bench.status == "verified_scope_mismatch"
+    assert bench.is_scope_mismatch is True
+    assert bench.is_headline_eligible is False
     assert bench.tender_reference == "2028763-2025/2026"
 
 
@@ -134,7 +136,8 @@ def test_mbagha_exact_match_predictions_yield_100_percent():
         predictions=exact_preds,
     )
     assert report.is_scored is True
-    assert report.status == "scored"
+    assert report.status == "verified_scope_mismatch"
+    assert report.is_headline_eligible is False
     assert report.exact_matches == len(exact_preds)
     assert report.overall_accuracy_percentage == 100.0
     assert report.strict_exact_accuracy_percentage == 100.0
@@ -190,7 +193,8 @@ def test_mbagha_native_pdf_end_to_end_scoring():
         pdf_path=DRAWING_PDF_PATH,
     )
     assert report.is_scored is True
-    assert report.status == "scored"
+    assert report.status == "verified_scope_mismatch"
+    assert report.is_headline_eligible is False
     assert report.total_boq_items == 123
     assert report.total_measurable_expected == 16
     # Honest evaluation reflects whole-facility drawing vs maternity block BOQ
