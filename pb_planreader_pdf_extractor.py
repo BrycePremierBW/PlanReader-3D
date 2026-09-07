@@ -732,6 +732,61 @@ class GenericPlanReaderExtractor:
         except Exception:
             pass
 
+        # ------------------------------------------------------------------
+        # Generic Opening Deduction Pipeline (Phase F.9)
+        # ------------------------------------------------------------------
+        try:
+            from pb_opening_deduction_pipeline import (
+                GenericOpeningDeductionPipeline,
+                OpeningInstance,
+                WallInstance,
+            )
+
+            if "perimeter_walling" in pred_dict:
+                wall_pred = pred_dict["perimeter_walling"]
+                gross_wall = wall_pred.quantity
+                wall_inst = WallInstance(
+                    wall_id="perimeter_walling",
+                    length_m=wall_pred.dimensions[0] if wall_pred.dimensions else None,
+                    height_m=wall_pred.dimensions[1] if wall_pred.dimensions and len(wall_pred.dimensions) > 1 else None,
+                    gross_area_m2=gross_wall,
+                )
+
+                opening_instances: List[OpeningInstance] = []
+                for p_tag, p_obj in list(pred_dict.items()):
+                    if p_obj.trade_type in ("windows", "doors"):
+                        w_m = None
+                        h_m = None
+                        if p_obj.dimensions and len(p_obj.dimensions) >= 2:
+                            w_raw, h_raw = p_obj.dimensions[0], p_obj.dimensions[1]
+                            if w_raw is not None and w_raw > 0:
+                                w_m = w_raw / 1000.0 if w_raw > 50.0 else w_raw
+                            if h_raw is not None and h_raw > 0:
+                                h_m = h_raw / 1000.0 if h_raw > 50.0 else h_raw
+
+                        qty = p_obj.quantity if (p_obj.quantity and p_obj.quantity > 0) else 1.0
+
+                        opening_instances.append(
+                            OpeningInstance(
+                                opening_id=p_tag,
+                                trade_type=p_obj.trade_type,
+                                width_m=round(w_m, 4) if w_m is not None else None,
+                                height_m=round(h_m, 4) if h_m is not None else None,
+                                quantity=qty,
+                                bound_wall_id="perimeter_walling",
+                                source_page=p_obj.source_page,
+                                bounding_box=p_obj.bounding_box,
+                            )
+                        )
+
+                if opening_instances:
+                    pipeline = GenericOpeningDeductionPipeline()
+                    wall_results = pipeline.deduct_openings_for_all_walls([wall_inst], opening_instances)
+                    preds_list = pipeline.propagate_to_predictions(list(pred_dict.values()), wall_results)
+                    pred_dict = {p.tag: p for p in preds_list}
+        except Exception:
+            pass
+
         doc.close()
         return list(pred_dict.values())
 
