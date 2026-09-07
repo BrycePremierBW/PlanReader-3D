@@ -1,4 +1,4 @@
-"""pb_editable_3d_inspector_panel.py — Editable 3D Inspector Panel (PR D.11A).
+"""pb_editable_3d_inspector_panel.py — Editable 3D Inspector Panel (PR D.11A/D.11B).
 
 A read-only Streamlit panel that surfaces the real editable-3D correction/
 approval/quantity backend (D.1-D.10) inside the PlanReader app. No mutation
@@ -8,14 +8,20 @@ displays state produced by the actual backend functions:
   pb_editable_3d_correction_model.Editable3DCorrectionLedger / EditableGeometryObject
   pb_editable_3d_quantity_recalculation.recalculate_quantities_for_correction
   pb_takeoff_output_authority.TakeoffOutputRow / create_takeoff_output_row / approve_takeoff_output_row
+  pb_editable_3d_workspace_hydration.hydrate_masses_to_wall_models (D.11B)
 
-Because nothing in the application persists editable-3D objects to the
-database yet (that's D.11B's job), this panel demonstrates real backend
-behaviour via an in-session demo scenario, built entirely from actual backend
-calls — not fabricated data, not new logic. Loading the scenario runs one
-correction and one approval through the real pipeline once, up front; the
-panel itself never calls a correction or approval function in response to a
-user action.
+The panel offers two data sources, switchable at the top of the page:
+
+  - "Demo scenario" (D.11A): an in-session scenario built entirely from real
+    backend calls (not fabricated data, not new logic), used to prove the
+    four authority distinctions with objects nothing in the app persists yet.
+  - "Real workspace objects" (D.11B): the current workspace's actual
+    `model_masses`/`model_openings` rows, hydrated fresh on every render via
+    pb_editable_3d_workspace_hydration — no caching, no DB writes, always
+    reflecting the live database state.
+
+Neither mode ever calls a correction or approval function in response to a
+user action — the only backend calls happen while building the display data.
 """
 from __future__ import annotations
 
@@ -36,6 +42,8 @@ from pb_editable_3d_quantity_recalculation import (
     RecalculationTarget,
     recalculate_quantities_for_correction,
 )
+from pb_editable_3d_model_bridge import wall_model_to_editable_geometry_object
+from pb_editable_3d_workspace_hydration import HydrationSkip, hydrate_masses_to_wall_models
 from pb_takeoff_output_authority import (
     TakeoffOutputRow,
     TakeoffSourceType,
@@ -181,6 +189,35 @@ def _ensure_demo_scenario_loaded() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Real workspace objects (D.11B) — hydrated fresh from model_masses/model_openings
+# on every render, never cached, never written back to the database.
+# ---------------------------------------------------------------------------
+
+def _load_real_workspace_objects(
+    workspace: Dict[str, Any],
+) -> tuple[Editable3DCorrectionLedger, List[str], List[HydrationSkip]]:
+    """Hydrate the current workspace's real `model_masses`/`model_openings` rows
+    into WallModel -> EditableGeometryObject and register them into a fresh
+    ledger. A local import of `lquery` avoids a circular import at module load
+    time (pb_planreader_3d_app imports this module; this function only needs
+    pb_planreader_3d_app back once it is already fully loaded and running)."""
+    from pb_planreader_3d_app import lquery
+
+    workspace_id = int(workspace["id"])
+    mass_rows = lquery("SELECT * FROM model_masses WHERE workspace_id=? ORDER BY id", (workspace_id,))
+    opening_rows = lquery("SELECT * FROM model_openings WHERE workspace_id=? ORDER BY id", (workspace_id,))
+    result = hydrate_masses_to_wall_models(mass_rows, opening_rows)
+
+    ledger = Editable3DCorrectionLedger()
+    object_ids: List[str] = []
+    for wall in result.walls:
+        ledger.register_object(wall_model_to_editable_geometry_object(wall))
+        object_ids.append(wall.wall_id)
+
+    return ledger, object_ids, result.skipped
+
+
+# ---------------------------------------------------------------------------
 # Display helpers
 # ---------------------------------------------------------------------------
 
@@ -317,30 +354,64 @@ def render_editable_3d_inspector_panel(workspace: Optional[Dict[str, Any]] = Non
     """Read-only inspector for the editable-3D correction/approval/quantity
     backend (D.1-D.10). No mutation controls. No database persistence.
 
-    Nothing in the application persists editable-3D objects to the database
-    yet, so this panel loads a demo scenario built from real backend calls
-    (see _build_demo_scenario) to have real state to display. That call
-    happens once per session, not on every rerun, and is not triggered by any
-    user interaction with the panel itself.
+    Offers two data sources (see module docstring): the D.11A demo scenario,
+    cached once per session in st.session_state, and the D.11B real workspace
+    objects, hydrated fresh from the database on every render.
     """
     st.title("Editable 3D Inspector")
     st.caption(
         "Read-only view of the correction/approval/quantity backend (D.1–D.10). "
         "No corrections or approvals can be made from this panel."
     )
-    st.info(
-        "This panel currently displays an in-session demo scenario built from real "
-        "backend calls (Editable3DCorrectionLedger, recalculate_quantities_for_correction, "
-        "approve_corrected_geometry, create_takeoff_output_row) — nothing here is "
-        "persisted to the database yet. Wiring real workspace objects is D.11B."
+
+    mode = st.radio(
+        "Data source", ["Demo scenario", "Real workspace objects"],
+        horizontal=True, key="_editable_3d_inspector_mode",
     )
 
-    _ensure_demo_scenario_loaded()
-    ledger: Editable3DCorrectionLedger = st.session_state[_SESSION_LEDGER_KEY]
-    rows: Dict[str, TakeoffOutputRow] = st.session_state[_SESSION_ROWS_KEY]
-    block_reason: str = st.session_state[_SESSION_BLOCK_REASON_KEY]
+    skipped: List[HydrationSkip] = []
+    block_reason = ""
 
-    selected = st.selectbox("Select an editable 3D object", _DEMO_OBJECT_IDS)
+    if mode == "Demo scenario":
+        st.info(
+            "This is an in-session demo scenario built from real backend calls "
+            "(Editable3DCorrectionLedger, recalculate_quantities_for_correction, "
+            "approve_corrected_geometry, create_takeoff_output_row) — not real "
+            "workspace geometry. Switch to \"Real workspace objects\" to inspect "
+            "the current workspace's actual building masses."
+        )
+        _ensure_demo_scenario_loaded()
+        ledger: Editable3DCorrectionLedger = st.session_state[_SESSION_LEDGER_KEY]
+        rows: Dict[str, TakeoffOutputRow] = st.session_state[_SESSION_ROWS_KEY]
+        block_reason = st.session_state[_SESSION_BLOCK_REASON_KEY]
+        object_ids = _DEMO_OBJECT_IDS
+    else:
+        st.info(
+            "Real building masses for this workspace, hydrated fresh from "
+            "model_masses/model_openings on every load — nothing here is cached "
+            "or written back to the database. Hydration never grants approval: "
+            "every object starts REVIEW_REQUIRED (or BLOCKED if its height isn't "
+            "actually known — see the skip/authority notes below). There is "
+            "currently no schema link from building masses to take-off "
+            "quantities, so dependent quantities are always empty in this mode."
+        )
+        if workspace is None:
+            st.warning("Open or create a workspace first.")
+            return
+        ledger, object_ids, skipped = _load_real_workspace_objects(workspace)
+        rows = {}
+        if skipped:
+            with st.expander(f"{len(skipped)} item(s) skipped during hydration (fail-closed)"):
+                for s in skipped:
+                    st.warning(f"[{s.kind}] id={s.source_id} ({s.label}): {s.reason}")
+        if not object_ids:
+            st.info(
+                "No building masses recorded for this workspace yet. Add masses on "
+                "the \"3D Building Model\" page, or switch to the demo scenario above."
+            )
+            return
+
+    selected = st.selectbox("Select an editable 3D object", object_ids)
     obj = ledger.get_object(selected)
     if obj is None:
         st.error(f"Object {selected!r} not found in the ledger.")
@@ -348,7 +419,7 @@ def render_editable_3d_inspector_panel(workspace: Optional[Dict[str, Any]] = Non
 
     _render_object_summary(obj)
 
-    if selected == "WALL-DEMO-3" and block_reason:
+    if mode == "Demo scenario" and selected == "WALL-DEMO-3" and block_reason:
         st.error(f"Real approval attempt on this object failed closed:\n\n{block_reason}")
 
     st.divider()
