@@ -1,24 +1,24 @@
 # PlanReader Public Tender Benchmark — Executive Headline Accuracy Dashboard
 
-**Generated**: `2026-09-07T14:25:35.968575+00:00`
+**Generated**: `2026-09-07T15:37:23.228714+00:00`
 
-> **Official Headline Accuracy**: **`13.0%`** across `2` headline-verified public tender benchmark(s).  
-> **Strict Exact Accuracy** (zero-tolerance): **`13.0%`**.
+> **Official Headline Accuracy**: **`17.4%`** across `2` headline-verified public tender benchmark(s).
+> **Strict Exact Accuracy** (zero-tolerance): **`17.4%`**.
 
 ## 1. Executive Headline Metrics (1:1 Material Scope Packages)
 
 | Metric | Value | Description |
 | :--- | :--- | :--- |
-| **Headline Overall Accuracy (<= 5% tol)** | **`13.0%`** | Combined exact matches and <= 5% tolerance across headline benchmarks |
-| **Headline Strict Exact Accuracy** | **`13.0%`** | Zero-tolerance exact numerical matches across headline benchmarks |
+| **Headline Overall Accuracy (<= 5% tol)** | **`17.4%`** | Combined exact matches and <= 5% tolerance across headline benchmarks |
+| **Headline Strict Exact Accuracy** | **`17.4%`** | Zero-tolerance exact numerical matches across headline benchmarks |
 | Scored Headline Benchmarks | `2` | Verified packages with 1:1 physical drawing-to-BOQ scope match |
 | Measurable Items Evaluated | `22` | Total expected architectural takeoff items |
 | Total Items Compared (Denominator) | `23` | Expected items + hallucinated extra predictions across packages |
-| Exact Matches | `3` | Exactly matched quantities |
+| Exact Matches | `4` | Exactly matched quantities |
 | Within 5% Tolerance | `0` | Minor variations within 5% tolerance |
 | Within 10% Tolerance | `1` | Minor variations (5% to 10%) |
-| Within 20% Tolerance | `3` | Moderate variations (10% to 20%) |
-| Gross Mismatches (> 20%) | `10` | Discrepancies exceeding 20% |
+| Within 20% Tolerance | `1` | Moderate variations (10% to 20%) |
+| Gross Mismatches (> 20%) | `11` | Discrepancies exceeding 20% |
 | Missed in Extraction | `5` | BOQ items missing from drawing predictions |
 | Hallucinated Extra Predictions | `1` | Predictions with no counterpart in BOQ |
 
@@ -26,7 +26,7 @@
 
 | Benchmark ID | Project Name | Scope | Expected | Compared | Exact | <= 5% | Gross | Missed | Halluc. | Accuracy | Strict % | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `tenders_ke_kstvet_cbc_classroom` | Proposed Construction of CBC Classroom and Integrated Resource Center | 1:1 Match | `12` | `12` | `2` | `0` | `5` | `2` | `0` | **`16.7%`** | `16.7%` | `verified_scored_benchmark` |
+| `tenders_ke_kstvet_cbc_classroom` | Proposed Construction of CBC Classroom and Integrated Resource Center | 1:1 Match | `12` | `12` | `3` | `0` | `6` | `2` | `0` | **`25.0%`** | `25.0%` | `verified_scored_benchmark` |
 | `tenders_ke_murera_science_lab` | Proposed Construction of a Science Laboratory at Murera Senior School | 1:1 Match | `10` | `11` | `1` | `0` | `5` | `3` | `1` | **`9.1%`** | `9.1%` | `verified_scored_benchmark` |
 
 ## 3. Real-World Scope Divergence Stress Tests (Excluded from Headline)
