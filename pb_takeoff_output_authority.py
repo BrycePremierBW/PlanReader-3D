@@ -73,6 +73,7 @@ class TakeoffOutputRow:
     approved_by: Optional[str] = None
     approved_at: Optional[str] = None
     revision_hash: Optional[str] = None
+    correction_id: Optional[str] = None
 
     def __post_init__(self) -> None:
         if not math.isfinite(self.value):
@@ -126,6 +127,7 @@ class TakeoffOutputRow:
             "approved_by": data.get("approved_by"),
             "approved_at": data.get("approved_at"),
             "revision_hash": data.get("revision_hash"),
+            "correction_id": data.get("correction_id"),
         }
         return cls(**clean)
 
@@ -158,6 +160,7 @@ def create_takeoff_output_row(
     project_identity_confirmed: Optional[bool] = None,
     scale_calibration_status: Optional[str] = None,
     allow_zero: bool = True,
+    correction_id: Optional[str] = None,
 ) -> TakeoffOutputRow:
     """Construct TakeoffOutputRow applying the complete commercial authority and publishability matrix."""
     # Fail-closed numeric check
@@ -344,6 +347,7 @@ def create_takeoff_output_row(
         approved_by=approved_by,
         approved_at=approved_at,
         revision_hash=revision_hash,
+        correction_id=correction_id,
     )
 
 
