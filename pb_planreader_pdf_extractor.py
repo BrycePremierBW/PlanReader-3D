@@ -308,6 +308,48 @@ class GenericPlanReaderExtractor:
                 if 2.0 <= val <= 35.0:
                     parsed_dims_m.append(round(val, 3))
 
+            # ------------------------------------------------------------------
+            # Structural bay -> support (column/pillar/pier/post) count.
+            # Only emitted when BOTH a genuine, unambiguous repeated-bay
+            # dimension pattern is found on this page AND the page text
+            # names a support element -- neither signal alone is emitted on,
+            # since a repeated dimension run with no support keyword is just
+            # as likely to be window/opening spacing, and a support keyword
+            # with no genuine repeated-bay evidence has nothing to count from.
+            # Multiple candidate runs on one page are ambiguous (which one
+            # is the actual support line?) and are left unresolved rather
+            # than guessed.
+            if "structural_columns" not in pred_dict and any(k in pt_norm for k in (
+                "pillars to", "pillar to", "columns to", "column to",
+                "piers to", "pier to", "posts to", "post to",
+                "chs pillar", "chs column", "rhs column", "shs column",
+                "masonry pier", "concrete column", "concrete pillar", "steel column",
+            )):
+                from pb_structural_bay_pillar_count import find_uniform_bay_runs
+
+                bay_runs = find_uniform_bay_runs(parsed_dims_m)
+                if len(bay_runs) == 1:
+                    run = bay_runs[0]
+                    pred_dict["structural_columns"] = ExtractedPrediction(
+                        tag="structural_columns",
+                        trade_type="structure",
+                        description=(
+                            f"Structural columns/pillars/piers derived from "
+                            f"{run.bay_count} repeated bay span(s) "
+                            f"({run.bay_spans_m} m)"
+                        ),
+                        quantity=float(run.support_count),
+                        unit="NO",
+                        confidence=0.7,
+                        source_page=page_num,
+                        sheet_number=sheet_no,
+                        metadata={
+                            "derivation": "bay_count_plus_one_from_repeated_dimension_chain",
+                            "bay_count": run.bay_count,
+                            "bay_spans_m": run.bay_spans_m,
+                        },
+                    )
+
             is_elevation_page = any(k in pt_lower for k in ("elevation e-", "elevation\ne-", "elev e-")) and not any(
                 k in pt_lower for k in ("ground floor plan", "floor plan", "layout plan")
             )
