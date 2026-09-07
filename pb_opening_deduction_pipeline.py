@@ -298,10 +298,22 @@ class GenericOpeningDeductionPipeline:
 
             if is_walling or is_wall_finish:
                 gross_val = p.quantity if hasattr(p, "quantity") else p.get("quantity", 0.0)
-                net_val = primary_res.net_area_m2
-
                 meta = p.metadata if hasattr(p, "metadata") else p.get("metadata", {})
-                meta["gross_area_m2"] = primary_res.gross_area_m2
+
+                # A wall-finish prediction with its own independently-derived
+                # gross area (e.g. a genuine internal-face area computed from
+                # real wall-thickness evidence, distinct from the external
+                # wall's gross area) still needs the SAME openings deducted
+                # -- they pierce the same wall regardless of which face is
+                # being measured -- but must not be silently overwritten
+                # with the external wall's net_area_m2 as if it were a copy.
+                independent_gross = meta.get("independent_gross_area_m2")
+                if independent_gross is not None:
+                    net_val = round(independent_gross - primary_res.total_deducted_area_m2, 4)
+                else:
+                    net_val = primary_res.net_area_m2
+
+                meta["gross_area_m2"] = independent_gross if independent_gross is not None else primary_res.gross_area_m2
                 meta["total_deducted_opening_area_m2"] = primary_res.total_deducted_area_m2
                 meta["net_area_m2"] = net_val
                 meta["applied_openings"] = primary_res.applied_openings

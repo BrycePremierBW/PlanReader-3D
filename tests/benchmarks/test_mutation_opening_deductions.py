@@ -247,3 +247,65 @@ def test_propagation_to_predictions_metadata() -> None:
 
     # Non-wall finishes untouched
     assert pred_map["floor_screed"].quantity == 80.0
+
+
+def test_propagation_respects_independent_gross_area_for_wall_finishes() -> None:
+    """A wall finish carrying its own independently-derived gross area
+    (e.g. a genuine internal-face area, distinct from the external wall's
+    gross area) must have the SAME openings deducted from ITS OWN gross
+    value -- never silently overwritten with the external wall's
+    net_area_m2 as if it were a plain copy of perimeter_walling."""
+    pipeline = GenericOpeningDeductionPipeline()
+
+    wall = WallInstance(wall_id="perimeter_walling", gross_area_m2=100.0)
+    window = OpeningInstance(
+        opening_id="W1",
+        width_m=2.0,
+        height_m=1.5,
+        quantity=2.0,  # 2 * 2.0 * 1.5 = 6.0 m2 deducted
+        bound_wall_id="perimeter_walling",
+    )
+    results = pipeline.deduct_openings_for_all_walls([wall], [window])
+
+    preds = [
+        ExtractedPrediction(
+            tag="perimeter_walling",
+            trade_type="walls",
+            description="Perimeter walling",
+            quantity=100.0,
+            unit="SM",
+            confidence=0.88,
+            source_page=1,
+        ),
+        ExtractedPrediction(
+            tag="internal_plaster",
+            trade_type="finishes",
+            description="Internal plaster (independent internal-face area)",
+            quantity=85.0,
+            unit="SM",
+            confidence=0.8,
+            source_page=1,
+            metadata={"independent_gross_area_m2": 85.0},
+        ),
+        ExtractedPrediction(
+            tag="internal_paint",
+            trade_type="finishes",
+            description="Internal paint (plain proxy copy, no independent area)",
+            quantity=100.0,
+            unit="SM",
+            confidence=0.5,
+            source_page=1,
+        ),
+    ]
+
+    updated = pipeline.propagate_to_predictions(preds, results)
+    pred_map = {p.tag: p for p in updated}
+
+    # internal_plaster: its OWN gross (85.0) minus the same 6.0 m2 deduction.
+    assert pred_map["internal_plaster"].quantity == 79.0
+    assert pred_map["internal_plaster"].metadata["gross_area_m2"] == 85.0
+    assert pred_map["internal_plaster"].metadata["net_area_m2"] == 79.0
+
+    # internal_paint carries no independent area -- unchanged legacy behaviour.
+    assert pred_map["internal_paint"].quantity == 94.0
+    assert pred_map["internal_paint"].metadata["gross_area_m2"] == 100.0
