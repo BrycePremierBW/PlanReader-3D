@@ -62,10 +62,17 @@ def resolve_file_path(filename: Optional[str], custom_search_dirs: Optional[List
             candidate = sdir / filename
             if candidate.exists() and candidate.is_file():
                 return candidate.resolve()
-            # Also case-insensitive check
-            for child in sdir.glob("*"):
-                if child.name.lower() == filename.lower():
-                    return child.resolve()
+            # Also case-insensitive check and 1-level subdirectories (e.g. Downloads/<project>/file.pdf)
+            try:
+                for child in sdir.iterdir():
+                    if child.name.lower() == filename.lower() and child.is_file():
+                        return child.resolve()
+                    if child.is_dir():
+                        sub_cand = child / filename
+                        if sub_cand.exists() and sub_cand.is_file():
+                            return sub_cand.resolve()
+            except (PermissionError, OSError):
+                continue
 
     return None
 
