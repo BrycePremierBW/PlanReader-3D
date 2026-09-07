@@ -25,6 +25,8 @@ def sample_building():
         height_m=2.7,
         height_authority=WallHeightAuthority.MODEL_ESTIMATED.value,
         authority_status=AuthorityStatus.PROVISIONAL.value,
+        source_page_no=1,
+        source_sheet_label="WD-01",
     )
     level = LevelModel(
         level_id="L_01",

@@ -506,6 +506,13 @@ def apply_correction_event(
                     wall.approved_at = None
 
                 elif event.action == CorrectionAction.APPROVE_QUANTITY.value:
+                    # Same source-trace floor as approve_corrected_geometry() (D.2):
+                    # untraceable geometry can never become commercial, regardless
+                    # of which approval path is used to grant FIRM authority.
+                    if not wall.source_sheet_label:
+                        raise ValueError(
+                            f"Cannot approve {wall.wall_id!r}: missing source_sheet_label trace"
+                        )
                     wall.authority_status = AuthorityStatus.FIRM.value
                     wall.approved_by = event.actor
                     wall.approved_at = datetime.now(timezone.utc).isoformat()
