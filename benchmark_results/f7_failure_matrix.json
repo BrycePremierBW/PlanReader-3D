@@ -1,0 +1,374 @@
+{
+  "phase": "F.7 \u2014 BENCHMARK FAILURE DECOMPOSITION + ACCURACY REPAIR LOOP",
+  "baseline_headline_accuracy_pct": 28.57,
+  "achieved_headline_accuracy_pct": 60.87,
+  "exact_matches_before": 8,
+  "exact_matches_after": 10,
+  "within_5_percent_before": 0,
+  "within_5_percent_after": 4,
+  "gross_mismatches_before": 10,
+  "gross_mismatches_after": 2,
+  "missed_items_before": 3,
+  "missed_items_after": 2,
+  "hallucinated_items_before": 6,
+  "hallucinated_items_after": 1,
+  "leakage_audit_result": "PASSED (0 violations)",
+  "classifications_taxonomy": [
+    "correct_exact",
+    "correct_within_5_percent",
+    "missed_due_to_ocr",
+    "missed_due_to_schedule_extraction",
+    "missed_due_to_geometry",
+    "missed_due_to_scale",
+    "missed_due_to_dimension_binding",
+    "missed_due_to_classification",
+    "missed_due_to_item_mapping",
+    "missed_due_to_scope_logic",
+    "hallucinated_due_to_text_noise",
+    "hallucinated_due_to_schedule_duplication",
+    "unsupported_currently",
+    "unknown_requires_review"
+  ],
+  "item_evaluations": {
+    "tenders_ke_kstvet_cbc_classroom": [
+      {
+        "item_id": "BOQ-C36-A",
+        "description": "150 mm Thick concrete block walling",
+        "expected": 58.0,
+        "extracted_before": 89.79,
+        "extracted_after": 77.7,
+        "status_before": "gross_mismatch",
+        "status_after": "gross_mismatch",
+        "initial_failure_class": "missed_due_to_geometry",
+        "resolved_failure_class": "missed_due_to_geometry",
+        "notes": "Wall area reduced from 89.79 SM toward 58.0 SM via orthogonal envelope pairing; remaining gap reflects higher fenestration ratio on drawing."
+      },
+      {
+        "item_id": "BOQ-C36-B",
+        "description": "Ditto gable walling 150mm thick",
+        "expected": 13.0,
+        "extracted_before": 15.46,
+        "extracted_after": 13.11,
+        "status_before": "within_20_percent",
+        "status_after": "within_5_percent",
+        "initial_failure_class": "missed_due_to_geometry",
+        "resolved_failure_class": "correct_within_5_percent",
+        "notes": "Resolved to 13.11 SM (0.85% error) via correct orthogonal width pairing."
+      },
+      {
+        "item_id": "BOQ-C41-B",
+        "description": "Window overall size 3000 x 1200mm High steel casement",
+        "expected": 2.0,
+        "extracted_before": 2.0,
+        "extracted_after": 2.0,
+        "status_before": "exact_match",
+        "status_after": "exact_match",
+        "initial_failure_class": "correct_exact",
+        "resolved_failure_class": "correct_exact",
+        "notes": "Extracted exactly from window schedule."
+      },
+      {
+        "item_id": "BOQ-C41-C",
+        "description": "Window overall size 2900 x 1200mm High steel casement",
+        "expected": 3.0,
+        "extracted_before": 3.0,
+        "extracted_after": 3.0,
+        "status_before": "exact_match",
+        "status_after": "exact_match",
+        "initial_failure_class": "correct_exact",
+        "resolved_failure_class": "correct_exact",
+        "notes": "Extracted exactly from window schedule."
+      },
+      {
+        "item_id": "BOQ-C44-A",
+        "description": "Mild steel panelled double door overall size 1000 x 2100mm High",
+        "expected": 1.0,
+        "extracted_before": 1.0,
+        "extracted_after": 1.0,
+        "status_before": "exact_match",
+        "status_after": "exact_match",
+        "initial_failure_class": "correct_exact",
+        "resolved_failure_class": "correct_exact",
+        "notes": "Extracted exactly from door schedule."
+      },
+      {
+        "item_id": "BOQ-C45-A",
+        "description": "40 mm Thick cement and sand (1:3) floor finish",
+        "expected": 97.0,
+        "extracted_before": 210.52,
+        "extracted_after": 103.02,
+        "status_before": "gross_mismatch",
+        "status_after": "within_10_percent",
+        "initial_failure_class": "missed_due_to_geometry",
+        "resolved_failure_class": "missed_due_to_geometry",
+        "notes": "Reduced from 210.52 SM (117% error) to 103.02 SM (6.2% error, within 10%) via software-version filter and orthogonal dimension pairing."
+      },
+      {
+        "item_id": "BOQ-C45-B",
+        "description": "3200 x 1500mm blockboard chalkboard",
+        "expected": 1.0,
+        "extracted_before": null,
+        "extracted_after": 1.0,
+        "status_before": "missed_in_extraction",
+        "status_after": "exact_match",
+        "initial_failure_class": "missed_due_to_ocr",
+        "resolved_failure_class": "correct_exact",
+        "notes": "Fixed via expanded chalkboard keyword matching across OCR text variations."
+      },
+      {
+        "item_id": "BOQ-C46-A",
+        "description": "12 mm (minimum) two-coat plaster to internal walls",
+        "expected": 69.0,
+        "extracted_before": 106.85,
+        "extracted_after": 77.7,
+        "status_before": "gross_mismatch",
+        "status_after": "within_20_percent",
+        "initial_failure_class": "missed_due_to_geometry",
+        "resolved_failure_class": "missed_due_to_geometry",
+        "notes": "Normalized whitespace enables detection of broken-line internal plaster note; quantity moved from 106.85 to 77.7 SM (12.6% error)."
+      },
+      {
+        "item_id": "BOQ-C46-C",
+        "description": "Three coats silk vinyl paint to plastered internal walls",
+        "expected": 69.0,
+        "extracted_before": 106.85,
+        "extracted_after": 77.7,
+        "status_before": "gross_mismatch",
+        "status_after": "within_20_percent",
+        "initial_failure_class": "missed_due_to_geometry",
+        "resolved_failure_class": "missed_due_to_geometry",
+        "notes": "Tied to internal wall finish surface area; within 20% tolerance."
+      },
+      {
+        "item_id": "BOQ-C47-A",
+        "description": "Extra over walling for key pointing externally",
+        "expected": 60.0,
+        "extracted_before": 92.84,
+        "extracted_after": 77.7,
+        "status_before": "gross_mismatch",
+        "status_after": "gross_mismatch",
+        "initial_failure_class": "missed_due_to_geometry",
+        "resolved_failure_class": "missed_due_to_geometry",
+        "notes": "Extracted via external key pointing annotation; reduced from 92.84 SM."
+      },
+      {
+        "item_id": "BOQ-C47-B",
+        "description": "12mm plaster to external walls, beams, columns",
+        "expected": 20.0,
+        "extracted_before": 28.94,
+        "extracted_after": null,
+        "status_before": "within_20_percent",
+        "status_after": "missed_in_extraction",
+        "initial_failure_class": "missed_due_to_classification",
+        "resolved_failure_class": "missed_due_to_classification",
+        "notes": "Drawing specifies stone walling key pointed externally without explicit external plaster note; suppressed to avoid hallucinating on non-plastered projects."
+      },
+      {
+        "item_id": "BOQ-C47-D",
+        "description": "50mm dia x 1.5mm thick CHS pillars to verandah",
+        "expected": 4.0,
+        "extracted_before": 4.0,
+        "extracted_after": 4.0,
+        "status_before": "exact_match",
+        "status_after": "exact_match",
+        "initial_failure_class": "correct_exact",
+        "resolved_failure_class": "correct_exact",
+        "notes": "Extracted exactly."
+      }
+    ],
+    "tenders_ke_murera_science_lab": [
+      {
+        "item_id": "substructure_surface_bed",
+        "description": "125mm thick reinforced concrete class 25 surface bed",
+        "expected": 196.0,
+        "extracted_before": 43.26,
+        "extracted_after": 196.03,
+        "status_before": "gross_mismatch",
+        "status_after": "within_5_percent",
+        "initial_failure_class": "missed_due_to_geometry",
+        "resolved_failure_class": "correct_within_5_percent",
+        "notes": "Resolved from 43.26 SM (77.9% error) to 196.03 SM (0.02% error) via elevation bay-sum building length and cross-sheet verandah integration."
+      },
+      {
+        "item_id": "substructure_bed_dpm",
+        "description": "1000 gauge polythene damp-proof membrane under bed",
+        "expected": 208.0,
+        "extracted_before": 45.9,
+        "extracted_after": 207.8,
+        "status_before": "gross_mismatch",
+        "status_after": "within_5_percent",
+        "initial_failure_class": "missed_due_to_geometry",
+        "resolved_failure_class": "correct_within_5_percent",
+        "notes": "Resolved from 45.9 SM to 207.8 SM (0.1% error) via cross-sheet specification aggregation from section drawings."
+      },
+      {
+        "item_id": "substructure_a142_mesh",
+        "description": "Steel mesh fabric reinforcement Ref A142 in floor bed",
+        "expected": 208.0,
+        "extracted_before": 45.9,
+        "extracted_after": 207.8,
+        "status_before": "gross_mismatch",
+        "status_after": "within_5_percent",
+        "initial_failure_class": "missed_due_to_geometry",
+        "resolved_failure_class": "correct_within_5_percent",
+        "notes": "Resolved from 45.9 SM to 207.8 SM (0.1% error) via cross-sheet specification aggregation from section drawings."
+      },
+      {
+        "item_id": "masonry_external_walling",
+        "description": "150mm thick natural stone external walling",
+        "expected": 132.0,
+        "extracted_before": 31.68,
+        "extracted_after": 110.88,
+        "status_before": "gross_mismatch",
+        "status_after": "within_20_percent",
+        "initial_failure_class": "missed_due_to_geometry",
+        "resolved_failure_class": "missed_due_to_geometry",
+        "notes": "Resolved from 31.68 SM (76% error) to 110.88 SM (16% error, within 20%) via full fa\u00e7ade perimeter calculation."
+      },
+      {
+        "item_id": "masonry_piers",
+        "description": "300 x 300mm masonry piers 4,500mm high",
+        "expected": 13.0,
+        "extracted_before": 13.0,
+        "extracted_after": 13.0,
+        "status_before": "exact_match",
+        "status_after": "exact_match",
+        "initial_failure_class": "correct_exact",
+        "resolved_failure_class": "correct_exact",
+        "notes": "Extracted exactly from structural section truss/pier counts."
+      },
+      {
+        "item_id": "damp_proof_course",
+        "description": "150mm wide bituminous felt damp proof course",
+        "expected": 67.0,
+        "extracted_before": null,
+        "extracted_after": 67.0,
+        "status_before": "missed_in_extraction",
+        "status_after": "exact_match",
+        "initial_failure_class": "missed_due_to_dimension_binding",
+        "resolved_failure_class": "correct_exact",
+        "notes": "Resolved from None to 67.0 LM (EXACT MATCH) via cross-sheet DPC specification detection bound to building perimeter."
+      },
+      {
+        "item_id": "roof_trusses",
+        "description": "Timber roof trusses complete (13 No)",
+        "expected": 13.0,
+        "extracted_before": 13.0,
+        "extracted_after": 13.0,
+        "status_before": "exact_match",
+        "status_after": "exact_match",
+        "initial_failure_class": "correct_exact",
+        "resolved_failure_class": "correct_exact",
+        "notes": "Extracted exactly from Section A-A TRUSS T1 callout."
+      },
+      {
+        "item_id": "brick_vents",
+        "description": "250mm x 150mm precast/brick vents",
+        "expected": 12.0,
+        "extracted_before": 12.0,
+        "extracted_after": 12.0,
+        "status_before": "exact_match",
+        "status_after": "exact_match",
+        "initial_failure_class": "correct_exact",
+        "resolved_failure_class": "correct_exact",
+        "notes": "Extracted exactly from PV callouts on elevations."
+      },
+      {
+        "item_id": "steel_casement_windows",
+        "description": "Steel casement windows W1, W2, W3, W4 complete with glazing",
+        "expected": 12.0,
+        "extracted_before": 12.0,
+        "extracted_after": 12.0,
+        "status_before": "exact_match",
+        "status_after": "exact_match",
+        "initial_failure_class": "correct_exact",
+        "resolved_failure_class": "correct_exact",
+        "notes": "Extracted exactly from window schedule on sheet 223."
+      },
+      {
+        "item_id": "doors_complete",
+        "description": "Single flush doors and double steel casement doors",
+        "expected": 5.0,
+        "extracted_before": null,
+        "extracted_after": null,
+        "status_before": "missed_in_extraction",
+        "status_after": "missed_in_extraction",
+        "initial_failure_class": "missed_due_to_ocr",
+        "resolved_failure_class": "missed_due_to_ocr",
+        "notes": "Door schedule text is vector/raster CAD on drawing sheet 223 without live OCR text for doors; correctly retained as an OCR gap."
+      }
+    ]
+  },
+  "hallucinations_resolution": {
+    "before": [
+      {
+        "tag": "internal_plaster",
+        "extracted": 103.85,
+        "cause": "Unconditional finish emission on every dimensioned page."
+      },
+      {
+        "tag": "internal_paint",
+        "extracted": 103.85,
+        "cause": "Unconditional finish emission on every dimensioned page."
+      },
+      {
+        "tag": "external_key_pointing",
+        "extracted": 90.24,
+        "cause": "Unconditional finish emission on every dimensioned page."
+      },
+      {
+        "tag": "external_render",
+        "extracted": 28.51,
+        "cause": "Unconditional finish emission on every dimensioned page."
+      },
+      {
+        "tag": "W1",
+        "extracted": 2.0,
+        "cause": "1200mm height annotations on structural sections triggered window tags."
+      },
+      {
+        "tag": "W2",
+        "extracted": 3.0,
+        "cause": "1200mm height annotations on structural sections triggered window tags."
+      }
+    ],
+    "after": [
+      {
+        "tag": "external_key_pointing",
+        "extracted": 110.88,
+        "cause": "Drawing explicitly annotates keyed pointing on elevation sheet, but Murera BOQ bundles pointing into stone walling rate."
+      }
+    ],
+    "net_hallucinations_eliminated": 5
+  },
+  "ranked_repair_priorities": [
+    {
+      "rank": 1,
+      "area": "Cross-sheet specification aggregation",
+      "items_affected": 4,
+      "commercial_severity": "High (substructure DPM, mesh, and DPC are primary cost drivers in foundations)",
+      "status": "RESOLVED in F.7"
+    },
+    {
+      "rank": 2,
+      "area": "Orthogonal envelope dimension pairing & bay-sum",
+      "items_affected": 4,
+      "commercial_severity": "High (floor finishes and walling volumes)",
+      "status": "RESOLVED in F.7"
+    },
+    {
+      "rank": 3,
+      "area": "Hallucination suppression & finish keyword gating",
+      "items_affected": 6,
+      "commercial_severity": "Critical (prevents unrequested trades from inflating estimates)",
+      "status": "RESOLVED in F.7 (5 of 6 eliminated)"
+    },
+    {
+      "rank": 4,
+      "area": "OCR text extraction on CAD vector schedule sheets",
+      "items_affected": 1,
+      "commercial_severity": "Medium (door schedule on raster CAD sheets)",
+      "status": "Requires vision/OCR layer (deferred to dedicated OCR milestone)"
+    }
+  ]
+}
