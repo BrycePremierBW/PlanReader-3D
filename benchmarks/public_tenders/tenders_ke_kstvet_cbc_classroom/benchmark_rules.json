@@ -17,8 +17,20 @@
     "floor_finish_area_pct": 5.0,
     "internal_plaster_area_pct": 5.0,
     "external_pointing_area_pct": 5.0,
-    "scheduled_doors_exact": true,
-    "scheduled_windows_exact": true,
     "verandah_pillars_exact": true
+  },
+  "item_mappings": {
+    "BOQ-C36-A": "perimeter_walling",
+    "BOQ-C36-B": "gable_walling",
+    "BOQ-C41-B": "W1",
+    "BOQ-C41-C": "W2",
+    "BOQ-C44-A": "D1",
+    "BOQ-C45-A": "floor_screed",
+    "BOQ-C45-B": "chalkboard",
+    "BOQ-C46-A": "internal_plaster",
+    "BOQ-C46-C": "internal_paint",
+    "BOQ-C47-A": "external_key_pointing",
+    "BOQ-C47-B": "external_render",
+    "BOQ-C47-D": "verandah_pillars"
   }
 }

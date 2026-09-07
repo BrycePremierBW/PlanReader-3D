@@ -30,6 +30,12 @@ from pb_public_tender_benchmark import (
 from pb_benchmark_runner import resolve_file_path
 
 
+from pb_planreader_pdf_extractor import (
+    ExtractedPrediction,
+    GenericPlanReaderExtractor,
+)
+
+
 class ItemMatchStatus(str, Enum):
     """Categorisation of comparison between extracted quantity and BOQ expected value."""
 
@@ -270,187 +276,13 @@ class BenchmarkAccuracyEngine:
         pdf_path: Path | str,
         pages: Optional[Sequence[int]] = None,
     ) -> List[Dict[str, Any]]:
-        """Extract physical architectural quantities directly from drawing PDF pages.
+        """Extract physical architectural quantities from drawing PDF via GenericPlanReaderExtractor.
 
-        Inspects vector primitives and text annotations on drawing sheets (e.g. page 54 of
-        CBC Classroom package) to extract figured room dimensions, schedules, and finishes.
+        Maintains complete architectural decoupling from ground truth BOQs.
         """
-        p_path = Path(pdf_path)
-        if not p_path.exists() or not p_path.is_file():
-            raise FileNotFoundError(f"Tender PDF not found at {p_path}")
-
-        extracted_rows: List[Dict[str, Any]] = []
-        doc = fitz.open(str(p_path))
-
-        target_pages = list(pages) if pages else list(range(len(doc)))
-
-        # Specific drawing page heuristics for architectural drawing sheets
-        for pno in target_pages:
-            if pno < 0 or pno >= len(doc):
-                continue
-            page = doc[pno]
-            text = page.get_text("text")
-
-            # Check if this is an architectural drawing sheet
-            is_dwg = any(
-                k in text.lower()
-                for k in ["scale 1:", "ground floor plan", "elevations", "classroom block", "drawing no"]
-            )
-            if not is_dwg:
-                continue
-
-            sheet_no = "KSTVET/08/2024-AD01" if "08/2024-AD01" in text else f"P{pno + 1}"
-
-            # 1. Figured Room Dimensions & Footprint Area
-            # Looks for classroom dimensions: 10,150 x 8,300 mm
-            m_len = re.search(r"10[,.]?150", text)
-            m_wid = re.search(r"8[,.]?300", text)
-            m_ver = re.search(r"1[,.]?800\s*mm\s*wide\s*verandah", text, re.I)
-
-            if m_len and m_wid:
-                length_m = 10.15
-                width_m = 8.30
-                floor_area = round(length_m * width_m, 2)  # 84.25 m2
-
-                # Floor screed / finish: Classroom (84.25) + Verandah allowance (~12.75) = 97.0 m2
-                if m_ver:
-                    extracted_rows.append({
-                        "item_id": "BOQ-C45-A",
-                        "description": "Red oxide cement sand screed floor finish",
-                        "quantity": 97.0,
-                        "unit": "SM",
-                        "authority": "figured_dimension_derived",
-                        "drawing_sheet": sheet_no,
-                        "drawing_page": pno + 1,
-                    })
-
-                # Perimeter block walling:
-                # Classroom perimeter: 2 * (10.15 + 8.30) = 36.9m.
-                # Average wall height 2.8m, less openings deductions (~45m2) + internal return = 58.0 m2 net
-                extracted_rows.append({
-                    "item_id": "BOQ-C36-A",
-                    "description": "150mm thick approved concrete block walling",
-                    "quantity": 58.0,
-                    "unit": "SM",
-                    "authority": "figured_dimension_derived",
-                    "drawing_sheet": sheet_no,
-                    "drawing_page": pno + 1,
-                })
-
-                # Internal plaster & silk vinyl paint (matching wall areas): 69.0 m2
-                extracted_rows.append({
-                    "item_id": "BOQ-C46-A",
-                    "description": "15mm thick cement sand plaster to internal walls",
-                    "quantity": 69.0,
-                    "unit": "SM",
-                    "authority": "figured_dimension_derived",
-                    "drawing_sheet": sheet_no,
-                    "drawing_page": pno + 1,
-                })
-                extracted_rows.append({
-                    "item_id": "BOQ-C46-C",
-                    "description": "Prepare and apply three coats of silk vinyl paint to internal walls",
-                    "quantity": 69.0,
-                    "unit": "SM",
-                    "authority": "figured_dimension_derived",
-                    "drawing_sheet": sheet_no,
-                    "drawing_page": pno + 1,
-                })
-
-                # Gable walling: 13.0 m2
-                extracted_rows.append({
-                    "item_id": "BOQ-C36-B",
-                    "description": "150mm thick block walling to gable walls",
-                    "quantity": 13.0,
-                    "unit": "SM",
-                    "authority": "figured_dimension_derived",
-                    "drawing_sheet": sheet_no,
-                    "drawing_page": pno + 1,
-                })
-
-                # External key pointing (60.0 m2) and render (20.0 m2)
-                extracted_rows.append({
-                    "item_id": "BOQ-C47-A",
-                    "description": "Neat flush key pointing to external stone walling",
-                    "quantity": 60.0,
-                    "unit": "SM",
-                    "authority": "figured_dimension_derived",
-                    "drawing_sheet": sheet_no,
-                    "drawing_page": pno + 1,
-                })
-                extracted_rows.append({
-                    "item_id": "BOQ-C47-B",
-                    "description": "15mm cement sand plaster / render to plinth and ring beam",
-                    "quantity": 20.0,
-                    "unit": "SM",
-                    "authority": "figured_dimension_derived",
-                    "drawing_sheet": sheet_no,
-                    "drawing_page": pno + 1,
-                })
-
-            # 2. Door & Window Schedule Extraction from Plan Annotations
-            # Matches window notes on plan
-            window_casement_matches = len(re.findall(r"casement windows with", text, re.I))
-            if window_casement_matches >= 5:
-                # W1 (3000x1200): 2 NO
-                extracted_rows.append({
-                    "item_id": "BOQ-C41-B",
-                    "description": "Purpose made mild steel casement window size 3000 x 1200 mm high",
-                    "quantity": 2.0,
-                    "unit": "NO",
-                    "authority": "schedule_extracted",
-                    "drawing_sheet": sheet_no,
-                    "drawing_page": pno + 1,
-                })
-                # W2 (2900x1200): 3 NO
-                extracted_rows.append({
-                    "item_id": "BOQ-C41-C",
-                    "description": "Purpose made mild steel casement window size 2900 x 1200 mm high",
-                    "quantity": 3.0,
-                    "unit": "NO",
-                    "authority": "schedule_extracted",
-                    "drawing_sheet": sheet_no,
-                    "drawing_page": pno + 1,
-                })
-
-            # Door schedule matches
-            if "batten door" in text.lower() or "doors to be" in text.lower():
-                extracted_rows.append({
-                    "item_id": "BOQ-C44-A",
-                    "description": "Mild steel panelled double door size 1000 x 2100 mm high",
-                    "quantity": 1.0,
-                    "unit": "NO",
-                    "authority": "schedule_extracted",
-                    "drawing_sheet": sheet_no,
-                    "drawing_page": pno + 1,
-                })
-
-            # Classroom chalkboard fixture
-            if "blackboard" in text.lower() or "chalkboard" in text.lower() or "classroom" in text.lower():
-                extracted_rows.append({
-                    "item_id": "BOQ-C45-B",
-                    "description": "Chalkboard 3200 x 1500 mm painted with black bituminous paint",
-                    "quantity": 1.0,
-                    "unit": "NO",
-                    "authority": "drawing_annotation",
-                    "drawing_sheet": sheet_no,
-                    "drawing_page": pno + 1,
-                })
-
-            # Verandah pillars
-            if "verandah" in text.lower():
-                extracted_rows.append({
-                    "item_id": "BOQ-C47-D",
-                    "description": "50mm diameter circular hollow section (CHS) verandah pillars",
-                    "quantity": 4.0,
-                    "unit": "NO",
-                    "authority": "drawing_annotation",
-                    "drawing_sheet": sheet_no,
-                    "drawing_page": pno + 1,
-                })
-
-        doc.close()
-        return extracted_rows
+        extractor = GenericPlanReaderExtractor()
+        preds = extractor.extract_from_pdf(pdf_path, pages=pages)
+        return [p.to_dict() for p in preds]
 
     def evaluate_benchmark(
         self,
@@ -587,14 +419,19 @@ class BenchmarkAccuracyEngine:
             it.get("item_id"): it for it in sample_items if it.get("item_id")
         }
 
-        # Build prediction mapping
+        # Build prediction mapping (by tag, item_id, line_id)
         pred_map: Dict[str, Dict[str, Any]] = {}
         for p in active_predictions:
-            pid = str(p.get("item_id", p.get("line_id", p.get("quantity_id", ""))))
+            p_dict = p.to_dict() if hasattr(p, "to_dict") else dict(p)
+            pid = str(p_dict.get("item_id", p_dict.get("tag", p_dict.get("line_id", p_dict.get("quantity_id", "")))))
             if pid:
-                pred_map[pid] = p
+                pred_map[pid] = p_dict
+            tag = p_dict.get("tag")
+            if tag:
+                pred_map[tag] = p_dict
 
-        matched_pred_ids: Set[str] = set()
+        item_mappings = bench.benchmark_rules.get("item_mappings", {})
+        matched_pred_keys: Set[str] = set()
 
         item_results: List[ItemComparisonResult] = []
         exact_matches = 0
@@ -682,8 +519,14 @@ class BenchmarkAccuracyEngine:
                 )
                 continue
 
-            # Measurable physical item
-            if iid not in pred_map:
+            # Look up prediction by item_id or mapped tag
+            pred_key = None
+            if iid in pred_map:
+                pred_key = iid
+            elif iid in item_mappings and item_mappings[iid] in pred_map:
+                pred_key = item_mappings[iid]
+
+            if pred_key is None:
                 missed_items += 1
                 item_results.append(
                     ItemComparisonResult(
@@ -704,8 +547,9 @@ class BenchmarkAccuracyEngine:
                 )
                 continue
 
-            matched_pred_ids.add(iid)
-            pred_obj = pred_map[iid]
+            matched_pred_keys.add(pred_key)
+            matched_pred_keys.add(iid)
+            pred_obj = pred_map[pred_key]
             act_val = float(pred_obj.get("value", pred_obj.get("quantity", pred_obj.get("actual", 0.0))))
             delta = round(act_val - exp_val, 4)
             pct_err = round((abs(delta) / exp_val * 100.0) if exp_val != 0.0 else 0.0, 2)
@@ -760,30 +604,40 @@ class BenchmarkAccuracyEngine:
                 )
             )
 
-        # 5. Detect Hallucinated Items (predictions with no match in expected sample items)
-        for pid, pobj in pred_map.items():
-            if pid not in matched_pred_ids and pid not in expected_map:
-                hallucinated_items += 1
-                act_val = float(pobj.get("value", pobj.get("quantity", pobj.get("actual", 0.0))))
-                unit = pobj.get("unit")
-                desc = pobj.get("description", "Extracted quantity without BOQ counterpart")
-                item_results.append(
-                    ItemComparisonResult(
-                        item_id=pid,
-                        description=desc,
-                        category="hallucinated",
-                        expected_quantity=None,
-                        extracted_quantity=act_val,
-                        unit=unit,
-                        delta=None,
-                        pct_error=None,
-                        status=ItemMatchStatus.HALLUCINATED_ITEM,
-                        tolerance_tier="hallucinated",
-                        drawing_sheet=pobj.get("drawing_sheet"),
-                        drawing_page=pobj.get("drawing_page"),
-                        notes="Item present in extraction but absent from verified BOQ ground truth",
-                    )
+        # 5. Detect Hallucinated Items (predictions with no match in expected sample items or mappings)
+        logged_hallucinated_ids = set()
+        for p in active_predictions:
+            p_dict = p.to_dict() if hasattr(p, "to_dict") else dict(p)
+            pid = str(p_dict.get("item_id", p_dict.get("tag", p_dict.get("line_id", p_dict.get("quantity_id", "")))))
+            tag = p_dict.get("tag", "")
+
+            if pid in matched_pred_keys or tag in matched_pred_keys or pid in expected_map:
+                continue
+            if pid in logged_hallucinated_ids:
+                continue
+            logged_hallucinated_ids.add(pid)
+
+            hallucinated_items += 1
+            act_val = float(p_dict.get("value", p_dict.get("quantity", p_dict.get("actual", 0.0))))
+            unit = p_dict.get("unit")
+            desc = p_dict.get("description", "Extracted quantity without BOQ counterpart")
+            item_results.append(
+                ItemComparisonResult(
+                    item_id=pid,
+                    description=desc,
+                    category="hallucinated",
+                    expected_quantity=None,
+                    extracted_quantity=act_val,
+                    unit=unit,
+                    delta=None,
+                    pct_error=None,
+                    status=ItemMatchStatus.HALLUCINATED_ITEM,
+                    tolerance_tier="hallucinated",
+                    drawing_sheet=p_dict.get("sheet_number") or p_dict.get("drawing_sheet"),
+                    drawing_page=p_dict.get("source_page") or p_dict.get("drawing_page"),
+                    notes="Item present in extraction but absent from verified BOQ ground truth",
                 )
+            )
 
         # 6. Calculate Overall Metrics
         total_measurable_expected = (

@@ -128,7 +128,7 @@ def classify_boq_line(
     if any(k in desc_lower for k in prelim_keywords):
         return BOQLineCategory.PRELIMINARIES
 
-    # 4. Non-architectural trades (MEP, electrical, civil, drainage)
+    # 4. Non-architectural trades (MEP, electrical, civil, drainage, substructure earthworks)
     non_arch_keywords = [
         "sewer",
         "drainage pipe",
@@ -145,19 +145,40 @@ def classify_boq_line(
         "bulk excavation",
         "stormwater",
         "pvc pipe",
+        "excavat",
+        "earthwork",
+        "murram",
+        "hardcore",
+        "strip foundation",
+        "reinforcement bar",
+        "high yield deformed bar",
+        "sawn form work",
+        "formwork",
+        "water tank",
+        "soakpit",
+        "septic tank",
+        "pvc gutter",
+        "rain water harvesting",
     ]
     if any(k in desc_lower for k in non_arch_keywords):
         return BOQLineCategory.NOT_ARCHITECTURAL
 
-    # 5. Schedule extractable (doors, windows, hardware schedules)
+    # 5. Schedule extractable (doors, windows, hardware schedules, joinery)
     schedule_keywords = [
         "door schedule",
         "window schedule",
         "door type",
         "window type",
         "sliding window",
+        "casement window",
+        "window size",
+        "door size",
         "timber door",
         "solid core timber door",
+        "panelled door",
+        "flush door",
+        "mild-steel door",
+        "mild steel door",
         "aluminium sliding window",
         "acoustic timber door",
         "sliding hospital door",
@@ -168,12 +189,24 @@ def classify_boq_line(
         "double door overall size",
         "window overall size",
         "ironmongery",
+        "iron mongery",
+        "butt hinges",
+        "mortice lock",
+        "door lock",
+        "rubber door stop",
+        "door stop",
+        "rebated door frame",
+        "architrave",
+        "quadrant mould",
+        "curtain rod",
+        "window cill",
+        "trap door",
         "flyscreen",
     ]
     if any(k in desc_lower for k in schedule_keywords):
         return BOQLineCategory.SCHEDULE_EXTRACTABLE
 
-    # 6. Measurable from drawings (architectural physical finishes and partitions)
+    # 6. Measurable from drawings (architectural physical finishes, partitions, roof/floor finishes)
     measurable_keywords = [
         "plasterboard",
         "lining",
@@ -210,6 +243,24 @@ def classify_boq_line(
         "plaster to",
         "pointing externally",
         "pillars",
+        "natural stone",
+        "sub - wall",
+        "sub-wall",
+        "plinth",
+        "paving slab",
+        "damp proof",
+        "chipboard",
+        "chip board",
+        "brandering",
+        "cornice",
+        "fascia",
+        "barge board",
+        "roofing sheet",
+        "ridge cap",
+        "rafters",
+        "tie beam",
+        "purlin",
+        "wall plate",
     ]
     if any(k in desc_lower for k in measurable_keywords):
         return BOQLineCategory.MEASURABLE_FROM_DRAWINGS

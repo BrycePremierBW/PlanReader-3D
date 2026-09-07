@@ -1,0 +1,44 @@
+{
+  "benchmark_id": "tenders_ke_mbagha_maternity_dispensary",
+  "tender_reference": "2028763-2025/2026",
+  "publisher": "County Government of Taita Taveta / Department of Public Works, Infrastructure, Housing and Energy",
+  "source_url": "https://tenders.go.ke/api/tender/274971",
+  "retrieval_date": "2026-09-07",
+  "documents": [
+    {
+      "filename": "1767789921937-drawings-construction-of-a-maternity-block-at-mbagha-dispensary-in-mwatate-sub-county.pdf",
+      "role": "architectural_drawings",
+      "description": "Architectural Working Drawings: Floor Plan, Section XX, Elevations 01 to 04 (Dispensary with Maternity Wing)",
+      "sha256": "b535961ae5aa549c6d532ad5afb2e93133dca1fa7c232e86e0eb2090f7852220",
+      "file_size_bytes": 321691,
+      "expected_pages": 1,
+      "drawing_pages": [
+        1
+      ],
+      "total_pages": 1
+    },
+    {
+      "filename": "1767789921920-bq-construction-of-a-maternity-block-at-mbagha-dispensary-in-mwatate-sub-county.pdf",
+      "role": "bill_of_quantities",
+      "description": "Detailed Bill of Quantities covering Preliminaries (PR/1-20), Builders Work (MAT/1-16), External Drainage Works (EXT/1-3), Provisional Sums (PS/1), and Main Summary",
+      "sha256": "006b10b26b3e74d766590a18b1145aa81dbb127430434d169c70e2c8f3edc786",
+      "file_size_bytes": 728611,
+      "expected_pages": 43,
+      "boq_pages": [
+        1,
+        43
+      ],
+      "total_pages": 43
+    },
+    {
+      "filename": "1767789921904-tender-document-construction-of-a-maternity-block-at-mbagha-dispensary-in-mwatate-sub-county.pdf",
+      "role": "tender_document",
+      "description": "Standard Tender Document for Procurement of Works under Open National Tendering",
+      "sha256": "b88faa2b2d8578dffcccdb871db03efda458cf08562f5d7fdfa8c1682f4cd533",
+      "file_size_bytes": 1919444,
+      "expected_pages": 170,
+      "total_pages": 170
+    }
+  ],
+  "download_notes": "Direct open download from tenders.go.ke storage. Computed SHA-256 matches downloaded files."
+}
