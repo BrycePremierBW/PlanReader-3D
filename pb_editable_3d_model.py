@@ -38,13 +38,26 @@ from pb_geometry_takeoff_model import (
 
 class WallHeightAuthority(str, Enum):
     DOCUMENTED_CEILING_HEIGHT = "documented_ceiling_height"
+    FIGURED_DIMENSION = "figured_dimension"
     SECTION_DERIVED = "section_derived"
     SCHEDULE_DERIVED = "schedule_derived"
     MODEL_ESTIMATED = "model_estimated"
     USER_ENTERED = "user_entered"
+    USER_APPROVED = "user_approved"
     RAKED_WALL = "raked_wall"
     STAIR_WALL = "stair_wall"
     UNKNOWN_HEIGHT = "unknown_height"
+
+
+def resolve_wall_height_from_figured_dimension(text: str) -> float:
+    """Convert figured-dimension height text (e.g. "2700mm", "2.7m") to metres.
+
+    Reuses pb_figured_dimension_authority's already-validated parser rather than
+    reimplementing unit parsing — malformed/negative/zero/non-finite text raises
+    DimensionParseError, same as any other figured dimension in the codebase.
+    """
+    from pb_figured_dimension_authority import parse_figured_dimension_mm
+    return parse_figured_dimension_mm(text) / 1000.0
 
 
 class CorrectionAction(str, Enum):
@@ -135,6 +148,8 @@ class WallModel:
     surfaces: List[SurfaceModel] = field(default_factory=list)
     source_page_no: int = 1
     source_sheet_label: str = ""
+    height_source_sheet: Optional[str] = None
+    height_source_level: Optional[str] = None
     scale_ratio: str = "1:100"
     authority_status: str = AuthorityStatus.PROVISIONAL.value
     approved_by: Optional[str] = None
@@ -148,11 +163,48 @@ class WallModel:
             raise ValueError("Wall dimensions cannot be negative")
         self.recalculate_areas()
 
+    def _enforce_height_authority(self) -> None:
+        """height_authority sets a ceiling on authority_status, not just a label —
+        a caller can always request something more conservative, but can never
+        claim firm commercial authority for a height source that doesn't support it.
+        """
+        if self.height_authority == WallHeightAuthority.UNKNOWN_HEIGHT.value:
+            # An unknown height source is untrustworthy regardless of whether the
+            # numeric height_m value itself happens to look plausible.
+            self.gross_area_m2 = 0.0
+            self.net_area_m2 = 0.0
+            self.authority_status = AuthorityStatus.BLOCKED.value
+            self.compute_revision_hash()
+            return
+
+        if (
+            self.height_authority == WallHeightAuthority.MODEL_ESTIMATED.value
+            and self.authority_status == AuthorityStatus.FIRM.value
+            and not self.approved_by
+        ):
+            # A model estimate alone can never claim firm — but an explicit
+            # approver (a human overriding the estimate) may promote it, same as
+            # the raked/stair guard below.
+            self.authority_status = AuthorityStatus.PROVISIONAL.value
+            self.compute_revision_hash()
+
+        if (
+            self.wall_type in ("raked", "stair")
+            and self.authority_status == AuthorityStatus.FIRM.value
+            and not self.approved_by
+        ):
+            # The flat rectangular formula is still computed as a visible estimate,
+            # but a raked/stair wall can never silently claim firm authority from
+            # that formula alone — only an explicit approver can promote it.
+            self.authority_status = AuthorityStatus.REVIEW_REQUIRED.value
+            self.compute_revision_hash()
+
     def recalculate_areas(self) -> None:
         """Recalculate gross and net wall area based on AS 4041 opening rules."""
         if self.length_m <= 0.0 or self.height_m <= 0.0:
             self.gross_area_m2 = 0.0
             self.net_area_m2 = 0.0
+            self._enforce_height_authority()
             return
 
         op_objs = [
@@ -174,6 +226,7 @@ class WallModel:
         self.gross_area_m2 = gross
         self.net_area_m2 = net
         self.compute_revision_hash()
+        self._enforce_height_authority()
 
     def compute_revision_hash(self) -> str:
         s = f"{self.wall_id}:{self.length_m}:{self.height_m}:{self.gross_area_m2}:{self.net_area_m2}:{self.authority_status}"
@@ -196,6 +249,8 @@ class WallModel:
             "surfaces": [sf.to_dict() for sf in self.surfaces],
             "source_page_no": self.source_page_no,
             "source_sheet_label": self.source_sheet_label,
+            "height_source_sheet": self.height_source_sheet,
+            "height_source_level": self.height_source_level,
             "scale_ratio": self.scale_ratio,
             "authority_status": self.authority_status,
             "approved_by": self.approved_by,
