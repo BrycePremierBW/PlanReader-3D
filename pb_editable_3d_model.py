@@ -138,6 +138,7 @@ class WallModel:
     scale_ratio: str = "1:100"
     authority_status: str = AuthorityStatus.PROVISIONAL.value
     approved_by: Optional[str] = None
+    approved_at: Optional[str] = None
     revision_hash: str = ""
 
     def __post_init__(self) -> None:
@@ -198,6 +199,7 @@ class WallModel:
             "scale_ratio": self.scale_ratio,
             "authority_status": self.authority_status,
             "approved_by": self.approved_by,
+            "approved_at": self.approved_at,
             "revision_hash": self.revision_hash,
         }
 
@@ -358,10 +360,16 @@ def apply_correction_event(
     """Apply a user correction event to the 3D model, recalculating quantities and updating authority.
 
     Guarantees:
-      1. Corrected object state transitions to 'user_corrected' or 'user_approved'.
-      2. Quantities are dynamically recalculated with AS 4041 opening rules.
-      3. Object, level, and building revision hashes mutate.
-      4. Preflight is explicitly marked invalidated/stale.
+      1. A geometry correction (CHANGE_HEIGHT, MOVE_WALL, ADD_OPENING, ...) always
+         leaves the object at REVIEW_REQUIRED with no approver — correction is not
+         approval, so it never sets FIRM/approved_by/approved_at itself, and it
+         clears any prior approval the object held (a further correction always
+         demands re-review, even of previously-approved geometry).
+      2. Only an explicit APPROVE_QUANTITY event can set FIRM + approved_by +
+         approved_at; REJECT_QUANTITY clears both back out.
+      3. Quantities are dynamically recalculated with AS 4041 opening rules.
+      4. Object, level, and building revision hashes mutate.
+      5. Preflight is explicitly marked invalidated/stale.
     """
     recalculations: List[QuantityRecalculation] = []
 
@@ -378,8 +386,9 @@ def apply_correction_event(
                         raise ValueError(f"Wall height must be positive finite number, got {val}")
                     wall.height_m = val
                     wall.height_authority = WallHeightAuthority.USER_ENTERED.value
-                    wall.authority_status = AuthorityStatus.FIRM.value
-                    wall.approved_by = event.actor
+                    wall.authority_status = AuthorityStatus.REVIEW_REQUIRED.value
+                    wall.approved_by = None
+                    wall.approved_at = None
 
                 elif event.action == CorrectionAction.MOVE_WALL.value:
                     # new_value should be (length_m, (start_pt, end_pt)) or length_m
@@ -389,8 +398,9 @@ def apply_correction_event(
                         wall.length_m = float(event.new_value[0])
                         wall.start_pt = tuple(event.new_value[1])
                         wall.end_pt = tuple(event.new_value[2])
-                    wall.authority_status = AuthorityStatus.FIRM.value
-                    wall.approved_by = event.actor
+                    wall.authority_status = AuthorityStatus.REVIEW_REQUIRED.value
+                    wall.approved_by = None
+                    wall.approved_at = None
 
                 elif event.action == CorrectionAction.ADD_OPENING.value:
                     # new_value is an OpeningModel or dict
@@ -406,19 +416,22 @@ def apply_correction_event(
                                 height_m=float(event.new_value["height_m"]),
                                 area_m2=float(event.new_value.get("area_m2", event.new_value["width_m"] * event.new_value["height_m"])),
                                 deducts=event.new_value.get("deducts", True),
-                                approval_status=AuthorityStatus.FIRM.value,
+                                approval_status=AuthorityStatus.REVIEW_REQUIRED.value,
                             )
                         )
-                    wall.authority_status = AuthorityStatus.FIRM.value
-                    wall.approved_by = event.actor
+                    wall.authority_status = AuthorityStatus.REVIEW_REQUIRED.value
+                    wall.approved_by = None
+                    wall.approved_at = None
 
                 elif event.action == CorrectionAction.APPROVE_QUANTITY.value:
                     wall.authority_status = AuthorityStatus.FIRM.value
                     wall.approved_by = event.actor
+                    wall.approved_at = datetime.now(timezone.utc).isoformat()
 
                 elif event.action == CorrectionAction.REJECT_QUANTITY.value:
                     wall.authority_status = AuthorityStatus.REVIEW_REQUIRED.value
                     wall.approved_by = None
+                    wall.approved_at = None
 
                 # Recalculate
                 wall.recalculate_areas()
@@ -442,6 +455,69 @@ def apply_correction_event(
     # Mutate building hash
     building.compute_building_revision_hash()
     return building, recalculations
+
+
+def _find_wall(building: BuildingModel, wall_id: str) -> Tuple[Optional["WallModel"], Optional["LevelModel"]]:
+    for level in building.levels:
+        for wall in level.walls:
+            if wall.wall_id == wall_id:
+                return wall, level
+    return None, None
+
+
+def approve_corrected_geometry(
+    building: BuildingModel,
+    object_id: str,
+    current_revision_hash: str,
+    approved_by: str,
+    approved_at: Optional[str] = None,
+) -> BuildingModel:
+    """Explicitly approve a wall at a specific revision — the only way this module
+    ever sets authority_status=FIRM alongside approved_by/approved_at.
+
+    This is deliberately a separate act from apply_correction_event(): a correction
+    never approves itself. Approval must target the exact revision it was reviewed
+    against, so it fails closed (ValueError) if:
+      - object_id/approved_by/current_revision_hash are missing,
+      - the object cannot be found in the building,
+      - the object's current revision_hash no longer matches current_revision_hash
+        (a further correction landed since this revision was reviewed),
+      - the object has no recorded source_sheet_label (untraceable geometry cannot
+        be approved for commercial release).
+    """
+    if not object_id:
+        raise ValueError("object_id is required to approve corrected geometry")
+    if not approved_by:
+        raise ValueError("approved_by is required to approve corrected geometry")
+    if not current_revision_hash:
+        raise ValueError("current_revision_hash is required to approve corrected geometry")
+
+    wall, level = _find_wall(building, object_id)
+    if wall is None:
+        raise ValueError(f"Unknown object_id: {object_id!r} not found in building")
+
+    if wall.revision_hash != current_revision_hash:
+        raise ValueError(
+            f"Cannot approve stale revision for {object_id!r}: object is at "
+            f"{wall.revision_hash!r}, approval targets {current_revision_hash!r}"
+        )
+
+    if not wall.source_sheet_label:
+        raise ValueError(f"Cannot approve {object_id!r}: missing source_sheet_label trace")
+
+    wall.authority_status = AuthorityStatus.FIRM.value
+    wall.approved_by = approved_by
+    wall.approved_at = approved_at or datetime.now(timezone.utc).isoformat()
+
+    # Approval changes authority_status, which is part of the wall's hash input, so
+    # it deliberately produces a new hash: "approved at this exact geometry state"
+    # is itself a distinct, traceable revision from "corrected but unreviewed".
+    wall.compute_revision_hash()
+    wall_hashes = [w.revision_hash for w in level.walls]
+    level.revision_hash = hashlib.sha256(":".join(wall_hashes).encode("utf-8")).hexdigest()[:16]
+    building.compute_building_revision_hash()
+
+    return building
 
 
 # ---------------------------------------------------------------------------

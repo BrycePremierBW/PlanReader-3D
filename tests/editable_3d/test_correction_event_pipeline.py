@@ -72,9 +72,10 @@ def test_change_wall_height_recalculates_quantities_and_updates_authority(sample
     assert wall.gross_area_m2 == 18.0
     assert wall.net_area_m2 == 18.0
 
-    # Authority updated to firm with user attribution
-    assert wall.authority_status == AuthorityStatus.FIRM.value
-    assert wall.approved_by == "Bryce Curran"
+    # A correction is not an approval: it must require review, not auto-approve.
+    assert wall.authority_status == AuthorityStatus.REVIEW_REQUIRED.value
+    assert wall.approved_by is None
+    assert wall.approved_at is None
     assert wall.height_authority == WallHeightAuthority.USER_ENTERED.value
 
     # Revision hashes mutated
