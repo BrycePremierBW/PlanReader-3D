@@ -76,7 +76,9 @@ for every optional/list field so a partial payload (e.g. a minimal object with j
 
 - The legacy `pb_editable_3d_model.py` per-type classes are not separately
   hardened — see "Why the unified model" above.
-- `dependent_quantity_ids` must be explicitly linked via `link_dependent_quantities()`;
-  nothing currently auto-populates it from D.3's recalculation flow. Wiring that
-  together is natural follow-up work, not done here to keep this PR focused on the
-  object contract itself.
+- ~~`dependent_quantity_ids` must be explicitly linked via `link_dependent_quantities()`;
+  nothing currently auto-populates it from D.3's recalculation flow~~ — **resolved
+  in PR D.8**: `recalculate_quantities_for_correction()` now accepts an optional
+  `ledger` parameter and auto-links every recalculated row's `quantity_id` when
+  it's provided (backward compatible — omitting it preserves the exact prior
+  behaviour for every existing caller).
