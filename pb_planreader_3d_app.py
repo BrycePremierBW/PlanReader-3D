@@ -6639,6 +6639,65 @@ def export_page(workspace:dict[str,Any],bridge:JobHubBridge | None,user:dict[str
 
     st.markdown("</div>", unsafe_allow_html=True)
 
+    # --- EDITABLE 3D COMMERCIAL SYNC TRACE (D.11I) ---
+    # Read-only visibility only: editable_3d_commercial_sync_events (D.11H)
+    # is the append-only record of every explicit sync from the Editable 3D
+    # Inspector into this workspace's real take-off_rows. This section adds
+    # no new authority or preflight logic of its own -- the rows it lists
+    # already count fully toward the Commercial Export Preflight card above,
+    # via the exact same model-surface commercial-authority mechanism every
+    # other take-off row uses. It exists purely so an estimator can see,
+    # without reading the database directly, which commercial rows trace
+    # back to which editable-3D object/revision, and which of those have
+    # since been superseded by a later correction (superseded rows are
+    # never edited or deleted -- see D.11H).
+    sync_trace = ldf(
+        """SELECT s.id, s.object_id, s.quantity_id, s.revision_hash, s.takeoff_row_id,
+                  s.approval_approved_by, s.approval_approved_at, s.synced_by, s.synced_at,
+                  t.quantity, t.unit, t.commercial_authority_status
+           FROM editable_3d_commercial_sync_events s
+           LEFT JOIN takeoff_rows t ON t.id = s.takeoff_row_id
+           WHERE s.workspace_id=? ORDER BY s.id""",
+        (wid,),
+    )
+    if not sync_trace.empty:
+        st.markdown("<div class='pb-card'>", unsafe_allow_html=True)
+        st.subheader("Editable 3D commercial syncs")
+        st.markdown(
+            "<div class='pb-note'>Take-off rows created by explicitly syncing an "
+            "approved Editable 3D Inspector correction (D.11G/D.11H) into this "
+            "workspace's real commercial take-off. Every row already counts in "
+            "the preflight card above; this is a read-only trace back to its exact "
+            "source object and revision. A superseded row was never edited or "
+            "deleted -- it stays in the take-off exactly as it was synced.</div>",
+            unsafe_allow_html=True,
+        )
+
+        def _sync_target_root(quantity_id: str) -> str:
+            return str(quantity_id).rsplit("-REV-", 1)[0]
+
+        records = sync_trace.to_dict("records")
+        latest_by_root: dict[str, dict[str, Any]] = {}
+        for rec in records:
+            root = _sync_target_root(rec["quantity_id"])
+            if root not in latest_by_root or rec["id"] > latest_by_root[root]["id"]:
+                latest_by_root[root] = rec
+        display_rows = [
+            {
+                "Object": rec["object_id"],
+                "Revision": str(rec["revision_hash"])[:12],
+                "Take-off row": f"#{rec['takeoff_row_id']}",
+                "Quantity": f"{rec['quantity']} {rec['unit']}" if rec.get("quantity") is not None else "—",
+                "Status": "Current" if latest_by_root[_sync_target_root(rec["quantity_id"])]["id"] == rec["id"] else "Superseded",
+                "Approved by": rec["approval_approved_by"],
+                "Synced by": rec["synced_by"],
+                "Synced at": rec["synced_at"],
+            }
+            for rec in records
+        ]
+        st.dataframe(pd.DataFrame(display_rows), use_container_width=True, hide_index=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
     # --- COMPLETE TAKE-OFF PACK ---
     st.markdown("<div class='pb-card'>", unsafe_allow_html=True)
     st.subheader("Complete take-off pack")
