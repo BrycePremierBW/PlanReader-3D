@@ -733,6 +733,106 @@ class GenericPlanReaderExtractor:
             pass
 
         # ------------------------------------------------------------------
+        # Generic Drawing Vision / OCR Evidence Layer (Phase F.10)
+        # ------------------------------------------------------------------
+        try:
+            from pb_drawing_ocr_evidence_layer import (
+                DrawingEvidenceParser,
+                DrawingEvidenceRecord,
+                DrawingOCREngine,
+                EvidenceMethod,
+                EvidenceReconciler,
+                EvidenceStatus,
+            )
+
+            ocr_engine = DrawingOCREngine()
+            dwg_pages = [p for p in target_pages if 0 <= p < len(doc) and self.is_drawing_page(doc[p].get_text("text"))]
+
+            for p_num in dwg_pages:
+                page = doc[p_num]
+                p_text = page.get_text("text")
+
+                # Prefer native evidence first:
+                # Only run raster OCR if native extraction on this sheet is insufficient:
+                native_openings_on_page = [
+                    p for p in pred_dict.values()
+                    if p.source_page == p_num + 1 and p.trade_type in ("windows", "doors")
+                ]
+                has_complete_native_openings = (
+                    len(native_openings_on_page) > 0
+                    and all(p.quantity is not None and p.quantity > 0 for p in native_openings_on_page)
+                )
+                is_scanned_or_raster = len(p_text.strip()) < 150
+                has_schedule_word = any(
+                    k in p_text.lower()
+                    for k in ("schedule of doors", "schedule of windows", "window schedule", "door schedule")
+                )
+
+                native_insufficient = is_scanned_or_raster or (has_schedule_word and not has_complete_native_openings)
+                if not native_insufficient:
+                    continue
+                    ocr_lines = ocr_engine.recognize_page_rect(page, dpi=150)
+                    ocr_records: List[DrawingEvidenceRecord] = []
+                    for o_line in ocr_lines:
+                        rec = DrawingEvidenceParser.parse_schedule_line(
+                            o_line["text"],
+                            source_page=p_num + 1,
+                            bbox=o_line.get("bounding_box"),
+                            confidence=o_line.get("confidence", 0.85),
+                            method=EvidenceMethod.RASTER_OCR.value,
+                        )
+                        if rec:
+                            ocr_records.append(rec)
+
+                    if ocr_records:
+                        native_records = []
+                        for tag, pred in list(pred_dict.items()):
+                            if pred.source_page == p_num + 1:
+                                native_records.append(
+                                    DrawingEvidenceRecord(
+                                        tag=pred.tag,
+                                        trade_type=pred.trade_type,
+                                        description=pred.description,
+                                        quantity=pred.quantity,
+                                        unit=pred.unit,
+                                        dimensions=pred.dimensions,
+                                        source_page=pred.source_page,
+                                        bounding_box=pred.bounding_box,
+                                        extracted_text=pred.description,
+                                        extracted_value=pred.quantity,
+                                        confidence=pred.confidence,
+                                        extraction_method=EvidenceMethod.NATIVE_TEXT.value,
+                                        status=EvidenceStatus.CONFIRMED.value,
+                                    )
+                                )
+
+                        reconciled = EvidenceReconciler.reconcile(native_records, ocr_records)
+                        for r in reconciled:
+                            if r.status == EvidenceStatus.CONFIRMED.value and r.quantity is not None and r.quantity > 0:
+                                if r.tag not in pred_dict or r.confidence >= pred_dict[r.tag].confidence:
+                                    pred_dict[r.tag] = ExtractedPrediction(
+                                        tag=r.tag,
+                                        trade_type=r.trade_type,
+                                        description=r.description,
+                                        quantity=r.quantity,
+                                        unit=r.unit,
+                                        confidence=r.confidence,
+                                        source_page=r.source_page,
+                                        dimensions=r.dimensions,
+                                        bounding_box=r.bounding_box,
+                                        metadata={
+                                            "extraction_method": r.extraction_method,
+                                            "raw_evidence_ref": r.raw_evidence_ref,
+                                            "status": r.status,
+                                        },
+                                    )
+                            elif r.status == EvidenceStatus.CONFLICT_MANUAL_REVIEW.value:
+                                if r.tag in pred_dict:
+                                    del pred_dict[r.tag]
+        except Exception:
+            pass
+
+        # ------------------------------------------------------------------
         # Generic Opening Deduction Pipeline (Phase F.9)
         # ------------------------------------------------------------------
         try:

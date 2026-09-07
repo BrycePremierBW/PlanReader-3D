@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-09-07T13:42:13.897299+00:00",
+  "timestamp": "2026-09-07T14:01:02.089882+00:00",
   "headline_metrics": {
     "overall_accuracy_percentage": 13.04,
     "strict_exact_accuracy_percentage": 13.04,
@@ -28,7 +28,7 @@
   "headline_reports": [
     {
       "benchmark_id": "tenders_ke_kstvet_cbc_classroom",
-      "timestamp": "2026-09-07T13:42:13.897340+00:00",
+      "timestamp": "2026-09-07T14:01:02.089937+00:00",
       "project_name": "Proposed Construction of CBC Classroom and Integrated Resource Center",
       "organization": "Kenya School of TVET / Ministry of Education",
       "tender_reference": "KSTVET/008/24",
@@ -239,7 +239,7 @@
     },
     {
       "benchmark_id": "tenders_ke_murera_science_lab",
-      "timestamp": "2026-09-07T13:42:22.937428+00:00",
+      "timestamp": "2026-09-07T14:01:13.467205+00:00",
       "project_name": "Proposed Construction of a Science Laboratory at Murera Senior School",
       "organization": "Ministry of Education / State Department for Basic Education / County Commissioner Meru",
       "tender_reference": "MOE/SEEQIP/C012/01/2026-2027",
@@ -437,7 +437,7 @@
   "stress_test_reports": [
     {
       "benchmark_id": "tenders_ke_mbagha_maternity_dispensary",
-      "timestamp": "2026-09-07T13:42:25.919985+00:00",
+      "timestamp": "2026-09-07T14:01:17.883278+00:00",
       "project_name": "Proposed Construction of a Maternity Block at Mbagha Dispensary in Mwatate Sub-County",
       "organization": "County Government of Taita Taveta",
       "tender_reference": "2028763-2025/2026",
@@ -740,7 +740,7 @@
   "candidate_seed_reports": [
     {
       "benchmark_id": "ungm_unops_wecc_torit",
-      "timestamp": "2026-09-07T13:42:33.524858+00:00",
+      "timestamp": "2026-09-07T14:01:27.711881+00:00",
       "project_name": "UNOPS WECC Torit Vocational Training Centre",
       "organization": "UNOPS",
       "tender_reference": "ITB/2023/45890",
@@ -772,7 +772,7 @@
     },
     {
       "benchmark_id": "ungm_category_iv_housing_units",
-      "timestamp": "2026-09-07T13:42:33.525800+00:00",
+      "timestamp": "2026-09-07T14:01:27.716847+00:00",
       "project_name": "UNGM Category IV Housing Units",
       "organization": "UN-Habitat",
       "tender_reference": "ITB/2023/CAT4-H",
@@ -804,7 +804,7 @@
     },
     {
       "benchmark_id": "ungm_category_iv_shelters",
-      "timestamp": "2026-09-07T13:42:33.526424+00:00",
+      "timestamp": "2026-09-07T14:01:27.719505+00:00",
       "project_name": "UNGM Category IV Shelters / House Units",
       "organization": "IOM / UNGM",
       "tender_reference": "RFP/2024/CAT4-S",
@@ -836,7 +836,7 @@
     },
     {
       "benchmark_id": "ungm_fmns_faculty_building",
-      "timestamp": "2026-09-07T13:42:33.527034+00:00",
+      "timestamp": "2026-09-07T14:01:27.721811+00:00",
       "project_name": "UNGM FMNS Faculty of Mathematical and Natural Sciences Building",
       "organization": "UNDP / UNGM",
       "tender_reference": "ITB/2023/FMNS-08",
@@ -868,7 +868,7 @@
     },
     {
       "benchmark_id": "ungm_al_qayarah_hospital_renovation",
-      "timestamp": "2026-09-07T13:42:33.527634+00:00",
+      "timestamp": "2026-09-07T14:01:27.723872+00:00",
       "project_name": "UNGM Al Qayarah General Hospital Renovation",
       "organization": "UNDP / UNGM",
       "tender_reference": "RFP/2024/78912",
@@ -900,7 +900,7 @@
     },
     {
       "benchmark_id": "king_st_122_126",
-      "timestamp": "2026-09-07T13:42:33.528227+00:00",
+      "timestamp": "2026-09-07T14:01:27.727386+00:00",
       "project_name": "122-126 King St, Buderim - Construction Issue",
       "organization": "Public Tender / Commercial Client",
       "tender_reference": "23-060",
