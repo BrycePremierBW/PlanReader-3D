@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 from enum import Enum
 import hashlib
 import math
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple, Union
 
 from pb_geometry_takeoff_model import AuthorityStatus
 from pb_takeoff_output_authority import TakeoffOutputRow
@@ -115,22 +115,68 @@ def _compute_revision_hash(previous_revision_hash: Optional[str], object_id: str
 
 @dataclass
 class EditableGeometryObject:
-    """A single correctable 3D/2D geometry object with full source traceability."""
+    """A single correctable 3D/2D geometry object with full source traceability.
+
+    Every commercially relevant object must be able to answer: what sheet/page/
+    region created me (source_file_id/source_page/source_sheet/source_region), what
+    scale and dimension evidence backs me (scale_id/dimension_text_ids), which
+    original vector geometry I started from vs. what I currently point at
+    (original_geometry_ref vs. geometry_ref), which corrections changed me
+    (correction_ids), which quantities depend on me (dependent_quantity_ids), and
+    who — if anyone — has approved me (approved_by/approved_at).
+    """
     object_id: str
     object_type: str  # from EditableObjectType
+    source_file_id: Optional[str] = None
     source_page: Optional[Union[int, str]] = None
     source_sheet: Optional[str] = None
-    geometry_ref: Optional[str] = None
+    source_region: Optional[str] = None
+    original_geometry_ref: Optional[str] = None
+    geometry_ref: Optional[str] = None  # the *current* geometry reference
+    scale_id: Optional[str] = None
+    dimension_text_ids: List[str] = field(default_factory=list)
     level_id: Optional[str] = None
     room_id: Optional[str] = None
     coordinates_or_measurements: Dict[str, Any] = field(default_factory=dict)
     authority_status: str = AuthorityStatus.PROVISIONAL.value
+    confidence: float = 1.0
     revision_hash: str = ""
+    correction_ids: List[str] = field(default_factory=list)
+    dependent_quantity_ids: List[str] = field(default_factory=list)
+    approved_by: Optional[str] = None
+    approved_at: Optional[str] = None
     created_at: str = field(default_factory=_now_iso)
     updated_at: str = field(default_factory=_now_iso)
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "EditableGeometryObject":
+        return cls(
+            object_id=str(data.get("object_id") or ""),
+            object_type=str(data.get("object_type") or EditableObjectType.UNKNOWN.value),
+            source_file_id=data.get("source_file_id"),
+            source_page=data.get("source_page"),
+            source_sheet=data.get("source_sheet"),
+            source_region=data.get("source_region"),
+            original_geometry_ref=data.get("original_geometry_ref"),
+            geometry_ref=data.get("geometry_ref"),
+            scale_id=data.get("scale_id"),
+            dimension_text_ids=list(data.get("dimension_text_ids") or []),
+            level_id=data.get("level_id"),
+            room_id=data.get("room_id"),
+            coordinates_or_measurements=dict(data.get("coordinates_or_measurements") or {}),
+            authority_status=str(data.get("authority_status") or AuthorityStatus.PROVISIONAL.value),
+            confidence=float(data.get("confidence") if data.get("confidence") is not None else 1.0),
+            revision_hash=str(data.get("revision_hash") or ""),
+            correction_ids=list(data.get("correction_ids") or []),
+            dependent_quantity_ids=list(data.get("dependent_quantity_ids") or []),
+            approved_by=data.get("approved_by"),
+            approved_at=data.get("approved_at"),
+            created_at=str(data.get("created_at") or _now_iso()),
+            updated_at=str(data.get("updated_at") or _now_iso()),
+        )
 
 
 @dataclass
@@ -311,7 +357,24 @@ class Editable3DCorrectionLedger:
         return tuple(self._events)
 
     def register_object(self, obj: EditableGeometryObject) -> None:
+        # Capture the original geometry reference exactly once, at first
+        # registration — it must never change afterwards, even as geometry_ref
+        # (the *current* pointer) is later corrected.
+        if obj.original_geometry_ref is None and obj.geometry_ref is not None:
+            obj = replace(obj, original_geometry_ref=obj.geometry_ref)
         self._objects[obj.object_id] = obj
+
+    def link_dependent_quantities(self, object_id: str, quantity_ids: List[str]) -> None:
+        """Record that the given TakeoffOutputRow quantity_ids are currently derived
+        from this object. Additive and deduplicating — never clears existing links."""
+        obj = self._objects.get(object_id)
+        if obj is None:
+            raise ValueError(f"Unknown object_id: {object_id!r} is not registered in this ledger")
+        merged = list(obj.dependent_quantity_ids)
+        for qid in quantity_ids:
+            if qid not in merged:
+                merged.append(qid)
+        self._objects[object_id] = replace(obj, dependent_quantity_ids=merged, updated_at=_now_iso())
 
     def get_object(self, object_id: str) -> Optional[EditableGeometryObject]:
         return self._objects.get(object_id)
@@ -387,8 +450,13 @@ class Editable3DCorrectionLedger:
             coordinates_or_measurements=updated_measurements,
             revision_hash=outcome.event.new_revision_hash,
             # A correction is never automatically an approval — it always requires
-            # re-review, regardless of what authority_status the object held before.
+            # re-review, regardless of what authority_status the object held before,
+            # and it clears any prior approval attribution since that approval no
+            # longer applies to the corrected geometry.
             authority_status=AuthorityStatus.REVIEW_REQUIRED.value,
+            approved_by=None,
+            approved_at=None,
+            correction_ids=obj.correction_ids + [outcome.event.correction_id],
             updated_at=outcome.event.created_at,
             **attr_overrides,
         )
@@ -443,7 +511,10 @@ def approve_corrected_geometry(
 
     Approval is a distinct act from correction: it never mutates the correction
     history, and it only succeeds if the object is still exactly at the revision
-    being approved (approving a superseded revision fails closed).
+    being approved (approving a superseded revision fails closed). It also fails
+    closed if the object has no recorded source trace (source_page/source_sheet) —
+    geometry that can't be traced back to originating drawing evidence can never
+    become commercial, no matter how it was corrected.
     """
     if not object_id:
         raise ValueError("object_id is required to approve corrected geometry")
@@ -460,11 +531,18 @@ def approve_corrected_geometry(
             f"Cannot approve stale revision for {object_id!r}: object is at "
             f"{obj.revision_hash!r}, approval targets {current_revision_hash!r}"
         )
+    if not obj.source_sheet or obj.source_page is None:
+        raise ValueError(
+            f"Cannot approve {object_id!r}: missing source trace "
+            f"(source_page={obj.source_page!r}, source_sheet={obj.source_sheet!r})"
+        )
 
     stamp = approved_at or _now_iso()
     ledger._objects[object_id] = replace(
         obj,
         authority_status=AuthorityStatus.FIRM.value,
+        approved_by=approved_by,
+        approved_at=stamp,
         updated_at=stamp,
     )
     return ApprovalResult(
@@ -474,6 +552,16 @@ def approve_corrected_geometry(
         revision_hash=current_revision_hash,
         authority_status=AuthorityStatus.FIRM.value,
     )
+
+
+def resolve_dependent_quantities(
+    obj: EditableGeometryObject,
+    rows: Sequence["TakeoffOutputRow"],
+) -> List["TakeoffOutputRow"]:
+    """Resolve an object's dependent_quantity_ids against a candidate set of rows,
+    proving the linkage points at real, current quantities rather than dangling ids."""
+    wanted = set(obj.dependent_quantity_ids)
+    return [r for r in rows if r.quantity_id in wanted]
 
 
 # ---------------------------------------------------------------------------
