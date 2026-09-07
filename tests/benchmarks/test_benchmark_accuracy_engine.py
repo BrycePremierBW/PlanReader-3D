@@ -318,8 +318,8 @@ def test_native_pdf_extraction_and_evaluation(engine):
         pdf_path=pdf_path,
     )
     assert report.is_scored is True
-    # Genuine schedule extraction finds scheduled doors, windows, and pillars exactly
-    assert report.exact_matches >= 4
+    # Post-cleanup: genuine schedule extraction without hardcoded fallbacks finds scheduled W1 and chalkboard exactly
+    assert report.exact_matches >= 2
     assert report.total_items_compared == 12
     assert report.overall_accuracy_percentage > 0.0
 
