@@ -105,6 +105,11 @@ class OpeningModel:
     source_sheet_label: str = ""
     approval_status: str = AuthorityStatus.PROVISIONAL.value
     revision_hash: str = ""
+    # Real recorded position along the wall (offset_x_m, from its start_pt) and
+    # vertically from the wall base (offset_z_m) — None means "not recorded",
+    # never a guessed position (PR D.11C).
+    offset_x_m: Optional[float] = None
+    offset_z_m: Optional[float] = None
 
     def __post_init__(self) -> None:
         if not math.isfinite(self.width_m) or not math.isfinite(self.height_m) or not math.isfinite(self.area_m2):

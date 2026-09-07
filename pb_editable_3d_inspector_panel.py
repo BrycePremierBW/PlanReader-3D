@@ -1,4 +1,4 @@
-"""pb_editable_3d_inspector_panel.py — Editable 3D Inspector Panel (PR D.11A/D.11B).
+"""pb_editable_3d_inspector_panel.py — Editable 3D Inspector Panel (PR D.11A/D.11B/D.11C).
 
 A read-only Streamlit panel that surfaces the real editable-3D correction/
 approval/quantity backend (D.1-D.10) inside the PlanReader app. No mutation
@@ -9,16 +9,24 @@ displays state produced by the actual backend functions:
   pb_editable_3d_quantity_recalculation.recalculate_quantities_for_correction
   pb_takeoff_output_authority.TakeoffOutputRow / create_takeoff_output_row / approve_takeoff_output_row
   pb_editable_3d_workspace_hydration.hydrate_masses_to_wall_models (D.11B)
+  pb_editable_3d_workspace_viewer.build_workspace_3d_figure (D.11C)
 
 The panel offers two data sources, switchable at the top of the page:
 
   - "Demo scenario" (D.11A): an in-session scenario built entirely from real
     backend calls (not fabricated data, not new logic), used to prove the
     four authority distinctions with objects nothing in the app persists yet.
-  - "Real workspace objects" (D.11B): the current workspace's actual
+  - "Real workspace objects" (D.11B/D.11C): the current workspace's actual
     `model_masses`/`model_openings` rows, hydrated fresh on every render via
     pb_editable_3d_workspace_hydration — no caching, no DB writes, always
-    reflecting the live database state.
+    reflecting the live database state — rendered as an interactive,
+    read-only 3D scene (orbit/pan/zoom, hover-to-identify) alongside the same
+    inspector detail view D.11A introduced. Object selection is via the
+    dropdown, not by clicking inside the 3D canvas: Plotly.js does not fire
+    click/selection events for 3D scatter traces (confirmed empirically —
+    hover works reliably, click never reaches Streamlit's on_select), so
+    building the "click a wall to select it" flow on top of it would be
+    presenting a control that silently does nothing.
 
 Neither mode ever calls a correction or approval function in response to a
 user action — the only backend calls happen while building the display data.
@@ -38,18 +46,22 @@ from pb_editable_3d_correction_model import (
     EditableObjectType,
     approve_corrected_geometry,
 )
+from pb_editable_3d_model import WallModel
 from pb_editable_3d_quantity_recalculation import (
     RecalculationTarget,
     recalculate_quantities_for_correction,
 )
 from pb_editable_3d_model_bridge import wall_model_to_editable_geometry_object
 from pb_editable_3d_workspace_hydration import HydrationSkip, hydrate_masses_to_wall_models
+from pb_editable_3d_workspace_viewer import build_workspace_3d_figure
 from pb_takeoff_output_authority import (
     TakeoffOutputRow,
     TakeoffSourceType,
     approve_takeoff_output_row,
     create_takeoff_output_row,
 )
+
+_SELECTED_REAL_OBJECT_KEY = "_editable_3d_inspector_selected_real"
 
 _SESSION_LEDGER_KEY = "_editable_3d_inspector_ledger"
 _SESSION_ROWS_KEY = "_editable_3d_inspector_rows"
@@ -195,17 +207,20 @@ def _ensure_demo_scenario_loaded() -> None:
 
 def _load_real_workspace_objects(
     workspace: Dict[str, Any],
-) -> tuple[Editable3DCorrectionLedger, List[str], List[HydrationSkip]]:
+) -> tuple[Editable3DCorrectionLedger, List[WallModel], List[Dict[str, Any]], List[str], List[HydrationSkip]]:
     """Hydrate the current workspace's real `model_masses`/`model_openings` rows
     into WallModel -> EditableGeometryObject and register them into a fresh
-    ledger. A local import of `lquery` avoids a circular import at module load
-    time (pb_planreader_3d_app imports this module; this function only needs
-    pb_planreader_3d_app back once it is already fully loaded and running)."""
+    ledger; also fetch `mapped_zones` for the 3D viewer's optional floor/room
+    footprints. A local import of `lquery` avoids a circular import at module
+    load time (pb_planreader_3d_app imports this module; this function only
+    needs pb_planreader_3d_app back once it is already fully loaded and
+    running)."""
     from pb_planreader_3d_app import lquery
 
     workspace_id = int(workspace["id"])
     mass_rows = lquery("SELECT * FROM model_masses WHERE workspace_id=? ORDER BY id", (workspace_id,))
     opening_rows = lquery("SELECT * FROM model_openings WHERE workspace_id=? ORDER BY id", (workspace_id,))
+    zone_rows = lquery("SELECT * FROM mapped_zones WHERE workspace_id=? ORDER BY id", (workspace_id,))
     result = hydrate_masses_to_wall_models(mass_rows, opening_rows)
 
     ledger = Editable3DCorrectionLedger()
@@ -214,7 +229,7 @@ def _load_real_workspace_objects(
         ledger.register_object(wall_model_to_editable_geometry_object(wall))
         object_ids.append(wall.wall_id)
 
-    return ledger, object_ids, result.skipped
+    return ledger, result.walls, zone_rows, object_ids, result.skipped
 
 
 # ---------------------------------------------------------------------------
@@ -398,7 +413,7 @@ def render_editable_3d_inspector_panel(workspace: Optional[Dict[str, Any]] = Non
         if workspace is None:
             st.warning("Open or create a workspace first.")
             return
-        ledger, object_ids, skipped = _load_real_workspace_objects(workspace)
+        ledger, walls, zone_rows, object_ids, skipped = _load_real_workspace_objects(workspace)
         rows = {}
         if skipped:
             with st.expander(f"{len(skipped)} item(s) skipped during hydration (fail-closed)"):
@@ -411,7 +426,26 @@ def render_editable_3d_inspector_panel(workspace: Optional[Dict[str, Any]] = Non
             )
             return
 
-    selected = st.selectbox("Select an editable 3D object", object_ids)
+        st.markdown("### 3D view")
+        st.caption(
+            "Read-only — orbit (drag), pan (right-drag/shift-drag), zoom (scroll). "
+            "Solid panels are walls with an authoritative height; dashed lines are "
+            "walls whose height isn't authoritative (shown at footprint only). "
+            "Hover a wall's marker dot to see its object id, then pick it in the "
+            "dropdown below to inspect it."
+        )
+        fig = build_workspace_3d_figure(walls, zone_rows)
+        st.plotly_chart(fig, key="_editable_3d_viewer")
+
+        if st.session_state.get(_SELECTED_REAL_OBJECT_KEY) not in object_ids:
+            st.session_state[_SELECTED_REAL_OBJECT_KEY] = object_ids[0]
+
+    if mode == "Real workspace objects":
+        selected = st.selectbox(
+            "Select an editable 3D object", object_ids, key=_SELECTED_REAL_OBJECT_KEY,
+        )
+    else:
+        selected = st.selectbox("Select an editable 3D object", object_ids)
     obj = ledger.get_object(selected)
     if obj is None:
         st.error(f"Object {selected!r} not found in the ledger.")

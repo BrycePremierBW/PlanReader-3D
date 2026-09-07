@@ -84,7 +84,7 @@ def editable_geometry_object_to_wall_model(obj: EditableGeometryObject) -> WallM
     known_opening_fields = {
         "opening_id", "wall_id", "opening_type", "width_m", "height_m",
         "area_m2", "deducts", "source_page_no", "source_sheet_label",
-        "approval_status", "revision_hash",
+        "approval_status", "revision_hash", "offset_x_m", "offset_z_m",
     }
     openings = [
         OpeningModel(**{k: v for k, v in op.items() if k in known_opening_fields})

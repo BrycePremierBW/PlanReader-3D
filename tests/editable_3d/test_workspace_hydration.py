@@ -178,6 +178,26 @@ class TestLengthAndGeometryDerivation:
         assert result.walls[0].level_id == "Level 1"
 
 
+class TestOpeningPositionPreservedNotFabricated:
+    def test_offset_x_and_z_are_preserved_from_real_recorded_values(self):
+        result = hydrate_masses_to_wall_models([_mass()], [_opening(offset_x=2.5, offset_z=0.0)])
+        opening = result.walls[0].openings[0]
+        assert opening.offset_x_m == 2.5
+        assert opening.offset_z_m == 0.0
+
+    def test_missing_offsets_are_none_not_a_guessed_zero(self):
+        result = hydrate_masses_to_wall_models([_mass()], [_opening(offset_x=None, offset_z=None)])
+        opening = result.walls[0].openings[0]
+        assert opening.offset_x_m is None
+        assert opening.offset_z_m is None
+
+    def test_non_numeric_offsets_are_none(self):
+        result = hydrate_masses_to_wall_models([_mass()], [_opening(offset_x="far", offset_z="high")])
+        opening = result.walls[0].openings[0]
+        assert opening.offset_x_m is None
+        assert opening.offset_z_m is None
+
+
 class TestOpeningsHydration:
     def test_valid_opening_area_is_width_times_height_times_count(self):
         result = hydrate_masses_to_wall_models([_mass()], [_opening(width=1.0, height=2.0, count=3)])
