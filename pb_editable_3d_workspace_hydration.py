@@ -138,6 +138,11 @@ def _hydrate_openings(
             deducts=True,
             source_page_no=0,
             source_sheet_label=str(row.get("source_reference") or ""),
+            # Real recorded position, preserved as-is — None (not a guessed 0)
+            # when the row doesn't have it, so a 3D viewer can tell "positioned
+            # at the wall start" apart from "position not recorded".
+            offset_x_m=_safe_float(row.get("offset_x")),
+            offset_z_m=_safe_float(row.get("offset_z")),
         ))
     return openings
 
