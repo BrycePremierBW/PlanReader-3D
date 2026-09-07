@@ -576,6 +576,38 @@ def init_local_db() -> None:
             FOREIGN KEY(mass_id) REFERENCES model_masses(id) ON DELETE SET NULL
         );
 
+        CREATE TABLE IF NOT EXISTS editable_3d_correction_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            workspace_id INTEGER NOT NULL,
+            correction_id TEXT NOT NULL,
+            object_id TEXT NOT NULL,
+            object_type TEXT NOT NULL,
+            field TEXT NOT NULL,
+            old_value_json TEXT,
+            new_value_json TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            actor TEXT NOT NULL,
+            source TEXT NOT NULL,
+            previous_revision_hash TEXT,
+            new_revision_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS editable_3d_object_state (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            workspace_id INTEGER NOT NULL,
+            object_id TEXT NOT NULL,
+            authority_status TEXT NOT NULL,
+            approved_by TEXT,
+            approved_at TEXT,
+            revision_hash TEXT NOT NULL,
+            correction_ids_json TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(workspace_id, object_id),
+            FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+        );
+
         CREATE TABLE IF NOT EXISTS ai_runs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             workspace_id INTEGER NOT NULL,
@@ -635,6 +667,8 @@ def _ensure_database_indexes(conn: sqlite3.Connection) -> None:
         ("idx_measurement_ws", "measurement_lines(workspace_id)"),
         ("idx_measurement_page", "measurement_lines(page_id)"),
         ("idx_measurement_row", "measurement_lines(takeoff_row_id)"),
+        ("idx_editable_3d_correction_events_object", "editable_3d_correction_events(workspace_id, object_id, id)"),
+        ("idx_editable_3d_object_state_object", "editable_3d_object_state(workspace_id, object_id)"),
     ]
     for idx_name, idx_target in indexes:
         conn.execute(f"CREATE INDEX IF NOT EXISTS {idx_name} ON {idx_target}")
