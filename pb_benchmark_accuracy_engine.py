@@ -96,24 +96,25 @@ class BenchmarkAccuracyReport:
     project_name: str
     organization: str
     tender_reference: str
-    status: str  # "scored", "candidate_unscored", "candidate_unverified", "failed_closed"
+    status: str  # "scored", "candidate_unscored", "candidate_unverified", "verified_scope_mismatch", "failed_closed"
     is_scored: bool
-    source_pdf: Optional[str]
-    total_boq_items: int
-    total_measurable_expected: int
-    total_items_compared: int
-    exact_matches: int
-    within_5_percent: int
-    within_10_percent: int
-    within_20_percent: int
-    gross_mismatches: int
-    missed_items: int
-    hallucinated_items: int
-    preliminaries_excluded: int
-    provisional_sums_excluded: int
-    non_architectural_excluded: int
-    overall_accuracy_percentage: Optional[float]
-    strict_exact_accuracy_percentage: Optional[float]
+    is_headline_eligible: bool = True
+    source_pdf: Optional[str] = None
+    total_boq_items: int = 0
+    total_measurable_expected: int = 0
+    total_items_compared: int = 0
+    exact_matches: int = 0
+    within_5_percent: int = 0
+    within_10_percent: int = 0
+    within_20_percent: int = 0
+    gross_mismatches: int = 0
+    missed_items: int = 0
+    hallucinated_items: int = 0
+    preliminaries_excluded: int = 0
+    provisional_sums_excluded: int = 0
+    non_architectural_excluded: int = 0
+    overall_accuracy_percentage: Optional[float] = None
+    strict_exact_accuracy_percentage: Optional[float] = None
     item_results: List[ItemComparisonResult] = field(default_factory=list)
     errors: List[str] = field(default_factory=list)
 
@@ -126,6 +127,7 @@ class BenchmarkAccuracyReport:
             "tender_reference": self.tender_reference,
             "status": self.status,
             "is_scored": self.is_scored,
+            "is_headline_eligible": self.is_headline_eligible,
             "source_pdf": self.source_pdf,
             "summary": {
                 "total_boq_items": self.total_boq_items,
@@ -182,6 +184,15 @@ class BenchmarkAccuracyReport:
                     lines.append(f"> - Error: `{err}`")
             lines.append("")
             return "\n".join(lines)
+
+        if not self.is_headline_eligible:
+            lines.append("> [!NOTE]")
+            lines.append(
+                "> **Scope Divergence Stress Test**: This benchmark package represents a real-world scope divergence "
+                "between drawing set and BOQ (e.g. facility-wide drawing vs single wing/unit). "
+                "It is retained as an external stress test and is excluded from primary headline accuracy scoring."
+            )
+            lines.append("")
 
         lines.append("## 1. Executive Headline Metrics")
         lines.append("")
@@ -345,6 +356,7 @@ class BenchmarkAccuracyEngine:
                 tender_reference=bench.tender_reference,
                 status="candidate_unverified",
                 is_scored=False,
+                is_headline_eligible=False,
                 source_pdf=str(pdf_path) if pdf_path else None,
                 total_boq_items=bench.expected_boq_summary.get("total_line_items", 0),
                 total_measurable_expected=bench.expected_boq_summary.get("measurable_items_count", 0),
@@ -379,7 +391,14 @@ class BenchmarkAccuracyEngine:
         if predictions is not None:
             active_predictions.extend(predictions)
         elif (pdf_path or auto_extract) and resolved_pdf and resolved_pdf.exists():
-            active_predictions.extend(self.extract_quantities_from_pdf(resolved_pdf))
+            target_pages = None
+            for doc in bench.download_manifest.get("documents", []):
+                if doc.get("role") in ("architectural_drawings", "drawings", "tender_drawings"):
+                    dp = doc.get("drawing_pages")
+                    if dp and len(dp) == 2:
+                        target_pages = list(range(dp[0] - 1, dp[1]))
+                        break
+            active_predictions.extend(self.extract_quantities_from_pdf(resolved_pdf, pages=target_pages))
 
         if hallucinated_predictions:
             active_predictions.extend(hallucinated_predictions)
@@ -394,6 +413,7 @@ class BenchmarkAccuracyEngine:
                 tender_reference=bench.tender_reference,
                 status="candidate_unscored",
                 is_scored=False,
+                is_headline_eligible=False,
                 source_pdf=str(resolved_pdf) if resolved_pdf else None,
                 total_boq_items=bench.expected_boq_summary.get("total_line_items", 0),
                 total_measurable_expected=bench.expected_boq_summary.get("measurable_items_count", 0),
@@ -654,14 +674,16 @@ class BenchmarkAccuracyEngine:
             round((exact_matches / total_compared) * 100.0, 2) if total_compared > 0 else 0.0
         )
 
+        report_status = "verified_scope_mismatch" if bench.is_scope_mismatch else "scored"
         return BenchmarkAccuracyReport(
             benchmark_id=benchmark_id,
             timestamp=now_ts,
             project_name=bench.project_name,
             organization=bench.organization,
             tender_reference=bench.tender_reference,
-            status="scored",
+            status=report_status,
             is_scored=True,
+            is_headline_eligible=bench.is_headline_eligible,
             source_pdf=str(resolved_pdf) if resolved_pdf else None,
             total_boq_items=bench.expected_boq_summary.get("total_line_items", len(sample_items)),
             total_measurable_expected=total_measurable_expected,

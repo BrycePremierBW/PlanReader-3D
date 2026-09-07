@@ -116,9 +116,12 @@ def test_4_prediction_generation_cannot_import_or_read_expected_json():
         "KSTVET/08/2024",
         "10150",
         "8300",
+        "murera",
+        "SEEQIP",
+        "302507",
     ]
     for term in forbidden_terms:
-        assert term not in source, f"Forbidden leaked term '{term}' found in pb_planreader_pdf_extractor.py"
+        assert term.lower() not in source.lower(), f"Forbidden leaked term '{term}' found in pb_planreader_pdf_extractor.py"
 
 
 def test_5_evaluator_sees_both_extractor_sees_only_pdf(mock_pdf, tmp_path):

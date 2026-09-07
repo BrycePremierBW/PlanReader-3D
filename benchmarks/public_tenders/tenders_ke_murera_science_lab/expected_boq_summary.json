@@ -1,0 +1,111 @@
+{
+  "benchmark_id": "tenders_ke_murera_science_lab",
+  "total_line_items": 58,
+  "classified_breakdown": {
+    "measurable_from_drawings": 24,
+    "schedule_extractable": 12,
+    "scope_allowance_only": 3,
+    "provisional_sum": 4,
+    "rate_only": 2,
+    "preliminaries": 5,
+    "not_architectural": 8,
+    "not_applicable_to_planreader": 0,
+    "unknown_requires_review": 0
+  },
+  "preliminaries_excluded_count": 5,
+  "provisional_sums_count": 4,
+  "rate_only_count": 2,
+  "measurable_items_count": 10,
+  "sample_measurable_items": [
+    {
+      "item_id": "substructure_surface_bed",
+      "description": "125mm thick reinforced concrete class 25 surface bed",
+      "expected_quantity": 196.0,
+      "unit": "SM",
+      "category": "measurable_from_drawings",
+      "drawing_sheet": "Section A-A / E-E",
+      "drawing_page": 225
+    },
+    {
+      "item_id": "substructure_bed_dpm",
+      "description": "1000 gauge polythene damp-proof membrane under bed",
+      "expected_quantity": 208.0,
+      "unit": "SM",
+      "category": "measurable_from_drawings",
+      "drawing_sheet": "Section A-A / E-E",
+      "drawing_page": 225
+    },
+    {
+      "item_id": "substructure_a142_mesh",
+      "description": "Steel mesh fabric reinforcement Ref A142 in floor bed",
+      "expected_quantity": 208.0,
+      "unit": "SM",
+      "category": "measurable_from_drawings",
+      "drawing_sheet": "Section A-A / E-E",
+      "drawing_page": 225
+    },
+    {
+      "item_id": "masonry_external_walling",
+      "description": "150mm thick natural stone external walling",
+      "expected_quantity": 132.0,
+      "unit": "SM",
+      "category": "measurable_from_drawings",
+      "drawing_sheet": "Elevations E-01/E-03",
+      "drawing_page": 219
+    },
+    {
+      "item_id": "masonry_piers",
+      "description": "300 x 300mm masonry piers 4,500mm high",
+      "expected_quantity": 13.0,
+      "unit": "NO",
+      "category": "measurable_from_drawings",
+      "drawing_sheet": "Section A-A / Foundation Layout",
+      "drawing_page": 225
+    },
+    {
+      "item_id": "damp_proof_course",
+      "description": "150mm wide bituminous felt damp proof course",
+      "expected_quantity": 67.0,
+      "unit": "M",
+      "category": "measurable_from_drawings",
+      "drawing_sheet": "Section A-A",
+      "drawing_page": 225
+    },
+    {
+      "item_id": "roof_trusses",
+      "description": "Timber roof trusses complete (13 No)",
+      "expected_quantity": 13.0,
+      "unit": "NO",
+      "category": "measurable_from_drawings",
+      "drawing_sheet": "Section A-A (TRUSS T1 13 No.S)",
+      "drawing_page": 225
+    },
+    {
+      "item_id": "brick_vents",
+      "description": "250mm x 150mm precast/brick vents",
+      "expected_quantity": 12.0,
+      "unit": "NO",
+      "category": "measurable_from_drawings",
+      "drawing_sheet": "Elevations E-01/E-03",
+      "drawing_page": 219
+    },
+    {
+      "item_id": "steel_casement_windows",
+      "description": "Steel casement windows W1, W2, W3, W4 complete with glazing",
+      "expected_quantity": 12.0,
+      "unit": "NO",
+      "category": "schedule_extractable",
+      "drawing_sheet": "Window Schedule",
+      "drawing_page": 223
+    },
+    {
+      "item_id": "doors_complete",
+      "description": "Single flush doors and double steel casement doors",
+      "expected_quantity": 5.0,
+      "unit": "NO",
+      "category": "schedule_extractable",
+      "drawing_sheet": "Door Schedule",
+      "drawing_page": 223
+    }
+  ]
+}

@@ -202,6 +202,8 @@ def classify_boq_line(
         "window cill",
         "trap door",
         "flyscreen",
+        "roof truss",
+        "roof trusses",
     ]
     if any(k in desc_lower for k in schedule_keywords):
         return BOQLineCategory.SCHEDULE_EXTRACTABLE
@@ -346,7 +348,27 @@ class PublicTenderBenchmark:
     @property
     def is_verified(self) -> bool:
         """True only if benchmark is verified against real retrieved tender files."""
-        return self.status == "verified_public_benchmark"
+        return self.status in (
+            "verified_public_benchmark",
+            "verified_scored_benchmark",
+            "verified_scope_mismatch",
+            "verified_public_package",
+        )
+
+    @property
+    def is_headline_eligible(self) -> bool:
+        """True if benchmark has 1:1 physical scope match and is eligible for headline metrics."""
+        return self.status in ("verified_scored_benchmark", "verified_public_benchmark")
+
+    @property
+    def is_scope_mismatch(self) -> bool:
+        """True if benchmark represents a real-world scope divergence stress test."""
+        return self.status == "verified_scope_mismatch"
+
+    @property
+    def is_verified_scored(self) -> bool:
+        """True if benchmark is verified and scored."""
+        return self.status in ("verified_scored_benchmark", "verified_public_benchmark")
 
     @property
     def is_candidate_unverified(self) -> bool:
@@ -583,6 +605,8 @@ class PublicTenderBenchmark:
             "accuracy_score": round(score, 4),
             "benchmark_status": "scored",
             "is_scored": True,
+            "is_headline_eligible": self.is_headline_eligible,
+            "is_scope_mismatch": self.is_scope_mismatch,
             "is_valid": True,
             "detailed_results": item_results,
         }

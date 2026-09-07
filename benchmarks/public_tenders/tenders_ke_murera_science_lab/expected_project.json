@@ -1,0 +1,54 @@
+{
+  "benchmark_id": "tenders_ke_murera_science_lab",
+  "project_name": "Proposed Construction of a Science Laboratory at Murera Senior School",
+  "organization": "Ministry of Education / State Department for Basic Education / County Commissioner Meru",
+  "facility_type": "Education / Science Laboratory",
+  "standard_type": "SEEQIP / SEQIP Standard Science Laboratory",
+  "number_of_buildings": 1,
+  "number_of_levels": 1,
+  "gross_floor_area_m2": 196.0,
+  "substructure_bed_total_m2": 208.0,
+  "external_wall_perimeter_m": 67.0,
+  "key_drawings": [
+    {
+      "sheet": "E-01 / E-03",
+      "description": "Elevations E-01 and E-03",
+      "page": 219
+    },
+    {
+      "sheet": "E-04",
+      "description": "Elevations E-04 and Verandah",
+      "page": 220
+    },
+    {
+      "sheet": "Section X-X",
+      "description": "Building Section X-X and Roof Overhangs",
+      "page": 221
+    },
+    {
+      "sheet": "Floor Plan",
+      "description": "General Science Laboratory Plan Layout",
+      "page": 222
+    },
+    {
+      "sheet": "Schedules",
+      "description": "Steel Window Schedule and Timber Door Details",
+      "page": 223
+    },
+    {
+      "sheet": "Cover/Notes",
+      "description": "General Specifications and Code Compliance",
+      "page": 224
+    },
+    {
+      "sheet": "Structural Sections",
+      "description": "Sections A-A, B-B, E-E, Truss T1 (13 Nos)",
+      "page": 225
+    },
+    {
+      "sheet": "Foundation/Roof Layout",
+      "description": "Foundation & Roof Layout & Column Stanchions",
+      "page": 226
+    }
+  ]
+}

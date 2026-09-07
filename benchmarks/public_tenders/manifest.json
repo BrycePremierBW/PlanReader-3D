@@ -11,7 +11,19 @@
       "tender_reference": "KSTVET/008/24",
       "source_url": "https://tenders.go.ke/storage/Documents/1727358888238-bq-nd-drawing.pdf",
       "country": "Kenya",
-      "status": "verified_public_benchmark",
+      "facility_type": "Education / CBC Classroom",
+      "status": "verified_scored_benchmark",
+      "retrieval_date": "2026-09-07"
+    },
+    {
+      "benchmark_id": "tenders_ke_murera_science_lab",
+      "project_name": "Proposed Construction of a Science Laboratory at Murera Senior School",
+      "organization": "Ministry of Education / State Department for Basic Education / County Commissioner Meru",
+      "tender_reference": "MOE/SEEQIP/C012/01/2026-2027",
+      "source_url": "https://tenders.go.ke/storage/Documents/1785347143869-bqs-drawings.pdf",
+      "country": "Kenya",
+      "facility_type": "Education / Standard Science Laboratory",
+      "status": "verified_scored_benchmark",
       "retrieval_date": "2026-09-07"
     },
     {
@@ -22,7 +34,7 @@
       "source_url": "https://tenders.go.ke/api/tender/274971",
       "country": "Kenya",
       "facility_type": "Healthcare / Maternity Dispensary",
-      "status": "verified_public_benchmark",
+      "status": "verified_scope_mismatch",
       "retrieval_date": "2026-09-07"
     },
     {

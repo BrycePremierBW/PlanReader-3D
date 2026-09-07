@@ -1,0 +1,63 @@
+{
+  "benchmark_id": "tenders_ke_murera_science_lab",
+  "scope_definition": {
+    "building_type": "standalone_laboratory_block",
+    "length_m": 18.2,
+    "width_m": 8.2,
+    "material_scope_match": true
+  },
+  "tolerances": {
+    "roof_trusses": {
+      "type": "exact",
+      "value": 0.0
+    },
+    "masonry_piers": {
+      "type": "exact",
+      "value": 0.0
+    },
+    "brick_vents": {
+      "type": "exact",
+      "value": 0.0
+    },
+    "steel_casement_windows": {
+      "type": "exact",
+      "value": 0.0
+    },
+    "doors_complete": {
+      "type": "exact",
+      "value": 0.0
+    },
+    "substructure_surface_bed": {
+      "type": "percentage",
+      "value": 5.0
+    },
+    "substructure_bed_dpm": {
+      "type": "percentage",
+      "value": 5.0
+    },
+    "substructure_a142_mesh": {
+      "type": "percentage",
+      "value": 5.0
+    },
+    "masonry_external_walling": {
+      "type": "percentage",
+      "value": 5.0
+    },
+    "damp_proof_course": {
+      "type": "percentage",
+      "value": 5.0
+    }
+  },
+  "item_mappings": {
+    "substructure_surface_bed": "floor_screed",
+    "substructure_bed_dpm": "substructure_bed_dpm",
+    "substructure_a142_mesh": "substructure_a142_mesh",
+    "masonry_external_walling": "perimeter_walling",
+    "masonry_piers": "masonry_piers",
+    "damp_proof_course": "damp_proof_course",
+    "roof_trusses": "roof_trusses",
+    "brick_vents": "brick_vents",
+    "steel_casement_windows": "steel_casement_windows",
+    "doors_complete": "doors_complete"
+  }
+}

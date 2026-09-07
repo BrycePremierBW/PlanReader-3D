@@ -67,7 +67,7 @@ def test_wrong_source_url_or_metadata_marked_candidate_unverified() -> None:
     manifest_data = json.loads((BENCHMARKS_DIR / "manifest.json").read_text(encoding="utf-8"))
     entries = {b["benchmark_id"]: b for b in manifest_data["benchmarks"]}
 
-    assert entries[BENCHMARK_ID]["status"] == "verified_public_benchmark"
+    assert entries[BENCHMARK_ID]["status"] in ("verified_scored_benchmark", "verified_public_benchmark")
     assert entries["ungm_unops_wecc_torit"]["status"] == "candidate_unverified"
     assert entries["ungm_category_iv_housing_units"]["status"] == "candidate_unverified"
     assert entries["king_st_122_126"]["status"] == "candidate_unverified"
