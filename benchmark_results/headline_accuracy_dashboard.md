@@ -1,6 +1,6 @@
 # PlanReader Public Tender Benchmark — Executive Headline Accuracy Dashboard
 
-**Generated**: `2026-09-07T13:18:01.383440+00:00`
+**Generated**: `2026-09-07T13:42:13.897299+00:00`
 
 > **Official Headline Accuracy**: **`13.0%`** across `2` headline-verified public tender benchmark(s).  
 > **Strict Exact Accuracy** (zero-tolerance): **`13.0%`**.
@@ -17,8 +17,8 @@
 | Exact Matches | `3` | Exactly matched quantities |
 | Within 5% Tolerance | `0` | Minor variations within 5% tolerance |
 | Within 10% Tolerance | `1` | Minor variations (5% to 10%) |
-| Within 20% Tolerance | `1` | Moderate variations (10% to 20%) |
-| Gross Mismatches (> 20%) | `12` | Discrepancies exceeding 20% |
+| Within 20% Tolerance | `3` | Moderate variations (10% to 20%) |
+| Gross Mismatches (> 20%) | `10` | Discrepancies exceeding 20% |
 | Missed in Extraction | `5` | BOQ items missing from drawing predictions |
 | Hallucinated Extra Predictions | `1` | Predictions with no counterpart in BOQ |
 
@@ -26,7 +26,7 @@
 
 | Benchmark ID | Project Name | Scope | Expected | Compared | Exact | <= 5% | Gross | Missed | Halluc. | Accuracy | Strict % | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `tenders_ke_kstvet_cbc_classroom` | Proposed Construction of CBC Classroom and Integrated Resource Center | 1:1 Match | `12` | `12` | `2` | `0` | `7` | `2` | `0` | **`16.7%`** | `16.7%` | `verified_scored_benchmark` |
+| `tenders_ke_kstvet_cbc_classroom` | Proposed Construction of CBC Classroom and Integrated Resource Center | 1:1 Match | `12` | `12` | `2` | `0` | `5` | `2` | `0` | **`16.7%`** | `16.7%` | `verified_scored_benchmark` |
 | `tenders_ke_murera_science_lab` | Proposed Construction of a Science Laboratory at Murera Senior School | 1:1 Match | `10` | `11` | `1` | `0` | `5` | `3` | `1` | **`9.1%`** | `9.1%` | `verified_scored_benchmark` |
 
 ## 3. Real-World Scope Divergence Stress Tests (Excluded from Headline)
