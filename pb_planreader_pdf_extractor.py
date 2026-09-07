@@ -415,21 +415,41 @@ class GenericPlanReaderExtractor:
                 cur_wall = pred_dict["perimeter_walling"].quantity
                 cur_perim = pred_dict["perimeter_walling"].dimensions[0] if pred_dict["perimeter_walling"].dimensions else 0.0
 
-                # Internal plaster & paint
+                # Internal plaster & paint. `cur_wall` is the EXTERNAL wall
+                # net area (perimeter x height, minus deducted openings) --
+                # this extractor has no wall-thickness evidence, so it cannot
+                # currently compute a true internal-face area (which is
+                # genuinely smaller, by the wall thickness, than the external
+                # one). Copying the external value across as a rough proxy is
+                # the best this extraction path can do today, but it must
+                # never be presented with the same confidence as an
+                # independently measured quantity -- see F.13's
+                # pb_dimension_graph_constraint_engine.py for the eventual
+                # fix (wiring real wall-thickness evidence in to compute a
+                # genuine internal perimeter), tracked as a follow-on.
                 if any(k in pt_norm for k in (
                     "internal plaster", "plaster to internal", "plaster and paint",
                     "finish internally", "two-coat plaster", "two coat plaster",
                     "internal wall finish",
                 )):
+                    _internal_face_derivation = {
+                        "derivation": "external_wall_area_proxy_no_internal_face_evidence",
+                        "note": (
+                            "No wall-thickness evidence available to compute a true "
+                            "internal face area; this reuses the external net wall "
+                            "area as a rough proxy and should be treated as provisional."
+                        ),
+                    }
                     pred_dict["internal_plaster"] = ExtractedPrediction(
                         tag="internal_plaster",
                         trade_type="finishes",
                         description="Internal plastering to wall surfaces",
                         quantity=cur_wall,
                         unit="SM",
-                        confidence=0.85,
+                        confidence=0.5,
                         source_page=page_num,
                         sheet_number=sheet_no,
+                        metadata=dict(_internal_face_derivation),
                     )
                     pred_dict["internal_paint"] = ExtractedPrediction(
                         tag="internal_paint",
@@ -437,12 +457,17 @@ class GenericPlanReaderExtractor:
                         description="Internal vinyl/emulsion paint to wall surfaces",
                         quantity=cur_wall,
                         unit="SM",
-                        confidence=0.85,
+                        confidence=0.5,
                         source_page=page_num,
                         sheet_number=sheet_no,
+                        metadata=dict(_internal_face_derivation),
                     )
 
-                # External key pointing
+                # External key pointing: at least the correct FACE (external,
+                # like perimeter_walling itself), but still triggered purely
+                # by a keyword appearing somewhere in the page text with no
+                # geometric evidence of its own extent -- never as confident
+                # as a directly measured quantity.
                 if any(k in pt_norm for k in (
                     "key pointing", "key finish", "pointing externally",
                     "key to finish", "keyed pointing",
@@ -453,9 +478,18 @@ class GenericPlanReaderExtractor:
                         description="External key pointing to exposed stone/block masonry",
                         quantity=cur_wall,
                         unit="SM",
-                        confidence=0.82,
+                        confidence=0.5,
                         source_page=page_num,
                         sheet_number=sheet_no,
+                        metadata={
+                            "derivation": "external_wall_area_copy_keyword_triggered",
+                            "note": (
+                                "Triggered by a key-pointing keyword in the page text "
+                                "with no independent measurement of its own extent; "
+                                "reuses the external wall area and should be treated "
+                                "as provisional."
+                            ),
+                        },
                     )
 
                 # DPC from building perimeter: exactly equal to perimeter P
