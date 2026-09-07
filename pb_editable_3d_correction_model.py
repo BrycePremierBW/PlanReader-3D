@@ -552,6 +552,41 @@ class Editable3DCorrectionLedger:
 # Approval — separate from correction
 # ---------------------------------------------------------------------------
 
+def _has_non_finite_measurement(measurements: Mapping[str, Any]) -> bool:
+    """True if any numeric value in the object's measurements is NaN/inf.
+    Approval is the last gate before geometry can enter commercial output,
+    so this is checked explicitly rather than assumed clean."""
+    for v in measurements.values():
+        if isinstance(v, bool):
+            continue
+        if isinstance(v, (int, float)) and not math.isfinite(v):
+            return True
+    return False
+
+
+def _measurements_geometry_is_consistent(measurements: Mapping[str, Any]) -> bool:
+    """Belt-and-suspenders check: when an object's measurements carry both a
+    scalar `length` and a start_pt/end_pt segment, the segment must actually
+    measure to that length. apply_correction() (PR D.11F.1) keeps these in
+    sync by construction, so this should never fail in practice — but
+    approval is the last gate before an object can enter commercial output,
+    so it is verified explicitly here rather than trusted implicitly."""
+    length = measurements.get("length")
+    start_pt = measurements.get("start_pt")
+    end_pt = measurements.get("end_pt")
+    if length is None or start_pt is None or end_pt is None:
+        return True
+    try:
+        x0, y0 = float(start_pt[0]), float(start_pt[1])
+        x1, y1 = float(end_pt[0]), float(end_pt[1])
+        length_f = float(length)
+    except (TypeError, ValueError, IndexError):
+        return False
+    if not all(math.isfinite(v) for v in (x0, y0, x1, y1, length_f)):
+        return False
+    return abs(math.hypot(x1 - x0, y1 - y0) - length_f) < 1e-6
+
+
 def approve_corrected_geometry(
     ledger: Editable3DCorrectionLedger,
     object_id: str,
@@ -566,12 +601,17 @@ def approve_corrected_geometry(
     being approved (approving a superseded revision fails closed). It also fails
     closed if the object has no recorded source trace (source_page/source_sheet) —
     geometry that can't be traced back to originating drawing evidence can never
-    become commercial, no matter how it was corrected.
+    become commercial, no matter how it was corrected. Also fails closed if the
+    object's authority is currently BLOCKED (a required authority — e.g. wall
+    height — isn't known or trusted), or if its geometry is non-finite or
+    internally inconsistent (PR D.11G): approval is the last gate before
+    commercial output, so these are checked explicitly, not assumed.
     """
     if not object_id:
         raise ValueError("object_id is required to approve corrected geometry")
-    if not approved_by:
+    if not approved_by or not approved_by.strip():
         raise ValueError("approved_by is required to approve corrected geometry")
+    approved_by = approved_by.strip()
     if not current_revision_hash:
         raise ValueError("current_revision_hash is required to approve corrected geometry")
 
@@ -582,6 +622,20 @@ def approve_corrected_geometry(
         raise ValueError(
             f"Cannot approve stale revision for {object_id!r}: object is at "
             f"{obj.revision_hash!r}, approval targets {current_revision_hash!r}"
+        )
+    if obj.authority_status == AuthorityStatus.BLOCKED.value:
+        raise ValueError(
+            f"Cannot approve {object_id!r}: object authority is BLOCKED (a "
+            f"required authority — e.g. height — is not known or trusted)"
+        )
+    if _has_non_finite_measurement(obj.coordinates_or_measurements):
+        raise ValueError(
+            f"Cannot approve {object_id!r}: geometry contains a non-finite measurement value"
+        )
+    if not _measurements_geometry_is_consistent(obj.coordinates_or_measurements):
+        raise ValueError(
+            f"Cannot approve {object_id!r}: geometry is internally inconsistent "
+            f"(scalar length does not match the stored start_pt/end_pt segment)"
         )
     if not obj.source_sheet or obj.source_page is None:
         raise ValueError(
