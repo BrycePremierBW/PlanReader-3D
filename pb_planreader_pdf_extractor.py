@@ -227,6 +227,7 @@ class GenericPlanReaderExtractor:
         global_has_dpc = False
         global_has_dpm = False
         global_has_mesh = False
+        global_level_markers: List[Any] = []  # List[LevelMarker], imported lazily below
 
         for p_idx in target_pages:
             if p_idx < 0 or p_idx >= len(doc):
@@ -271,6 +272,23 @@ class GenericPlanReaderExtractor:
                 if 7.0 <= v <= 14.0 and any(k in norm_pg for k in ("section", "span", "truss", "layout")):
                     detected_span = v
                     break
+
+            # Roof/floor level datum annotations (Phase F.14): real figured
+            # evidence of wall/room height, when a section or elevation
+            # sheet carries one -- see pb_level_datum_extraction.
+            from pb_level_datum_extraction import find_level_markers
+            global_level_markers.extend(find_level_markers(pg_txt, source_page=p_idx + 1))
+
+        # Resolve wall height strictly from real level-datum evidence when
+        # present; otherwise this stays None and every wall-height use below
+        # falls back to self.default_ceiling_height_m exactly as before --
+        # additive only, never a regression on a project with no such evidence.
+        from pb_dimension_graph_constraint_engine import ConstraintStatus, resolve_wall_height
+        global_resolved_wall_height_m: Optional[float] = None
+        if global_level_markers:
+            height_res = resolve_wall_height(global_level_markers, scope_id=None)
+            if height_res.status == ConstraintStatus.FULLY_CONSTRAINED.value:
+                global_resolved_wall_height_m = height_res.clear_height_m
 
         pred_dict: Dict[str, ExtractedPrediction] = {}
 
@@ -389,9 +407,19 @@ class GenericPlanReaderExtractor:
                     else:
                         desc_flr = f"Floor screed ({length_m}m x {width_m}m envelope)"
 
-                    # External wall area: derived deterministically from perimeter * height
-                    # Opening deductions are only applied when openings are actually parsed
-                    gross_wall_area = round(perimeter_m * self.default_ceiling_height_m, 2)
+                    # External wall area: derived deterministically from perimeter * height.
+                    # Opening deductions are only applied when openings are actually parsed.
+                    # Height prefers real figured level-datum evidence (Phase F.14,
+                    # e.g. a section/elevation's Roof Level + Floor Level annotations)
+                    # over the convenience default; the default is only ever used when
+                    # no such evidence resolved on this document.
+                    height_is_genuine_evidence = global_resolved_wall_height_m is not None
+                    effective_wall_height_m = (
+                        global_resolved_wall_height_m
+                        if height_is_genuine_evidence
+                        else self.default_ceiling_height_m
+                    )
+                    gross_wall_area = round(perimeter_m * effective_wall_height_m, 2)
 
                     pred_dict["floor_screed"] = ExtractedPrediction(
                         tag="floor_screed",
@@ -416,21 +444,33 @@ class GenericPlanReaderExtractor:
                         },
                     )
 
+                    height_desc = (
+                        f"{effective_wall_height_m}m height (resolved from Roof/Floor "
+                        f"level datum evidence)"
+                        if height_is_genuine_evidence
+                        else f"{effective_wall_height_m}m height (no level-datum evidence "
+                        f"found; assumed default)"
+                    )
                     pred_dict["perimeter_walling"] = ExtractedPrediction(
                         tag="perimeter_walling",
                         trade_type="walls",
-                        description=f"Perimeter walling (2x({length_m}+{width_m})m perimeter at {self.default_ceiling_height_m}m height)",
+                        description=f"Perimeter walling (2x({length_m}+{width_m})m perimeter at {height_desc})",
                         quantity=gross_wall_area,
                         unit="SM",
-                        confidence=0.88,
+                        confidence=0.93 if height_is_genuine_evidence else 0.88,
                         source_page=page_num,
                         sheet_number=sheet_no,
-                        dimensions=[perimeter_m, self.default_ceiling_height_m],
+                        dimensions=[perimeter_m, effective_wall_height_m],
                         metadata={
                             "external_perimeter_m": footprint_res.external_perimeter_m,
                             "enclosed_wall_perimeter_m": perimeter_m,
                             "shared_edge_length_m": footprint_res.shared_edge_length_m,
                             "footprint_status": footprint_res.status,
+                            "wall_height_source": (
+                                "resolved_level_datum_evidence"
+                                if height_is_genuine_evidence
+                                else "default_ceiling_height_assumption"
+                            ),
                         },
                     )
 
