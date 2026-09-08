@@ -1,0 +1,41 @@
+name: F13 Fix Imperial Grammar
+on:
+  push:
+    branches: [work/f13-vector-dimension-binding]
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    env:
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: work/f13-vector-dimension-binding
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Patch conventional imperial separator and verify new suite
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('pb_figured_dimension_evidence.py')
+          text = p.read_text()
+          old = '''    r"^\\s*(?:(\\d+)\\s*(?:'|ft))?\\s*(?:(\\d+(?:\\.\\d+)?)\\s*(?:\\\"|in))?\\s*$",'''
+          new = '''    r"^\\s*(?:(\\d+)\\s*(?:'|ft))?\\s*[-–]?\\s*(?:(\\d+(?:\\.\\d+)?)\\s*(?:\\\"|in))?\\s*$",'''
+          if text.count(old) != 1:
+              raise SystemExit(f'expected one imperial regex target, found {text.count(old)}')
+          p.write_text(text.replace(old, new))
+          PY
+          python -m pip install -q PyMuPDF==1.28.0 pytest==8.4.2
+          pytest -q tests/benchmarks/test_mutation_figured_dimension_evidence.py
+          python -m compileall -q pb_figured_dimension_evidence.py
+      - name: Commit verified patch and remove temporary workflow
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git rm -f .github/workflows/f13_fix_imperial.yml
+          git add pb_figured_dimension_evidence.py
+          git commit -m 'fix(F13): parse conventional hyphenated imperial dimensions'
+          git push origin HEAD:work/f13-vector-dimension-binding
