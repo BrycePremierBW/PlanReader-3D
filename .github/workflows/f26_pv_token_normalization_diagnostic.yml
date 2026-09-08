@@ -1,0 +1,75 @@
+name: F26 PV Token Normalization Diagnostic
+
+on:
+  push:
+    branches:
+      - 'diag/f23-wall-opening-evidence'
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: diag/f23-wall-opening-evidence
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install PyMuPDF
+        run: python -m pip install PyMuPDF==1.28.0
+      - name: Inspect PV token variants
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -L --fail --retry 4 --retry-delay 2 \
+            'https://tenders.go.ke/storage/Documents/1785347143869-bqs-drawings.pdf' \
+            -o /tmp/murera.pdf
+          python - <<'PY'
+          import re
+          import fitz
+          from pb_planreader_pdf_extractor import GenericPlanReaderExtractor
+          from pb_raster_schedule_extractor import GenericScheduleTableExtractor
+
+          doc=fitz.open('/tmp/murera.pdf')
+          ex=GenericPlanReaderExtractor()
+          sx=GenericScheduleTableExtractor()
+          for p_idx in range(len(doc)):
+              page=doc[p_idx]
+              text=page.get_text('text')
+              if not ex.is_drawing_page(text):
+                  continue
+              broad_text=re.findall(r'\bPV\b|\bPermanent Vent\b|\bBrick Vent\b',text,re.I)
+              pvish=[]
+              exact=[]
+              normalized=[]
+              for w in page.get_text('words'):
+                  token=w[4]
+                  if re.search(r'(?i)^p\W*v\W*$',token) or re.search(r'(?i)permanent.*vent|brick.*vent',token):
+                      pvish.append((token,tuple(round(x,1) for x in w[:4])))
+                  if re.match(r'^(?:PV|P\.V)$',token,re.I):
+                      exact.append(token)
+                  norm=re.sub(r'[^A-Za-z]','',token).upper()
+                  if norm=='PV':
+                      normalized.append(token)
+              if broad_text or pvish:
+                  rows=sx.extract_from_page(page,p_idx+1)
+                  vent_rows=[r.to_dict() for r in rows if r.tag=='brick_vents']
+                  print('PAGE',p_idx+1)
+                  print(' broad_text_count=',len(broad_text),broad_text)
+                  print(' exact_word_count=',len(exact),exact)
+                  print(' normalized_word_count=',len(normalized),normalized)
+                  print(' pvish=',pvish)
+                  print(' vent_rows=',vent_rows)
+          PY
+      - name: Remove temporary workflow
+        if: always()
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git rm -f .github/workflows/f26_pv_token_normalization_diagnostic.yml
+          git commit -m 'chore: remove temporary F26 PV-token diagnostic'
+          git push origin HEAD:diag/f23-wall-opening-evidence
