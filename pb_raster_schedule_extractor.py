@@ -316,6 +316,29 @@ class GenericScheduleTableExtractor:
             clean_b = b_text.strip().replace("\n", " ")
             b_norm = re.sub(r"\s+", " ", clean_b)
 
+            # F.16: directly stated ``N No item`` / ``item N Nos`` drawing
+            # notes.  The pure parser requires an explicit count marker and
+            # fails closed on ambiguous/conflicting clauses; it never infers
+            # a quantity from dimensions or project/BOQ context.
+            from pb_explicit_item_count_extractor import extract_explicit_item_counts
+            for explicit in extract_explicit_item_counts(b_text):
+                rows.append(
+                    ScheduleRow(
+                        tag=explicit.tag,
+                        trade_type=explicit.trade_type,
+                        description=(
+                            f"Explicit drawing count: {explicit.item_text} "
+                            f"({explicit.quantity} No)"
+                        ),
+                        quantity=float(explicit.quantity),
+                        unit="NO",
+                        source_page=page_num,
+                        bbox=(x0, y0, x1, y1),
+                        confidence=0.94,
+                        evidence_text=explicit.evidence_text,
+                    )
+                )
+
             # 1. Trusses: TRUSS T1 (13 No.S)
             truss_m = re.search(
                 r"(?:TRUSS|TRUSSES)\s*([A-Za-z0-9\-]+)?\s*\(?(\d+)\s*(?:No\.?s?|Nos?)\)?",
@@ -399,6 +422,26 @@ class GenericScheduleTableExtractor:
                         evidence_text=clean_b,
                     )
                 )
+
+        # Contradictory explicit notes may live in separate PDF text blocks,
+        # beyond the pure parser's single-call conflict boundary.  Drop every
+        # F.16 candidate for that tag rather than letting document-level
+        # deduplication silently keep whichever block happened to appear first.
+        explicit_quantities: Dict[str, set[float]] = {}
+        for row in rows:
+            if row.description.startswith("Explicit drawing count:") and row.quantity is not None:
+                explicit_quantities.setdefault(row.tag, set()).add(row.quantity)
+        conflicting_explicit_tags = {
+            tag for tag, quantities in explicit_quantities.items() if len(quantities) > 1
+        }
+        if conflicting_explicit_tags:
+            rows = [
+                row for row in rows
+                if not (
+                    row.description.startswith("Explicit drawing count:")
+                    and row.tag in conflicting_explicit_tags
+                )
+            ]
 
         # 5. Permanent Vents (PV): Group and deduplicate by elevation/section sheet
         pv_words = [w for w in page.get_text("words") if re.match(r"^(?:PV|P\.V)$", w[4], re.I)]
