@@ -1,0 +1,169 @@
+name: F22 Apply Component Floor Fix
+
+on:
+  push:
+    branches:
+      - 'feat/f22-bound-floor-envelope'
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/f22-bound-floor-envelope
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install focused test dependencies
+        run: python -m pip install PyMuPDF==1.28.0 pytest==8.4.2
+
+      - name: Apply guarded F22 extractor wiring
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('pb_planreader_pdf_extractor.py')
+          text = path.read_text(encoding='utf-8')
+
+          old = '''                footprint_res = builder.build()
+                total_floor_screed = footprint_res.gross_floor_area_m2
+                perimeter_m = round(2 * (length_m + width_m), 2)
+'''
+          new = '''                footprint_res = builder.build()
+                structural_bed_area_m2 = footprint_res.gross_floor_area_m2
+                total_floor_screed = structural_bed_area_m2
+
+                # F.22: an enclosed main room's floor finish is measured to
+                # the clear wall faces when wall thickness is independently
+                # corroborated. Evidenced open verandahs remain at their full
+                # component area. Unsupported/partial compound geometry fails
+                # closed in the helper and leaves the existing footprint basis
+                # unchanged. Structural slab/DPM/mesh area is preserved
+                # separately below.
+                floor_finish_geometry = None
+                if global_resolved_wall_thickness_m is not None:
+                    from pb_component_floor_finish_geometry import (
+                        derive_component_aware_floor_finish_area,
+                    )
+
+                    floor_finish_geometry = derive_component_aware_floor_finish_area(
+                        footprint_res,
+                        global_resolved_wall_thickness_m,
+                    )
+                    if floor_finish_geometry is not None:
+                        total_floor_screed = floor_finish_geometry.floor_finish_area_m2
+
+                perimeter_m = round(2 * (length_m + width_m), 2)
+'''
+          if old not in text:
+              raise SystemExit('F22 patch point 1 not found exactly; refusing unsafe edit')
+          text = text.replace(old, new, 1)
+
+          old = '''                    else:
+                        desc_flr = f"Floor screed ({length_m}m x {width_m}m envelope)"
+
+                    # External wall area: derived deterministically from perimeter * height.
+'''
+          new = '''                    else:
+                        desc_flr = f"Floor screed ({length_m}m x {width_m}m envelope)"
+
+                    if floor_finish_geometry is not None:
+                        desc_flr = (
+                            "Floor screed / finish ("
+                            f"{floor_finish_geometry.main_clear_area_m2} m2 clear enclosed main space"
+                            f" + {floor_finish_geometry.open_verandah_area_m2} m2 evidenced verandah)"
+                        )
+
+                    # External wall area: derived deterministically from perimeter * height.
+'''
+          if old not in text:
+              raise SystemExit('F22 patch point 2 not found exactly; refusing unsafe edit')
+          text = text.replace(old, new, 1)
+
+          old = '''                            "footprint_status": footprint_res.status,
+                            "missing_components": footprint_res.missing_components,
+'''
+          new = '''                            "footprint_status": footprint_res.status,
+                            "missing_components": footprint_res.missing_components,
+                            "structural_bed_area_m2": structural_bed_area_m2,
+                            **(
+                                {
+                                    "floor_finish_area_derivation": "component_clear_main_plus_evidenced_verandah",
+                                    "wall_thickness_m": floor_finish_geometry.wall_thickness_m,
+                                    "main_clear_floor_area_m2": floor_finish_geometry.main_clear_area_m2,
+                                    "open_verandah_floor_area_m2": floor_finish_geometry.open_verandah_area_m2,
+                                    "component_finish_areas_m2": floor_finish_geometry.component_finish_areas_m2,
+                                    "main_clear_dimensions_m": [
+                                        floor_finish_geometry.main_clear_length_m,
+                                        floor_finish_geometry.main_clear_width_m,
+                                    ],
+                                }
+                                if floor_finish_geometry is not None
+                                else {}
+                            ),
+'''
+          if old not in text:
+              raise SystemExit('F22 patch point 3 not found exactly; refusing unsafe edit')
+          text = text.replace(old, new, 1)
+
+          old = '''                tot_flr = pred_dict["floor_screed"].quantity
+                flr_meta = pred_dict["floor_screed"].metadata or {}
+'''
+          new = '''                tot_flr = pred_dict["floor_screed"].quantity
+                flr_meta = pred_dict["floor_screed"].metadata or {}
+                bed_area_for_substructure_m2 = float(
+                    flr_meta.get(
+                        "structural_bed_area_m2",
+                        flr_meta.get("gross_floor_area_m2", tot_flr),
+                    )
+                )
+'''
+          if old not in text:
+              raise SystemExit('F22 patch point 4 not found exactly; refusing unsafe edit')
+          text = text.replace(old, new, 1)
+
+          if text.count('and tot_flr > 0') != 3:
+              raise SystemExit(f'Expected exactly 3 substructure tot_flr guards, found {text.count("and tot_flr > 0")}')
+          text = text.replace('and tot_flr > 0', 'and bed_area_for_substructure_m2 > 0')
+
+          if text.count('quantity=tot_flr') != 3:
+              raise SystemExit(f'Expected exactly 3 substructure tot_flr quantities, found {text.count("quantity=tot_flr")}')
+          text = text.replace('quantity=tot_flr', 'quantity=bed_area_for_substructure_m2')
+
+          if text.count('({tot_flr} m2)') != 3:
+              raise SystemExit(f'Expected exactly 3 substructure descriptions, found {text.count("({tot_flr} m2)")}')
+          text = text.replace('({tot_flr} m2)', '({bed_area_for_substructure_m2} m2)')
+
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Run F22 and adjacent mutation suites
+        run: |
+          PYTHONPATH=. pytest -q \
+            tests/benchmarks/test_mutation_component_floor_finish_geometry.py \
+            tests/benchmarks/test_mutation_dimension_chain_evidence_extractor.py \
+            tests/benchmarks/test_mutation_multi_space_footprint.py
+
+      - name: Compile and lint touched production code
+        run: |
+          python -m compileall -q pb_planreader_pdf_extractor.py pb_component_floor_finish_geometry.py
+          python -m pip install ruff
+          ruff check --select F821,F823 pb_planreader_pdf_extractor.py pb_component_floor_finish_geometry.py
+          git diff --check
+
+      - name: Commit verified wiring and remove temporary workflow
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add pb_planreader_pdf_extractor.py
+          git rm -f .github/workflows/f22_apply_component_floor_fix.yml
+          git commit -m 'F.22: bind clear enclosed floor finish across compound footprint'
+          git push origin HEAD:feat/f22-bound-floor-envelope
