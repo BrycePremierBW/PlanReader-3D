@@ -1,0 +1,77 @@
+name: F22 Dimension Chain Diagnostic
+
+on:
+  push:
+    branches:
+      - 'feat/f22-bound-floor-envelope'
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/f22-bound-floor-envelope
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install diagnostic dependency
+        run: python -m pip install PyMuPDF==1.28.0
+
+      - name: Inspect public drawing dimension chains only
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -L --fail --retry 3 --retry-delay 2 \
+            'https://tenders.go.ke/storage/Documents/1727358888238-bq-nd-drawing.pdf' \
+            -o /tmp/kstvet.pdf
+          echo "sha256=$(sha256sum /tmp/kstvet.pdf | awk '{print $1}')"
+          python - <<'PY'
+          import fitz
+          from pb_dimension_chain_evidence_extractor import extract_dimension_chains_from_page
+          from pb_dimension_graph_constraint_engine import classify_chain_segments
+          from pb_drawing_evidence_binding import DrawingViewClassifier, DrawingViewType
+
+          doc = fitz.open('/tmp/kstvet.pdf')
+          print('pages', len(doc))
+          for idx in (53, 54):
+              if idx >= len(doc):
+                  continue
+              page = doc[idx]
+              text = page.get_text('text')
+              print('\n=== PAGE', idx + 1, '===')
+              print('has_floor_plan', 'floor plan' in text.lower())
+              print('drawing view whole-page', DrawingViewClassifier.classify_text(text).value)
+              print('HEADINGS:')
+              for b in page.get_text('blocks'):
+                  btxt = b[4].strip().replace('\n', ' ')
+                  vt = DrawingViewClassifier.classify_text(btxt)
+                  if vt != DrawingViewType.UNKNOWN:
+                      print(' ', vt.value, 'bbox=', tuple(round(x,1) for x in b[:4]), 'text=', btxt[:120])
+              chains = extract_dimension_chains_from_page(page, page_num=idx + 1, view_id=f'page_{idx+1}')
+              print('CHAINS', len(chains))
+              for c in chains:
+                  vals = [round(o.value_m, 4) for o in c.observations]
+                  cls = classify_chain_segments(c)
+                  if len(vals) >= 2 or cls.get('wall_thickness_m') is not None:
+                      xs = [o.bbox[0] for o in c.observations if o.bbox]
+                      ys = [o.bbox[1] for o in c.observations if o.bbox]
+                      print(' ', c.chain_id, 'sum=', round(c.segment_sum_m,4), 'vals=', vals,
+                            'class=', cls, 'x=', (round(min(xs),1), round(max(xs),1)) if xs else None,
+                            'y=', round(sum(ys)/len(ys),1) if ys else None)
+          PY
+
+      - name: Remove temporary diagnostic workflow from branch
+        if: always()
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git rm -f .github/workflows/f22_dimension_chain_diagnostic.yml
+          git commit -m 'chore: remove temporary F22 dimension diagnostic workflow'
+          git push origin HEAD:feat/f22-bound-floor-envelope
