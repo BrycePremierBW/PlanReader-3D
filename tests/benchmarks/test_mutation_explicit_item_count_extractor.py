@@ -38,6 +38,20 @@ def test_dimensions_and_heights_are_not_misread_as_counts():
     assert extract_explicit_item_counts("300 x 300mm masonry piers, 4,500mm high") == []
 
 
+def test_hardware_fitting_count_is_not_misread_as_a_door_count():
+    # Real false positive found against a live project PDF: a door spec
+    # note's hinge count ("3 nos. butt hinges") was being read as "3 No.
+    # doors". The real PyMuPDF text block was itself truncated to
+    # "...batten door with 3 nos. butt" (the word "hinges" fell into a
+    # separate block), so "butt" alone must be enough to disqualify the
+    # clause.
+    assert extract_explicit_item_counts(
+        "1,000mm x 2,100mm timber\nbatten door with 3 nos. butt\n"
+    ) == []
+    assert extract_explicit_item_counts("Door complete with 4 No. butt hinges") == []
+    assert extract_explicit_item_counts("Window ironmongery: 2 No. fasteners") == []
+
+
 def test_two_counts_in_one_clause_fail_closed():
     assert extract_explicit_item_counts("7 No. columns plus 3 No. spare columns") == []
 

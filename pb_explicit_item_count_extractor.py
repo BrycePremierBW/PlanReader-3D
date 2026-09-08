@@ -37,6 +37,18 @@ _COUNT_PATTERN = re.compile(r"(?<![\d.])(?P<count>\d{1,3})\s*(?:No\.?s?|NOS?)(?!
 _TAG_PATTERN = re.compile(r"\b(?P<tag>[WD])\s*[-.]?\s*(?P<number>\d{1,3})(?!\d)", re.I)
 _CLAUSE_SPLIT = re.compile(r"[\n;|]+")
 
+# A count adjacent to hardware/fitting terms (e.g. "door with 3 nos. butt
+# hinges") is a fitting quantity, not an item count, and must never be
+# read as one -- found against a real project PDF whose PyMuPDF text
+# block was itself truncated to "...batten door with 3 nos. butt" (the
+# word "hinges" fell into a separate block), so "butt" alone must be
+# enough to disqualify a clause; requiring "butt hinge"/"hinge" together
+# would miss this real case.
+_HARDWARE_PATTERN = re.compile(
+    r"\bbutt\b|\bhinge\b|\bfastener\b|\blever\s*lock\b|\bironmongery\b|\bscrew\b|\bbolt\b|\bcleat\b",
+    re.I,
+)
+
 
 def _specific_tag(default_tag: str, clause: str) -> str:
     """Preserve a printed W/D mark when its trade agrees with the item."""
@@ -67,6 +79,8 @@ def extract_explicit_item_counts(text: str, *, max_item_distance: int = 96) -> L
             clause_start = offset
         offset = clause_start + len(raw_clause)
         if not clause:
+            continue
+        if _HARDWARE_PATTERN.search(clause):
             continue
 
         counts = list(_COUNT_PATTERN.finditer(clause))
