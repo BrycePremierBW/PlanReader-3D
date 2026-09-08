@@ -6,6 +6,8 @@ on:
 jobs:
   baseline:
     runs-on: ubuntu-24.04
+    env:
+      PYTHONPATH: .
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -28,11 +30,15 @@ jobs:
         run: |
           pytest -q tests/benchmarks/test_mutation_dimension_graph_constraint_engine.py tests/benchmarks/test_mutation_dimension_chain_evidence_extractor.py tests/benchmarks/test_benchmark_leakage_audit.py tests/benchmarks/test_mutation_leakage_cleanup.py
       - name: Full regression baseline
+        if: always()
         shell: bash
         run: |
           set +e
-          PYTHONPATH=. pytest -q tests/
+          pytest -q tests/
           status=$?
           echo "FULL_TEST_EXIT=$status"
           python tests/ci_smoke.py
-          exit $status
+          smoke_status=$?
+          echo "SMOKE_EXIT=$smoke_status"
+          if [ "$status" -ne 0 ]; then exit "$status"; fi
+          exit "$smoke_status"
