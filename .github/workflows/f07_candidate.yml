@@ -19,9 +19,9 @@ jobs:
           pip install -r requirements.txt -r requirements-ci-v1228.txt ruff
       - name: Static checks
         run: |
-          python -m compileall -q pb_viewport_segmentation.py tests/benchmarks/test_mutation_viewport_segmentation.py
-          ruff check --select F821,F823 pb_viewport_segmentation.py tests/benchmarks/test_mutation_viewport_segmentation.py
-          git diff --check HEAD^ HEAD
+          python -m compileall -q pb_viewport_segmentation.py pb_viewport_dimension_binding.py tests/benchmarks/test_mutation_viewport_segmentation.py tests/benchmarks/test_mutation_viewport_dimension_binding.py
+          ruff check --select F821,F823 pb_viewport_segmentation.py pb_viewport_dimension_binding.py tests/benchmarks/test_mutation_viewport_segmentation.py tests/benchmarks/test_mutation_viewport_dimension_binding.py
+          git diff --check
       - name: Focused F07 tests
         run: |
-          pytest -q tests/benchmarks/test_mutation_viewport_segmentation.py
+          pytest -q tests/benchmarks/test_mutation_viewport_segmentation.py tests/benchmarks/test_mutation_viewport_dimension_binding.py tests/benchmarks/test_mutation_figured_dimension_evidence.py tests/benchmarks/test_mutation_f13_nondestructive_chain_binding.py
