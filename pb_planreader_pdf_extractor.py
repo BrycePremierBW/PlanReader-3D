@@ -128,6 +128,31 @@ class GenericPlanReaderExtractor:
         )
 
     @staticmethod
+    def _has_surface_bed_specification(page_text: str) -> bool:
+        """Return whether drawing text explicitly specifies a substructure
+        surface bed / ground-bearing slab -- the same floor area that
+        substructure_bed_dpm and substructure_a142_mesh already key off,
+        but for the bed's own concrete rather than its DPM or mesh
+        reinforcement.
+
+        Requires BOTH a bed/slab term AND ground-siting context
+        (hardcore/compacted/blinding) nearby, so a suspended or roof slab
+        mention is never misread as a ground-bearing surface bed.
+        """
+        normalized = re.sub(r"\s+", " ", page_text.lower())
+        has_bed_or_slab_term = bool(re.search(
+            r"\bsurface\s*bed\b|\bfloor\s*bed\b|\bground\s*bed\b|"
+            r"\br\s*\.?\s*c\s*\.?\s*slab\b|\breinforced\s+concrete\s+slab\b|"
+            r"\bconcrete\s+bed\b",
+            normalized,
+        ))
+        has_ground_siting_context = bool(re.search(
+            r"\bhard\s*core\b|\bcompacted\s+(?:earth|ground|hardcore)\b|\bblinding\b",
+            normalized,
+        ))
+        return has_bed_or_slab_term and has_ground_siting_context
+
+    @staticmethod
     def _has_internal_plaster_finish(page_text: str) -> bool:
         """Recognize explicit internal plaster annotations across common grammar."""
         normalized = re.sub(r"\s+", " ", page_text.lower())
@@ -291,6 +316,7 @@ class GenericPlanReaderExtractor:
         global_has_dpc = False
         global_has_dpm = False
         global_has_mesh = False
+        global_has_surface_bed = False
         global_level_markers: List[Any] = []  # List[LevelMarker], imported lazily below
         global_dimension_chains: List[Any] = []  # List[DimensionChain], imported lazily below
 
@@ -328,6 +354,8 @@ class GenericPlanReaderExtractor:
                 global_has_dpm = True
             if "mesh a142" in norm_pg or "b.r.c" in norm_pg or "a142" in norm_pg:
                 global_has_mesh = True
+            if self._has_surface_bed_specification(norm_pg):
+                global_has_surface_bed = True
 
             # Cross-sectional building span from structural sections
             c_lines = [ln for ln in pg_txt.splitlines() if not any(k in ln.upper() for k in _addr_kws)]
@@ -717,6 +745,18 @@ class GenericPlanReaderExtractor:
                         tag="substructure_a142_mesh",
                         trade_type="structure",
                         description=f"Fabric mesh reinforcement A142 in floor bed ({tot_flr} m2)",
+                        quantity=tot_flr,
+                        unit="SM",
+                        confidence=0.90,
+                        source_page=page_num,
+                        sheet_number=sheet_no,
+                        metadata=flr_meta,
+                    )
+                if global_has_surface_bed and "substructure_surface_bed" not in pred_dict and tot_flr > 0:
+                    pred_dict["substructure_surface_bed"] = ExtractedPrediction(
+                        tag="substructure_surface_bed",
+                        trade_type="structure",
+                        description=f"Reinforced concrete ground-bearing surface bed ({tot_flr} m2)",
                         quantity=tot_flr,
                         unit="SM",
                         confidence=0.90,
