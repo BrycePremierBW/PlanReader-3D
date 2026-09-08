@@ -511,10 +511,65 @@ class GenericPlanReaderExtractor:
                 current_best_area = existing_area.quantity if existing_area else 0.0
 
                 if total_floor_screed > current_best_area or current_best_area == 0:
+                    # Internal clear floor-finish area (Phase F.21): a floor
+                    # finish (screed, tiling) is laid to the INTERNAL face of
+                    # the main room's walls, not its outer envelope -- a
+                    # plain geometric consequence of the same corroborated
+                    # wall-thickness evidence F.15 already resolves, not a
+                    # separate measurement. Only the main room's own outer
+                    # envelope shrinks by 2x thickness on each axis; a
+                    # verandah component (if any) has no comparable
+                    # enclosing-wall concept and keeps its own gross area
+                    # unchanged. The structural surface bed, DPM, and mesh
+                    # (below) deliberately keep reading the ORIGINAL gross
+                    # footprint basis via metadata["gross_floor_area_m2"] --
+                    # a slab does not stop short at the wall thickness the
+                    # way a finish does. Falls back to the unchanged
+                    # gross-envelope basis, byte-for-byte, whenever wall
+                    # thickness evidence does not resolve.
+                    from pb_internal_clear_floor_area import derive_internal_clear_floor_area
+                    clear_result = derive_internal_clear_floor_area(
+                        length_m, width_m, global_resolved_wall_thickness_m
+                    )
+
+                    verandah_component_area_m2 = 0.0
                     if global_verandah_width is not None and global_verandah_width > 0:
-                        desc_flr = f"Floor screed ({length_m}m x {width_m}m envelope + {length_m}m x {global_verandah_width}m verandah)"
+                        verandah_component_area_m2 = round(length_m * global_verandah_width, 4)
+
+                    floor_finish_extra_meta: Dict[str, Any] = {}
+                    if clear_result.status == "resolved":
+                        finish_floor_area_m2 = round(
+                            clear_result.internal_clear_area_m2 + verandah_component_area_m2, 4
+                        )
+                        floor_finish_confidence = 0.95
+                        floor_finish_extra_meta = {
+                            "derivation": "internal_clear_area_from_resolved_wall_thickness",
+                            "wall_thickness_m": global_resolved_wall_thickness_m,
+                            "outer_envelope_area_m2": total_floor_screed,
+                            "internal_clear_area_m2": clear_result.internal_clear_area_m2,
+                            "internal_clear_length_m": clear_result.internal_clear_length_m,
+                            "internal_clear_width_m": clear_result.internal_clear_width_m,
+                        }
+                        if global_verandah_width is not None and global_verandah_width > 0:
+                            desc_flr = (
+                                f"Floor screed (internal clear {clear_result.internal_clear_length_m}m x "
+                                f"{clear_result.internal_clear_width_m}m from {length_m}m x {width_m}m "
+                                f"envelope less {global_resolved_wall_thickness_m}m wall thickness + "
+                                f"{length_m}m x {global_verandah_width}m verandah)"
+                            )
+                        else:
+                            desc_flr = (
+                                f"Floor screed (internal clear {clear_result.internal_clear_length_m}m x "
+                                f"{clear_result.internal_clear_width_m}m from {length_m}m x {width_m}m "
+                                f"envelope less {global_resolved_wall_thickness_m}m wall thickness)"
+                            )
                     else:
-                        desc_flr = f"Floor screed ({length_m}m x {width_m}m envelope)"
+                        finish_floor_area_m2 = total_floor_screed
+                        floor_finish_confidence = 0.92
+                        if global_verandah_width is not None and global_verandah_width > 0:
+                            desc_flr = f"Floor screed ({length_m}m x {width_m}m envelope + {length_m}m x {global_verandah_width}m verandah)"
+                        else:
+                            desc_flr = f"Floor screed ({length_m}m x {width_m}m envelope)"
 
                     # External wall area: derived deterministically from perimeter * height.
                     # Opening deductions are only applied when openings are actually parsed.
@@ -534,9 +589,9 @@ class GenericPlanReaderExtractor:
                         tag="floor_screed",
                         trade_type="finishes",
                         description=desc_flr,
-                        quantity=total_floor_screed,
+                        quantity=finish_floor_area_m2,
                         unit="SM",
-                        confidence=0.92,
+                        confidence=floor_finish_confidence,
                         source_page=page_num,
                         sheet_number=sheet_no,
                         dimensions=[length_m, width_m],
@@ -550,6 +605,7 @@ class GenericPlanReaderExtractor:
                             "shared_edge_length_m": footprint_res.shared_edge_length_m,
                             "footprint_status": footprint_res.status,
                             "missing_components": footprint_res.missing_components,
+                            **floor_finish_extra_meta,
                         },
                     )
 
@@ -724,10 +780,16 @@ class GenericPlanReaderExtractor:
                         sheet_number=sheet_no,
                     )
 
-                # Substructure DPM & mesh: exactly equal to floor slab area
-                # NO 1.06 magic multiplier
-                tot_flr = pred_dict["floor_screed"].quantity
+                # Substructure DPM & mesh: exactly equal to floor slab area.
+                # NO 1.06 magic multiplier. Deliberately reads the ORIGINAL
+                # gross/outer footprint (metadata["gross_floor_area_m2"]),
+                # not floor_screed's own .quantity -- since F.21,
+                # floor_screed's quantity may be the internal CLEAR
+                # finish area (shrunk by wall thickness), but a
+                # structural slab and its DPM/mesh reinforcement span the
+                # full outer footprint, not the finish's clear area.
                 flr_meta = pred_dict["floor_screed"].metadata or {}
+                tot_flr = flr_meta.get("gross_floor_area_m2", pred_dict["floor_screed"].quantity)
                 if global_has_dpm and "substructure_bed_dpm" not in pred_dict and tot_flr > 0:
                     pred_dict["substructure_bed_dpm"] = ExtractedPrediction(
                         tag="substructure_bed_dpm",
