@@ -3,14 +3,14 @@
   "total_line_items": 58,
   "measurable_items_count": 12,
   "preliminaries_count": 2,
-  "provisional_sums_count": 2,
+  "provisional_sums_count": 1,
   "rate_only_count": 0,
   "not_architectural_count": 1,
   "classified_breakdown": {
     "measurable_from_drawings": 9,
     "schedule_extractable": 3,
     "scope_allowance_only": 0,
-    "provisional_sum": 2,
+    "provisional_sum": 1,
     "rate_only": 0,
     "preliminaries": 2,
     "not_architectural": 1,
@@ -125,16 +125,6 @@
       "category": "measurable_from_drawings",
       "drawing_sheet": "KSTVET/08/2024-AD01",
       "drawing_page": 54
-    },
-    {
-      "item_id": "substructure_surface_bed",
-      "description": "75mm thick R.C. slab on well compacted hardcore on well compacted earth (ELEMENT NO. 1: SUBSTRUCTURES, priced ALL PROVISIONAL per the BOQ's own SECTION SUMMARY)",
-      "expected_quantity": 0.0,
-      "unit": "SM",
-      "category": "provisional_sum",
-      "drawing_sheet": "KSTVET/08/2024-AD01",
-      "drawing_page": 54,
-      "notes": "Genuinely evidenced from the drawing (75mm thick R.C slab on well compacted hardcore on well compacted earth to S.E detail), but the real BOQ prices the entire SUBSTRUCTURES element as a single provisional sum (C/34, KSHS 323,750) with no separately-measurable quantity -- correctly excluded from accuracy scoring, not a hallucination."
     }
   ]
 }
