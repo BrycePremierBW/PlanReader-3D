@@ -15,10 +15,10 @@ verifiable rather than a matter of unaided discipline:
    (benchmarks/public_tenders/) and frozen holdout projects
    (benchmarks/frozen_holdout/), following the identical schema so
    nothing project-specific needs to be invented ad hoc.
-2. A registration step that hashes the ground-truth answer file
-   (expected_boq_summary.json) at the moment a project is registered,
-   and a verification step that proves -- by recomputed checksum -- it
-   has not been edited since, e.g. to quietly "improve" a score.
+2. A registration step that hashes every benchmark-defining JSON file
+   (source manifest, benchmark rules, expected project metadata, and the
+   ground-truth BOQ summary) at the moment a project is registered, and a
+   verification step that proves none of them have been edited since.
 3. A project-level separation check that rejects registering a holdout
    project whose project_number or organization matches an existing
    development project's, since expected quantities for such a project
@@ -54,8 +54,10 @@ class HoldoutRegistrationError(Exception):
 @dataclass
 class HoldoutLockRecord:
     project_id: str
-    expected_boq_summary_sha256: str
     source_manifest_sha256: str
+    benchmark_rules_sha256: str
+    expected_project_sha256: str
+    expected_boq_summary_sha256: str
     registered_at: str
     notes: str = ""
 
@@ -130,10 +132,11 @@ def register_holdout_project(
     _REQUIRED_FILES to be present and readable JSON, and (when
     development_project_dirs is given) rejects any project-identity
     collision with a known development project. Writes a lock file
-    recording the SHA-256 of the ground-truth answer file, so a later
-    call to verify_holdout_untouched() can prove it was never edited
-    after this point. Raises HoldoutRegistrationError on any failure --
-    never registers a partially-valid project."""
+    recording SHA-256 checksums of every benchmark-defining JSON file, so
+    a later call to verify_holdout_untouched() can prove the ground truth,
+    evaluation rules, source identity, and expected-project metadata were
+    not edited after registration. Raises HoldoutRegistrationError on any
+    failure -- never registers a partially-valid project."""
     if not project_dir.is_dir():
         raise HoldoutRegistrationError(f"{project_dir} is not a directory")
 
@@ -160,8 +163,10 @@ def register_holdout_project(
 
     record = HoldoutLockRecord(
         project_id=project_id,
-        expected_boq_summary_sha256=_sha256_of_file(project_dir / "expected_boq_summary.json"),
         source_manifest_sha256=_sha256_of_file(project_dir / "source_manifest.json"),
+        benchmark_rules_sha256=_sha256_of_file(project_dir / "benchmark_rules.json"),
+        expected_project_sha256=_sha256_of_file(project_dir / "expected_project.json"),
+        expected_boq_summary_sha256=_sha256_of_file(project_dir / "expected_boq_summary.json"),
         registered_at=datetime.now(timezone.utc).isoformat(),
         notes=notes,
     )
@@ -175,8 +180,8 @@ def verify_holdout_untouched(project_dir: Path) -> HoldoutVerificationResult:
     """Recompute checksums for a previously-registered holdout project and
     compare against its lock file. is_untouched is False (with details in
     mismatches) if the project was never registered, the lock file is
-    missing/corrupt, or either tracked file's content has changed since
-    registration."""
+    missing/corrupt/incomplete, or any benchmark-defining JSON file has
+    changed since registration."""
     checked_at = datetime.now(timezone.utc).isoformat()
     lock_path = project_dir / _LOCK_FILENAME
     project_id = project_dir.name
@@ -199,8 +204,10 @@ def verify_holdout_untouched(project_dir: Path) -> HoldoutVerificationResult:
     mismatches: List[str] = []
 
     for field_name, filename in (
-        ("expected_boq_summary_sha256", "expected_boq_summary.json"),
         ("source_manifest_sha256", "source_manifest.json"),
+        ("benchmark_rules_sha256", "benchmark_rules.json"),
+        ("expected_project_sha256", "expected_project.json"),
+        ("expected_boq_summary_sha256", "expected_boq_summary.json"),
     ):
         target_path = project_dir / filename
         if not target_path.exists():
@@ -208,6 +215,9 @@ def verify_holdout_untouched(project_dir: Path) -> HoldoutVerificationResult:
             continue
         current_hash = _sha256_of_file(target_path)
         recorded_hash = lock.get(field_name)
+        if not recorded_hash:
+            mismatches.append(f"{field_name} is missing from lock file")
+            continue
         if recorded_hash != current_hash:
             mismatches.append(
                 f"{filename} checksum changed since registration "
@@ -220,9 +230,10 @@ def verify_holdout_untouched(project_dir: Path) -> HoldoutVerificationResult:
 
 
 def list_registered_holdout_projects(holdout_root: Path) -> List[str]:
-    """Project ids under holdout_root that carry a valid lock file,
-    sorted for stable output. A project directory without a lock file
-    (not yet registered) is silently excluded, not an error."""
+    """Project ids under holdout_root that carry a lock file, sorted for
+    stable output. A project directory without a lock file (not yet
+    registered) is silently excluded, not an error. Use
+    verify_holdout_untouched() before scoring a listed project."""
     if not holdout_root.is_dir():
         return []
     registered = []
