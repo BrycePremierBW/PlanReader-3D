@@ -200,3 +200,32 @@ def test_mutation_4_ocr_noise_does_not_create_benchmark_shaped_outputs(tmp_path:
             f"Row {r.tag} synthesized benchmark quantity {r.quantity} from noise!"
         )
     assert len(rows) == 0
+
+def test_f16_explicit_item_counts_wire_into_schedule_rows(tmp_path: Path) -> None:
+    """Both grammatical directions reach production schedule output."""
+    extractor = GenericScheduleTableExtractor()
+    table = [["Mark", "Dimensions", "Quantity", "Description"]]
+    callouts = "14 No. steel columns\nSteel casement windows W8 - 6 Nos"
+    pdf = _create_mock_schedule_pdf(tmp_path, "explicit_counts.pdf", table, callouts)
+    doc = fitz.open(str(pdf))
+    rows = {row.tag: row for row in extractor.extract_from_document(doc)}
+
+    assert rows["structural_columns"].quantity == 14.0
+    assert rows["structural_columns"].source_page == 1
+    assert rows["W8"].quantity == 6.0
+    assert rows["W8"].trade_type == "windows"
+
+
+def test_f16_absent_explicit_marker_emits_no_item_count(tmp_path: Path) -> None:
+    extractor = GenericScheduleTableExtractor()
+    table = [["Mark", "Dimensions", "Quantity", "Description"]]
+    pdf = _create_mock_schedule_pdf(
+        tmp_path,
+        "no_explicit_count.pdf",
+        table,
+        "14 steel columns at 3.4m centres\nW8 steel casement window 1800 x 1200mm",
+    )
+    doc = fitz.open(str(pdf))
+    rows = extractor.extract_from_document(doc)
+
+    assert not [row for row in rows if row.tag in {"structural_columns", "W8"}]
