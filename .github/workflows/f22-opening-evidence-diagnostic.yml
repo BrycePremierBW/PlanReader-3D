@@ -1,0 +1,95 @@
+name: F22 Opening Evidence Diagnostic
+
+on:
+  push:
+    branches:
+      - diag/f22-opening-count-evidence
+    paths:
+      - .github/workflows/f22-opening-evidence-diagnostic.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - name: Install runtime dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Download and verify KSTVET drawing PDF
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 5 --retry-delay 3 \
+            'https://tenders.go.ke/storage/Documents/1727358888238-bq-nd-drawing.pdf' \
+            --output "$RUNNER_TEMP/kstvet.pdf"
+          echo '6856bfa739aa136dd8e0bf17cb25fd43d0d31c9c3dfe3252525454f09d8fa4dc  '"$RUNNER_TEMP/kstvet.pdf" | sha256sum --check
+      - name: Inspect opening evidence without reading benchmark gold
+        env:
+          PDF_PATH: ${{ runner.temp }}/kstvet.pdf
+          PYTHONPATH: .
+        run: |
+          python - <<'PY'
+          import os, re
+          import fitz
+          from pb_raster_schedule_extractor import GenericScheduleTableExtractor
+          from pb_planreader_pdf_extractor import GenericPlanReaderExtractor
+
+          path = os.environ['PDF_PATH']
+          doc = fitz.open(path)
+          print('PDF_PAGES', len(doc))
+
+          tags = ('W1', 'W2', 'D1')
+          for pno, page in enumerate(doc):
+              text = page.get_text('text')
+              lines = text.splitlines()
+              hits = []
+              for i, line in enumerate(lines):
+                  if any(re.search(rf'\b{tag}\b', line, re.I) for tag in tags):
+                      hits.append(i)
+              if hits:
+                  print(f'PAGE_TAG_CONTEXT page={pno+1} hits={hits}')
+                  shown = set()
+                  for i in hits:
+                      lo, hi = max(0, i-4), min(len(lines), i+5)
+                      key = (lo, hi)
+                      if key in shown:
+                          continue
+                      shown.add(key)
+                      print(f'  CONTEXT lines={lo}:{hi}')
+                      for j in range(lo, hi):
+                          print(f'    {j:04d}: {lines[j]!r}')
+
+              # Also print blocks containing relevant tag or opening dimensions.
+              for b_idx, b in enumerate(page.get_text('blocks')):
+                  btxt = str(b[4]).strip().replace('\n', ' | ')
+                  if (
+                      any(re.search(rf'\b{tag}\b', btxt, re.I) for tag in tags)
+                      or re.search(r'3[,.]?000\s*mm|2[,.]?900\s*mm|1[,.]?000\s*mm', btxt, re.I)
+                  ):
+                      print(f'BLOCK page={pno+1} idx={b_idx} bbox={b[:4]} text={btxt!r}')
+
+          schedule = GenericScheduleTableExtractor().extract_from_document(doc)
+          print('GENERIC_SCHEDULE_ROWS_BEGIN')
+          for row in schedule:
+              if row.tag.upper() in tags or row.trade_type in ('windows', 'doors'):
+                  print('SCHED_ROW', row.to_dict())
+          print('GENERIC_SCHEDULE_ROWS_END')
+          doc.close()
+
+          predictions = GenericPlanReaderExtractor().extract_from_pdf(path)
+          print('FINAL_OPENING_PREDICTIONS_BEGIN')
+          for p in predictions:
+              if p.tag.upper() in tags or p.trade_type in ('windows', 'doors'):
+                  print('PRED', p.to_dict())
+          print('FINAL_OPENING_PREDICTIONS_END')
+          PY
