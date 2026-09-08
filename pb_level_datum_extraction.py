@@ -55,11 +55,18 @@ _LEVEL_LABELS: Dict[str, Tuple[str, ...]] = {
     "ground": (r"ground\s*level", r"ground\s*floor(?!\s*plan\b)"),
 }
 
+# The sign is mandatory, not optional (F.23A): a level datum is always
+# stated relative to a reference in this drafting convention -- every
+# genuine occurrence found in real drawings so far carries an explicit
+# "+"/"-". A bare, unsigned number is far more likely to be unrelated
+# noise sitting next to the label by coincidence -- found against a real
+# false positive: "Roof Level 9'-6\" above datum" (imperial feet-inches
+# notation) matched the bare "9" as if it were a signed level value.
 # The trailing negative lookahead rejects a decimal-point value (e.g.
 # "+3.325") outright rather than silently mis-parsing its leading digits
 # (e.g. capturing just "+3") -- a format this module does not recognize
 # must yield no marker, never a wrong one.
-_LEVEL_VALUE = r"([+\-]?\d{1,3}(?:,\d{3})?)(?!\.\d)"
+_LEVEL_VALUE = r"([+\-]\d{1,3}(?:,\d{3})?)(?!\.\d)"
 
 
 def _parse_level_value_m(raw: str) -> float:

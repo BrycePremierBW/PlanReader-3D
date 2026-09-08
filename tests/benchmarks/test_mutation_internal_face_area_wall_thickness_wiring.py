@@ -67,7 +67,12 @@ class TestInternalFaceAreaWiring:
 
         assert plaster.metadata["derivation"] == "internal_face_area_from_resolved_wall_thickness"
         assert plaster.metadata["wall_thickness_m"] == 0.15
-        assert plaster.confidence == 0.8
+        # 0.65, not 0.8: this fixture provides genuine wall-thickness
+        # evidence but no level-datum height evidence (F.23A), so the
+        # height itself is still only the assumed default -- the result
+        # must not be presented at full confidence on that basis alone.
+        assert plaster.confidence == 0.65
+        assert plaster.metadata["wall_height_authority"] == "provisional"
         # Internal perimeter = external perimeter - 8 * thickness; a real,
         # strictly smaller internal face area than the external wall's.
         expected_internal_perimeter = wall.dimensions[0] - 8 * 0.15

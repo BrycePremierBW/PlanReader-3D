@@ -73,7 +73,7 @@ class TestDerivedFinishQuantitiesAreHonestlyLowConfidence:
         pred_map = _extract(tmp_path, include_plaster=True, include_key_pointing=True)
         assert "perimeter_walling" in pred_map
         wall = pred_map["perimeter_walling"]
-        assert wall.confidence == 0.88
+        assert wall.confidence == 0.6
         assert not (wall.metadata or {}).get("derivation")
 
     def test_internal_plaster_and_paint_are_marked_as_a_derived_proxy(self, tmp_path: Path) -> None:
@@ -111,7 +111,7 @@ class TestDerivedFinishQuantitiesAreHonestlyLowConfidence:
         assert "internal_paint" not in pred_map
         assert "external_key_pointing" not in pred_map
         # The independently measured prediction is unaffected either way.
-        assert pred_map["perimeter_walling"].confidence == 0.88
+        assert pred_map["perimeter_walling"].confidence == 0.6
 
     def test_floor_screed_is_independently_measured_and_untouched(self, tmp_path: Path) -> None:
         pred_map = _extract(tmp_path, include_plaster=True, include_key_pointing=True)
