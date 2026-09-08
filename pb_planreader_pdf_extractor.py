@@ -1045,68 +1045,108 @@ class GenericPlanReaderExtractor:
                     k in p_text.lower()
                     for k in ("schedule of doors", "schedule of windows", "window schedule", "door schedule")
                 )
+                # Broader, still-generic signal (bug fix, this PR): a real
+                # door/window schedule sheet does not always literally say
+                # "schedule" -- found against a real project PDF whose
+                # window/door detail sheet describes types via "Steel
+                # casement frames", "Fixed glass", door/frame material
+                # notes, with no "schedule" heading text anywhere on it.
+                # Only ever broadens the trigger, never narrows it: still
+                # requires zero usable native openings on this specific
+                # page before OCR is even considered.
+                has_opening_keyword = any(
+                    k in p_text.lower()
+                    for k in (
+                        "casement", "glazing", "glazed", "steel frame",
+                        "timber door", "flush door", "panelled door", "panel door",
+                    )
+                )
 
-                native_insufficient = is_scanned_or_raster or (has_schedule_word and not has_complete_native_openings)
+                native_insufficient = is_scanned_or_raster or (
+                    (has_schedule_word or has_opening_keyword) and not has_complete_native_openings
+                )
                 if not native_insufficient:
                     continue
-                    ocr_lines = ocr_engine.recognize_page_rect(page, dpi=150)
-                    ocr_records: List[DrawingEvidenceRecord] = []
-                    for o_line in ocr_lines:
-                        rec = DrawingEvidenceParser.parse_schedule_line(
-                            o_line["text"],
-                            source_page=p_num + 1,
-                            bbox=o_line.get("bounding_box"),
-                            confidence=o_line.get("confidence", 0.85),
-                            method=EvidenceMethod.RASTER_OCR.value,
-                        )
-                        if rec:
-                            ocr_records.append(rec)
 
-                    if ocr_records:
-                        native_records = []
-                        for tag, pred in list(pred_dict.items()):
-                            if pred.source_page == p_num + 1:
-                                native_records.append(
-                                    DrawingEvidenceRecord(
-                                        tag=pred.tag,
-                                        trade_type=pred.trade_type,
-                                        description=pred.description,
-                                        quantity=pred.quantity,
-                                        unit=pred.unit,
-                                        dimensions=pred.dimensions,
-                                        source_page=pred.source_page,
-                                        bounding_box=pred.bounding_box,
-                                        extracted_text=pred.description,
-                                        extracted_value=pred.quantity,
-                                        confidence=pred.confidence,
-                                        extraction_method=EvidenceMethod.NATIVE_TEXT.value,
-                                        status=EvidenceStatus.CONFIRMED.value,
-                                    )
+                # Bug fix (this PR): the OCR extraction below previously sat
+                # unreachable after an unconditional `continue` in the
+                # branch that skips OCR (native already sufficient) --
+                # meaning Phase F.10's OCR evidence layer never actually
+                # ran, on any page, regardless of native sufficiency. It now
+                # correctly runs only in the remaining case: native
+                # evidence on this page is insufficient (raster/scanned
+                # sheet, or a schedule-word page with incomplete native
+                # window/door quantities).
+                ocr_lines = ocr_engine.recognize_page_rect(page, dpi=150)
+                ocr_records: List[DrawingEvidenceRecord] = []
+                for o_line in ocr_lines:
+                    rec = DrawingEvidenceParser.parse_schedule_line(
+                        o_line["text"],
+                        source_page=p_num + 1,
+                        bbox=o_line.get("bounding_box"),
+                        confidence=o_line.get("confidence", 0.85),
+                        method=EvidenceMethod.RASTER_OCR.value,
+                    )
+                    if rec:
+                        ocr_records.append(rec)
+
+                if ocr_records:
+                    # Bug fix (this PR): this reconciliation is strictly a
+                    # window/door evidence layer -- collecting every
+                    # prediction on the page regardless of trade_type (as
+                    # written before this fix) meant an unrelated
+                    # prediction (e.g. internal_plaster, structural_columns)
+                    # would be round-tripped through DrawingEvidenceRecord
+                    # and rebuilt below with a bare extraction_method/
+                    # raw_evidence_ref/status metadata dict, silently
+                    # discarding its real metadata (e.g. "derivation").
+                    # Newly reachable now that the dead-code bug above is
+                    # fixed, so this scope restriction is what keeps that
+                    # activation additive rather than destructive.
+                    native_records = []
+                    for tag, pred in list(pred_dict.items()):
+                        if pred.source_page == p_num + 1 and pred.trade_type in ("windows", "doors"):
+                            native_records.append(
+                                DrawingEvidenceRecord(
+                                    tag=pred.tag,
+                                    trade_type=pred.trade_type,
+                                    description=pred.description,
+                                    quantity=pred.quantity,
+                                    unit=pred.unit,
+                                    dimensions=pred.dimensions,
+                                    source_page=pred.source_page,
+                                    bounding_box=pred.bounding_box,
+                                    extracted_text=pred.description,
+                                    extracted_value=pred.quantity,
+                                    confidence=pred.confidence,
+                                    extraction_method=EvidenceMethod.NATIVE_TEXT.value,
+                                    status=EvidenceStatus.CONFIRMED.value,
                                 )
+                            )
 
-                        reconciled = EvidenceReconciler.reconcile(native_records, ocr_records)
-                        for r in reconciled:
-                            if r.status == EvidenceStatus.CONFIRMED.value and r.quantity is not None and r.quantity > 0:
-                                if r.tag not in pred_dict or r.confidence >= pred_dict[r.tag].confidence:
-                                    pred_dict[r.tag] = ExtractedPrediction(
-                                        tag=r.tag,
-                                        trade_type=r.trade_type,
-                                        description=r.description,
-                                        quantity=r.quantity,
-                                        unit=r.unit,
-                                        confidence=r.confidence,
-                                        source_page=r.source_page,
-                                        dimensions=r.dimensions,
-                                        bounding_box=r.bounding_box,
-                                        metadata={
-                                            "extraction_method": r.extraction_method,
-                                            "raw_evidence_ref": r.raw_evidence_ref,
-                                            "status": r.status,
-                                        },
-                                    )
-                            elif r.status == EvidenceStatus.CONFLICT_MANUAL_REVIEW.value:
-                                if r.tag in pred_dict:
-                                    del pred_dict[r.tag]
+                    reconciled = EvidenceReconciler.reconcile(native_records, ocr_records)
+                    for r in reconciled:
+                        if r.status == EvidenceStatus.CONFIRMED.value and r.quantity is not None and r.quantity > 0:
+                            if r.tag not in pred_dict or r.confidence >= pred_dict[r.tag].confidence:
+                                pred_dict[r.tag] = ExtractedPrediction(
+                                    tag=r.tag,
+                                    trade_type=r.trade_type,
+                                    description=r.description,
+                                    quantity=r.quantity,
+                                    unit=r.unit,
+                                    confidence=r.confidence,
+                                    source_page=r.source_page,
+                                    dimensions=r.dimensions,
+                                    bounding_box=r.bounding_box,
+                                    metadata={
+                                        "extraction_method": r.extraction_method,
+                                        "raw_evidence_ref": r.raw_evidence_ref,
+                                        "status": r.status,
+                                    },
+                                )
+                        elif r.status == EvidenceStatus.CONFLICT_MANUAL_REVIEW.value:
+                            if r.tag in pred_dict:
+                                del pred_dict[r.tag]
         except Exception:
             pass
 
