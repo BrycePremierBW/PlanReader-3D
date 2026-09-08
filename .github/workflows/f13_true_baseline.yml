@@ -1,0 +1,36 @@
+name: F13 True Main Baseline
+on:
+  push:
+    branches: [diag/f13-main-baseline]
+
+jobs:
+  baseline:
+    runs-on: ubuntu-24.04
+    env:
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-ci-v1228.txt ruff
+      - name: Static validation
+        run: |
+          python -m compileall -q .
+          ruff check --select F821,F823 .
+          node --check planreader_takeoff_studio/frontend/studio.js
+          python scripts/check_benchmark_gold_separation.py
+      - name: Existing F13 safety baseline
+        run: |
+          pytest -q tests/benchmarks/test_mutation_dimension_graph_constraint_engine.py tests/benchmarks/test_mutation_dimension_chain_evidence_extractor.py tests/benchmarks/test_benchmark_leakage_audit.py tests/benchmarks/test_mutation_leakage_cleanup.py
+      - name: Full regression baseline
+        shell: bash
+        run: |
+          pytest -q tests/
+          python tests/ci_smoke.py
