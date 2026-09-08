@@ -113,6 +113,21 @@ class GenericPlanReaderExtractor:
         return f"Page-{page_number}"
 
     @staticmethod
+    def _has_dpm_specification(page_text: str) -> bool:
+        """Return whether drawing text explicitly specifies a damp-proof membrane.
+
+        CAD exports commonly remove punctuation from ``D.P.M.`` and may spell the
+        material out without mentioning polythene.  Keep DPC/course wording out:
+        a damp-proof course is a different measured item.
+        """
+        normalized = re.sub(r"\s+", " ", page_text.lower())
+        return bool(
+            re.search(r"\bd\s*\.?\s*p\s*\.?\s*m\s*\.?\b", normalized)
+            or re.search(r"\bdamp[\s-]*proof\s+membrane\b", normalized)
+            or re.search(r"\bpolythene\b", normalized)
+        )
+
+    @staticmethod
     def _detect_outer_envelope(
         parsed_dims_m: List[float],
         detected_span: Optional[float],
@@ -260,7 +275,7 @@ class GenericPlanReaderExtractor:
             # Material specification mentions
             if "d.p.c" in norm_pg or "damp proof course" in norm_pg:
                 global_has_dpc = True
-            if "d.p.m" in norm_pg or "polythene" in norm_pg:
+            if self._has_dpm_specification(norm_pg):
                 global_has_dpm = True
             if "mesh a142" in norm_pg or "b.r.c" in norm_pg or "a142" in norm_pg:
                 global_has_mesh = True
