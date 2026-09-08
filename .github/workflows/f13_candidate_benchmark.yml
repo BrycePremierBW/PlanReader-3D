@@ -1,0 +1,85 @@
+name: F13 Candidate Benchmark
+on:
+  push:
+    branches: [work/f13-vector-dimension-binding]
+
+jobs:
+  compare:
+    runs-on: ubuntu-24.04
+    env:
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-ci-v1228.txt
+      - name: Download and verify unchanged development PDFs
+        run: |
+          mkdir -p /tmp/pr-pdfs
+          curl -fL --retry 4 --retry-delay 3 -o /tmp/pr-pdfs/kstvet.pdf 'https://tenders.go.ke/storage/Documents/1727358888238-bq-nd-drawing.pdf'
+          curl -fL --retry 4 --retry-delay 3 -o /tmp/pr-pdfs/murera.pdf 'https://tenders.go.ke/storage/Documents/1785347143869-bqs-drawings.pdf'
+          echo '6856bfa739aa136dd8e0bf17cb25fd43d0d31c9c3dfe3252525454f09d8fa4dc  /tmp/pr-pdfs/kstvet.pdf' | sha256sum -c -
+          echo '84dec737ede7adfa32b02c6732d4289a6a2d25f7ae50cf07209428f1b4e0c94b  /tmp/pr-pdfs/murera.pdf' | sha256sum -c -
+      - name: Create clean main worktree
+        run: |
+          git fetch origin main
+          git worktree add /tmp/pr-main origin/main
+      - name: Run current main benchmarks
+        run: |
+          cd /tmp/pr-main
+          mkdir -p /tmp/f13-main-results
+          PYTHONPATH=. python pb_benchmark_accuracy_engine.py --benchmark tenders_ke_kstvet_cbc_classroom --pdf /tmp/pr-pdfs/kstvet.pdf --output-dir /tmp/f13-main-results
+          PYTHONPATH=. python pb_benchmark_accuracy_engine.py --benchmark tenders_ke_murera_science_lab --pdf /tmp/pr-pdfs/murera.pdf --output-dir /tmp/f13-main-results
+      - name: Run candidate benchmarks
+        run: |
+          mkdir -p /tmp/f13-candidate-results
+          PYTHONPATH=. python pb_benchmark_accuracy_engine.py --benchmark tenders_ke_kstvet_cbc_classroom --pdf /tmp/pr-pdfs/kstvet.pdf --output-dir /tmp/f13-candidate-results
+          PYTHONPATH=. python pb_benchmark_accuracy_engine.py --benchmark tenders_ke_murera_science_lab --pdf /tmp/pr-pdfs/murera.pdf --output-dir /tmp/f13-candidate-results
+      - name: Compare score and item deltas
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          projects = [
+              'tenders_ke_kstvet_cbc_classroom',
+              'tenders_ke_murera_science_lab',
+          ]
+          totals = {'main': [0, 0], 'candidate': [0, 0]}
+          for project in projects:
+              reports = {}
+              for side, root in [('main', '/tmp/f13-main-results'), ('candidate', '/tmp/f13-candidate-results')]:
+                  p = Path(root) / f'{project}_accuracy_report.json'
+                  reports[side] = json.loads(p.read_text())
+                  s = reports[side]['summary']
+                  accepted = s['exact_matches'] + s['within_5_percent']
+                  denom = s['total_items_compared']
+                  totals[side][0] += accepted
+                  totals[side][1] += denom
+                  print(f'{side.upper()} {project}: accepted={accepted}/{denom} accuracy={s["overall_accuracy_percentage"]}% hallucinations={s["hallucinated_items"]} missed={s["missed_items"]}')
+
+              main_items = {i['item_id']: i for i in reports['main']['item_results']}
+              cand_items = {i['item_id']: i for i in reports['candidate']['item_results']}
+              changed = []
+              for item_id in sorted(set(main_items) | set(cand_items)):
+                  m = main_items.get(item_id)
+                  c = cand_items.get(item_id)
+                  sig_m = None if m is None else (m['extracted_quantity'], m['status'], m['pct_error'])
+                  sig_c = None if c is None else (c['extracted_quantity'], c['status'], c['pct_error'])
+                  if sig_m != sig_c:
+                      changed.append((item_id, sig_m, sig_c))
+              print(f'ITEM_DELTAS {project}: {changed}')
+
+          for side in ('main', 'candidate'):
+              accepted, denom = totals[side]
+              pct = accepted / denom * 100 if denom else None
+              print(f'COMBINED {side.upper()}: accepted={accepted}/{denom} accuracy={pct:.2f}%')
+          delta = (totals['candidate'][0] / totals['candidate'][1] * 100) - (totals['main'][0] / totals['main'][1] * 100)
+          print(f'COMBINED_DELTA_PERCENTAGE_POINTS={delta:.2f}')
+          PY
