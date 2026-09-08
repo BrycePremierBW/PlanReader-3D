@@ -242,7 +242,7 @@ _METRIC_MM_RE = re.compile(r"^\s*(\d+(?:[,.]\d+)?)\s*mm\s*$", re.I)
 _METRIC_M_RE = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*m\s*$", re.I)
 _BARE_MM_RE = re.compile(r"^\s*(\d{2,5}|\d{1,2}[,.]\d{3})\s*$")
 _IMPERIAL_RE = re.compile(
-    r"^\s*(?:(\d+)\s*(?:'|ft))?\s*(?:(\d+(?:\.\d+)?)\s*(?:\"|in))?\s*$",
+    r"^\s*(?:(\d+)\s*(?:'|ft))?\s*[-–]?\s*(?:(\d+(?:\.\d+)?)\s*(?:\"|in))?\s*$",
     re.I,
 )
 _CONTEXT_KIND_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
