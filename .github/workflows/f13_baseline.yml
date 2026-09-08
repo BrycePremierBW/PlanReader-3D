@@ -7,6 +7,7 @@ jobs:
   baseline:
     runs-on: ubuntu-24.04
     env:
+      # Root-level pb_*.py modules are imported directly by the benchmark suite.
       PYTHONPATH: .
     steps:
       - uses: actions/checkout@v4
