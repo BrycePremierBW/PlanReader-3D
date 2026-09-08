@@ -598,6 +598,87 @@ class GenericPlanReaderExtractor:
                         },
                     )
 
+                    # --------------------------------------------------------
+                    # F.21: Generic reinforced-floor-slab classification and
+                    # geometry binding. Emits `reinforced_floor_slab` only
+                    # when a recognized slab annotation spatially binds --
+                    # via its own real PDF word position, never page-wide
+                    # keyword presence -- to this page's already-confirmed
+                    # footprint envelope, with a corroborated thickness and
+                    # no conflicting evidence. Reuses the exact same
+                    # authoritative footprint (footprint_res /
+                    # structural_bed_area_m2) already relied on for
+                    # floor_screed/DPM/mesh above -- never a second,
+                    # disconnected geometry pipeline. See
+                    # pb_slab_classification_geometry.py for the full
+                    # resolution engine and its documented scope limits.
+                    # --------------------------------------------------------
+                    from pb_multi_space_footprint_geometry import FootprintStatus
+
+                    if (
+                        "reinforced_floor_slab" not in pred_dict
+                        and footprint_res.status == FootprintStatus.CONFIRMED.value
+                        and not footprint_res.missing_components
+                    ):
+                        from pb_slab_classification_geometry import (
+                            CandidateBoundary,
+                            SlabResolutionState,
+                            dimension_word_bbox_envelope,
+                            resolve_slabs_from_page,
+                        )
+
+                        slab_spatial_envelope = dimension_word_bbox_envelope(page)
+                        if slab_spatial_envelope is not None:
+                            slab_boundary = CandidateBoundary(
+                                boundary_id=f"footprint_p{page_num}",
+                                polygon=[
+                                    (0.0, 0.0),
+                                    (length_m, 0.0),
+                                    (length_m, width_m),
+                                    (0.0, width_m),
+                                ],
+                                area_m2=structural_bed_area_m2,
+                                source_page=page_num,
+                                units_authoritative=True,
+                                spatial_envelope=slab_spatial_envelope,
+                            )
+                            slab_entities = resolve_slabs_from_page(
+                                page, [slab_boundary], source_page=page_num
+                            )
+                            resolved_slabs = [
+                                e
+                                for e in slab_entities
+                                if e.resolution_state == SlabResolutionState.RESOLVED.value
+                                and e.area_m2 is not None
+                            ]
+                            if len(resolved_slabs) == 1:
+                                slab = resolved_slabs[0]
+                                pred_dict["reinforced_floor_slab"] = ExtractedPrediction(
+                                    tag="reinforced_floor_slab",
+                                    trade_type="structure",
+                                    description=(
+                                        f"Reinforced concrete floor slab "
+                                        f"({slab.slab_type}, {slab.thickness_mm}mm thick)"
+                                    ),
+                                    quantity=slab.area_m2,
+                                    unit="SM",
+                                    confidence=0.75,
+                                    source_page=page_num,
+                                    sheet_number=sheet_no,
+                                    dimensions=[length_m, width_m],
+                                    metadata={
+                                        "slab_id": slab.slab_id,
+                                        "slab_type": slab.slab_type,
+                                        "thickness_mm": slab.thickness_mm,
+                                        "reinforcement": [
+                                            asdict(r) for r in slab.reinforcement
+                                        ],
+                                        "boundary_id": slab_boundary.boundary_id,
+                                        "resolution_state": slab.resolution_state,
+                                        "provenance": slab.provenance,
+                                    },
+                                )
+
                     height_desc = (
                         f"{effective_wall_height_m}m height (resolved from Roof/Floor "
                         f"level datum evidence)"
