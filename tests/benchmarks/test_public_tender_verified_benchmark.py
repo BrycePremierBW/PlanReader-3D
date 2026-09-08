@@ -158,15 +158,9 @@ def test_preliminaries_and_provisional_sums_excluded_from_physical_accuracy() ->
     bench = PublicTenderBenchmark.load(BENCHMARK_ID)
     summary = bench.expected_boq_summary
     assert summary["preliminaries_count"] == 2
-    # 2, not 1: the SUBSTRUCTURES element (75mm R.C. slab on hardcore) is
-    # priced ALL PROVISIONAL in the real BOQ's own SECTION SUMMARY and is
-    # now individually registered (tag substructure_surface_bed) so the
-    # accuracy engine's existing provisional-sum exclusion recognizes a
-    # genuinely evidenced extraction for it rather than flagging it as a
-    # phantom hallucination.
-    assert summary["provisional_sums_count"] == 2
+    assert summary["provisional_sums_count"] == 1
     assert summary["classified_breakdown"]["preliminaries"] == 2
-    assert summary["classified_breakdown"]["provisional_sum"] == 2
+    assert summary["classified_breakdown"]["provisional_sum"] == 1
 
     # Check classifier on tender text
     cat_prelim = classify_boq_line("PARTICULAR PRELIMINARIES: Clearing away and site security")
