@@ -128,6 +128,28 @@ class GenericPlanReaderExtractor:
         )
 
     @staticmethod
+    def _has_internal_plaster_finish(page_text: str) -> bool:
+        """Recognize explicit internal plaster annotations across common grammar."""
+        normalized = re.sub(r"\s+", " ", page_text.lower())
+        fixed_phrases = (
+            "internal plaster",
+            "plaster to internal",
+            "plaster and paint",
+            "finish internally",
+            "two-coat plaster",
+            "two coat plaster",
+            "internal wall finish",
+        )
+        if any(phrase in normalized for phrase in fixed_phrases):
+            return True
+        return bool(
+            re.search(
+                r"\bplaster(?:ed|ing)?\b[^.\n;]{0,45}\binternally\b",
+                normalized,
+            )
+        )
+
+    @staticmethod
     def _detect_outer_envelope(
         parsed_dims_m: List[float],
         detected_span: Optional[float],
@@ -554,11 +576,7 @@ class GenericPlanReaderExtractor:
                     if internal_perimeter_m > 0:
                         internal_face_gross_area_m2 = round(internal_perimeter_m * cur_height, 4)
 
-                if any(k in pt_norm for k in (
-                    "internal plaster", "plaster to internal", "plaster and paint",
-                    "finish internally", "two-coat plaster", "two coat plaster",
-                    "internal wall finish",
-                )):
+                if self._has_internal_plaster_finish(page_text):
                     if internal_face_gross_area_m2 is not None:
                         _internal_face_derivation = {
                             "derivation": "internal_face_area_from_resolved_wall_thickness",
