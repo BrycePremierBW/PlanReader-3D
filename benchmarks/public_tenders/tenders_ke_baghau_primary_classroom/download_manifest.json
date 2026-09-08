@@ -1,0 +1,30 @@
+{
+  "benchmark_id": "tenders_ke_baghau_primary_classroom",
+  "tender_reference": "NG-CDF Mwatate FY2024/2025",
+  "publisher": "Kenya Public Procurement Information Portal / NG-CDF Mwatate Constituency",
+  "source_url": "https://tenders.go.ke/storage/Documents/1747803602496-bq-and-drawing.pdf",
+  "retrieval_date": "2026-09-08",
+  "documents": [
+    {
+      "filename": "1747803602496-bq-and-drawing.pdf",
+      "role": "architectural_drawings",
+      "description": "Combined package; page 36 contains floor, foundation and roof plans, elevations 01-03 and Section AA",
+      "sha256": "45e68a914776f539b8290133fb28acb29601e22cf269fe003759c5f9f93be40f",
+      "file_size_bytes": 695645,
+      "expected_pages": 36,
+      "drawing_pages": [36],
+      "total_pages": 36
+    },
+    {
+      "filename": "1747803602496-bq-and-drawing.pdf",
+      "role": "bill_of_quantities",
+      "description": "Combined package; project BOQ and summaries preceding the matching drawing sheet",
+      "sha256": "45e68a914776f539b8290133fb28acb29601e22cf269fe003759c5f9f93be40f",
+      "file_size_bytes": 695645,
+      "expected_pages": 36,
+      "boq_pages": [1, 35],
+      "total_pages": 36
+    }
+  ],
+  "download_notes": "Direct official download. SHA-256, byte size, page count, project identity and page roles independently verified on 2026-09-08."
+}
