@@ -6,6 +6,7 @@ on:
       - fix/revert-benchmark-gold-edit-pr202
     paths:
       - tools/_revert_pr202_benchmark_gold.py
+      - .github/workflows/revert-pr202-benchmark-gold.yml
 
 permissions:
   contents: write
