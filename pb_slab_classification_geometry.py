@@ -577,23 +577,29 @@ def resolve_slabs_from_text(
     return resolved
 
 
+# Same dimension-shaped-word test as pb_dimension_chain_evidence_extractor's
+# own _DIM_WORD_RE (F.15) -- duplicated as a plain, self-contained regex
+# constant rather than imported cross-module, so this module's real-PDF
+# spatial-envelope path never depends on that sibling module's own import
+# order or internal (leading-underscore) surface.
+_DIMENSION_LIKE_WORD_RE = re.compile(r"^\d{1,2}[,.]?\d{3}$|^\d{2,4}$")
+
+
 def dimension_word_bbox_envelope(page: Any) -> Optional[Tuple[float, float, float, float]]:
     """Real page-space bounding envelope of every dimension-shaped word on
     this page -- the same word-shape test pb_dimension_chain_evidence_extractor
-    already uses to build DimensionChain evidence (reused directly, not
-    reinvented). A genuine, evidence-bounded region of the page -- not the
-    whole page, and not a synthetic reconstruction -- used as the spatial
-    region a slab annotation must be near to bind to the footprint those
-    same dimension words produced. None if no dimension-shaped words are
-    found on the page."""
-    from pb_dimension_chain_evidence_extractor import _DIM_WORD_RE
-
+    uses to build DimensionChain evidence (see _DIMENSION_LIKE_WORD_RE). A
+    genuine, evidence-bounded region of the page -- not the whole page, and
+    not a synthetic reconstruction -- used as the spatial region a slab
+    annotation must be near to bind to the footprint those same dimension
+    words produced. None if no dimension-shaped words are found on the
+    page."""
     xs0: List[float] = []
     ys0: List[float] = []
     xs1: List[float] = []
     ys1: List[float] = []
     for w in page.get_text("words"):
-        if not _DIM_WORD_RE.match(w[4]):
+        if not _DIMENSION_LIKE_WORD_RE.match(w[4]):
             continue
         xs0.append(w[0])
         ys0.append(w[1])
