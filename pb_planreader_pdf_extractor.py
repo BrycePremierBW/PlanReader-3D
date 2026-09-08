@@ -150,6 +150,33 @@ class GenericPlanReaderExtractor:
         )
 
     @staticmethod
+    def _contextual_opening_tag_counts(page_text: str) -> Dict[str, Tuple[str, int]]:
+        """Count explicitly annotated opening tags using their semantic context.
+
+        Some drawing standards use ``WD-##`` and ``DR-##`` rather than ``W#``
+        and ``D#``.  WD is accepted as a window only when both a window heading
+        and a hung/casement descriptor are present; this avoids treating common
+        wood-door or drawing-number abbreviations as window instances.
+        """
+        normalized = re.sub(r"\s+", " ", page_text)
+        has_window_scope = bool(re.search(r"\bwindows?\b", normalized, re.I))
+        counts: Counter[str] = Counter()
+        trades: Dict[str, str] = {}
+        pattern = re.compile(r"\b(WD|DR)[-_ ]?0*(\d{1,3})\b\s*\(([^)]{1,60})\)", re.I)
+        for prefix, number, descriptor in pattern.findall(normalized):
+            if prefix.upper() == "WD":
+                if not has_window_scope or not re.search(r"\b(?:side|top)[ -]?hung\b|\bcasement\b", descriptor, re.I):
+                    continue
+                tag, trade = f"W{int(number)}", "windows"
+            else:
+                if not re.search(r"\b(?:door|casement|panel(?:led)?|flush|batten|steel|timber)\b", descriptor, re.I):
+                    continue
+                tag, trade = f"D{int(number)}", "doors"
+            counts[tag] += 1
+            trades[tag] = trade
+        return {tag: (trades[tag], count) for tag, count in counts.items()}
+
+    @staticmethod
     def _detect_outer_envelope(
         parsed_dims_m: List[float],
         detected_span: Optional[float],
@@ -912,6 +939,23 @@ class GenericPlanReaderExtractor:
                         "scope": "primary_building",
                         "reconciliation_status": r_d1.status,
                     },
+                )
+
+            # Alternate explicit opening-tag conventions. Existing reconciled
+            # schedule/geometry predictions retain authority when present.
+            for opening_tag, (trade, count) in self._contextual_opening_tag_counts(page_text).items():
+                if opening_tag in pred_dict:
+                    continue
+                pred_dict[opening_tag] = ExtractedPrediction(
+                    tag=opening_tag,
+                    trade_type=trade,
+                    description=f"{opening_tag} explicit tagged opening occurrences",
+                    quantity=float(count),
+                    unit="NO",
+                    confidence=0.88,
+                    source_page=page_num,
+                    sheet_number=sheet_no,
+                    metadata={"derivation": "contextual_explicit_opening_tag_count"},
                 )
 
             # steel_casement_windows: ONLY if a total schedule count is explicitly found in drawing text
