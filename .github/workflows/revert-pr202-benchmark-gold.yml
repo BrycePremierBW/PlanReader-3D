@@ -1,0 +1,39 @@
+name: Revert PR202 Benchmark Gold Edit
+
+on:
+  push:
+    branches:
+      - fix/revert-benchmark-gold-edit-pr202
+    paths:
+      - tools/_revert_pr202_benchmark_gold.py
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/revert-benchmark-gold-edit-pr202
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Apply revert
+        run: python tools/_revert_pr202_benchmark_gold.py
+      - name: Validate JSON and test syntax
+        run: |
+          python -m json.tool benchmarks/public_tenders/tenders_ke_kstvet_cbc_classroom/expected_boq_summary.json > /dev/null
+          python -m py_compile tests/benchmarks/test_public_tender_verified_benchmark.py
+      - name: Remove temporary patch machinery and push result
+        run: |
+          rm tools/_revert_pr202_benchmark_gold.py
+          rm .github/workflows/revert-pr202-benchmark-gold.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix(benchmark): revert post-score KSTVET gold edit"
+          git push origin HEAD:fix/revert-benchmark-gold-edit-pr202
