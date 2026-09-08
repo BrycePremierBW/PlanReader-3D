@@ -1,67 +1,61 @@
-"""pb_dimension_chain_evidence_extractor.py — Spatial Dimension-Chain
-Reconstruction from Real PDF Word Positions (Phase F.15).
+"""Spatial dimension-chain reconstruction from real PDF evidence (F.15 / F.13).
 
-F.13 (pb_dimension_graph_constraint_engine.py) resolves geometry from
-DimensionChain evidence, but its own docstring flags an explicit scope
-limit: it "operates on already-tokenized DimensionObservation records, not
-on raw PDF bytes" — wiring a real extractor to emit those records was
-left as a separate, later PR. This module is that wiring, for the text
-layer (native PDF text, not vector/OCR).
+F.13's constraint graph operates on ``DimensionObservation`` records.  The
+original F.15 wiring reconstructed horizontal chains from native PDF word
+positions only.  It is intentionally kept as the conservative wall-thickness
+entry point, but now consumes the typed/raw F.13 evidence layer so that:
 
-The reason this needs real *positional* reconstruction, not another flat
-text-order regex pass: a real drawing sheet often stacks several distinct
-dimension lines (an overall dimension, several room-by-room dimension
-strings, a structural grid) at different heights on the page. PyMuPDF's
-plain reading-order text interleaves all of them into one token stream —
-verified directly against a real project PDF, where a genuine
-"150 / 9,850 / 150" wall-enclosed room span was hopelessly jumbled
-together with several *other* unrelated dimension lines in flat text
-order. Grouping words by row position (`page.get_text("words")`, y-band
-clustering) untangles this correctly, because collinear figures on one
-leader line are, physically, at the same page height.
+- drafting identities such as room/grid/revision/sheet numbers are rejected by
+  grammar/context rather than numeric value blacklists;
+- native vector dimension/witness lines can enrich observations with anchors;
+- ambiguous vector bindings fail closed;
+- F.15's proven horizontal-row behavior remains compatible until F.07 can
+  provide trustworthy viewport segmentation for unscoped vertical chains.
 
-Corroboration requirement: a single chain's own classify_chain_segments()
-can mistake a coincidental plausible-range endpoint pair for a genuine
-wall-thickness bracket — found during development, an elevation's
-window-bay spacing row ("325 / 2,900 / 350 / 3,000 / 360 / 2,900 / 315")
-independently satisfies F.13's wall-thickness plausibility range at both
-ends purely by coincidence, despite not being a wall at all.
-resolve_corroborated_wall_thickness_m() therefore requires the same
-thickness value to be independently produced by at least two distinct
-row-derived chains before treating it as resolved — a real reliability
-check on top of what F.13 already does per chain, not a tuned threshold.
+The richer all-orientation evidence API lives in ``pb_figured_dimension_evidence``.
 """
 from __future__ import annotations
 
-import re
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence
 
 from pb_dimension_graph_constraint_engine import (
+    ConstraintStatus,
     DimensionChain,
     DimensionObservation,
     DimensionOrientation,
     _PLAUSIBLE_DIMENSION_RANGE_MM,
-    _YEAR_PATTERN,
     classify_chain_segments,
 )
+from pb_figured_dimension_evidence import (
+    apply_anchor_binding,
+    bind_observation_to_vector_geometry,
+    calibrate_dimension_layout,
+    classify_dimension_token,
+    extract_native_dimension_observations,
+    extract_vector_segments,
+)
 
-_DIM_WORD_RE = re.compile(r"^\d{1,2}[,.]?\d{3}$|^\d{2,4}$")
 
+def _parse_dimension_word_mm(word: str, *, preceding_context: str = "") -> Optional[float]:
+    """Parse one typed dimension token to millimetres for legacy F.15 callers.
 
-def _parse_dimension_word_mm(word: str) -> Optional[float]:
-    """Parse one already-shape-matched word token to a millimetre value,
-    or None if it fails the plausibility range or reads as a bare year."""
-    cleaned = word.replace(",", "").replace(".", "")
-    if _YEAR_PATTERN.match(cleaned):
+    The typed grammar handles identity/noise rejection.  This adapter preserves
+    F.15's broad plausible-building-dimension bound before a value may enter the
+    wall-thickness corroboration path.
+    """
+    token = classify_dimension_token(word, preceding_context=preceding_context)
+    if not token.is_linear_dimension or token.value is None or token.unit is None:
         return None
-    try:
-        value = float(cleaned)
-    except ValueError:
+    if token.unit == "mm":
+        value_mm = token.value
+    elif token.unit == "m":
+        value_mm = token.value * 1000.0
+    elif token.unit == "in":
+        value_mm = token.value * 25.4
+    else:
         return None
     lo, hi = _PLAUSIBLE_DIMENSION_RANGE_MM
-    if lo <= value <= hi:
-        return value
-    return None
+    return value_mm if lo <= value_mm <= hi else None
 
 
 def extract_dimension_chains_from_page(
@@ -71,60 +65,67 @@ def extract_dimension_chains_from_page(
     view_id: str = "",
     y_tolerance_pt: float = 3.0,
 ) -> List[DimensionChain]:
-    """Reconstruct genuine collinear DimensionChains from one PDF page's
-    word bounding boxes. Words are grouped into rows by y-position (a
-    small, fixed point tolerance — a physical-layout property of how
-    tightly figures align on one leader line, not tuned to any project),
-    then each row is sorted left-to-right into one chain. A row with no
-    dimension-shaped words contributes no chain."""
-    words = page.get_text("words")
+    """Reconstruct conservative horizontal dimension chains from one page.
 
-    rows: Dict[float, List[Tuple[Any, float]]] = {}
-    for w in words:
-        token = w[4]
-        if not _DIM_WORD_RE.match(token):
+    This function remains deliberately horizontal-only.  F.13 can extract and
+    bind vertical observations, but consuming vertical chains without viewport
+    ownership would let an elevation/section dimension leak into a floor-plan
+    wall-thickness decision.  F.07 viewport segmentation is the dependency that
+    can safely remove that restriction later.
+
+    ``y_tolerance_pt`` is retained for backwards compatibility with F.15's
+    existing callers/tests.  Vector line/witness search tolerances are derived
+    from the current page's typography by ``calibrate_dimension_layout``.
+    """
+    native = extract_native_dimension_observations(
+        page,
+        page_num=page_num,
+        view_id=view_id,
+    )
+    layout = calibrate_dimension_layout(page)
+    segments = extract_vector_segments(page, page_num=page_num, view_id=view_id)
+
+    usable: List[DimensionObservation] = []
+    for observation in native:
+        value_mm = observation.value_m * 1000.0
+        lo, hi = _PLAUSIBLE_DIMENSION_RANGE_MM
+        if not (lo <= value_mm <= hi):
             continue
-        value_mm = _parse_dimension_word_mm(token)
-        if value_mm is None:
+        binding = bind_observation_to_vector_geometry(observation, segments, layout)
+        enriched = apply_anchor_binding(observation, binding)
+        if enriched.conflict_state == ConstraintStatus.CONFLICT_MANUAL_REVIEW.value:
             continue
-        key = round(w[1] / y_tolerance_pt) * y_tolerance_pt
-        rows.setdefault(key, []).append((w, value_mm))
+        if enriched.orientation == DimensionOrientation.VERTICAL.value:
+            # Safe until F.07 provides a viewport-scoped vertical consumer.
+            continue
+        if enriched.orientation == DimensionOrientation.UNKNOWN.value:
+            enriched.orientation = DimensionOrientation.HORIZONTAL.value
+        usable.append(enriched)
+
+    rows: Dict[float, List[DimensionObservation]] = {}
+    for observation in usable:
+        if observation.bbox is None:
+            continue
+        key = round(observation.bbox[1] / y_tolerance_pt) * y_tolerance_pt
+        rows.setdefault(key, []).append(observation)
 
     chains: List[DimensionChain] = []
     for idx, y_key in enumerate(sorted(rows)):
-        row = sorted(rows[y_key], key=lambda item: item[0][0])
-        observations = [
-            DimensionObservation(
-                dimension_id=f"dimword_p{page_num}_{idx}_{seq}",
-                source_page=page_num,
+        row = sorted(rows[y_key], key=lambda observation: observation.bbox[0] if observation.bbox else 0.0)
+        chains.append(
+            DimensionChain(
+                chain_id=f"chain_p{page_num}_{idx}",
                 view_id=view_id,
-                bbox=(w[0], w[1], w[2], w[3]),
-                raw_text=w[4],
-                value=value_mm,
-                unit="mm",
+                source_page=page_num,
                 orientation=DimensionOrientation.HORIZONTAL.value,
+                observations=row,
             )
-            for seq, (w, value_mm) in enumerate(row)
-        ]
-        chains.append(DimensionChain(
-            chain_id=f"chain_p{page_num}_{idx}",
-            view_id=view_id,
-            source_page=page_num,
-            orientation=DimensionOrientation.HORIZONTAL.value,
-            observations=observations,
-        ))
+        )
     return chains
 
 
 def _is_degenerate_repeat(chain: DimensionChain) -> bool:
-    """A chain whose segments are all numerically identical (e.g. a
-    repeated "200 200 200" rebar-spacing or fill-thickness callout on a
-    structural detail sheet) is not a wall-span-wall bracket — a genuine
-    wall-enclosed room dimension has a *distinct* span between two
-    thickness values, not three-or-more copies of the same figure. Found
-    against a real project PDF: a Section F-F reinforcement detail's
-    repeated "200" spacing callouts independently satisfied the
-    wall-thickness plausibility range at both ends of a 6-segment run."""
+    """Reject repeated equal-value detail/spacing rows as wall brackets."""
     values = {round(o.value_m, 4) for o in chain.observations}
     return len(values) <= 1
 
@@ -134,9 +135,7 @@ def resolve_corroborated_wall_thickness_m(
     *,
     agreement_tolerance_m: float = 0.02,
 ) -> Optional[float]:
-    """Resolve a genuine wall thickness only when at least two
-    independent chain-derived candidates agree within tolerance. Never
-    trusts a single chain's classify_chain_segments() result alone."""
+    """Resolve wall thickness only when independent chain candidates agree."""
     candidates: List[float] = []
     for chain in chains:
         if _is_degenerate_repeat(chain):
@@ -155,8 +154,8 @@ def resolve_corroborated_wall_thickness_m(
         return None
 
     best_cluster: List[float] = []
-    for c in candidates:
-        cluster = [x for x in candidates if abs(x - c) <= agreement_tolerance_m]
+    for candidate in candidates:
+        cluster = [x for x in candidates if abs(x - candidate) <= agreement_tolerance_m]
         if len(cluster) > len(best_cluster):
             best_cluster = cluster
 
