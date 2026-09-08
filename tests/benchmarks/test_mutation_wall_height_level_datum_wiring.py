@@ -68,8 +68,9 @@ class TestWallHeightLevelDatumWiring:
         wall = pred_map["perimeter_walling"]
         extractor = GenericPlanReaderExtractor()
         assert wall.dimensions[1] == extractor.default_ceiling_height_m
-        assert wall.confidence == 0.88
+        assert wall.confidence == 0.6
         assert wall.metadata["wall_height_source"] == "default_ceiling_height_assumption"
+        assert wall.metadata["wall_height_authority"] == "provisional"
 
     def test_genuine_level_evidence_overrides_the_default_height(self, tmp_path: Path) -> None:
         pred_map = _extract(tmp_path, with_level_evidence=True)
@@ -77,6 +78,7 @@ class TestWallHeightLevelDatumWiring:
         assert wall.dimensions[1] == 3.0  # 3.150 roof - 0.150 floor
         assert wall.confidence == 0.93
         assert wall.metadata["wall_height_source"] == "resolved_level_datum_evidence"
+        assert wall.metadata["wall_height_authority"] == "documented_dimension"
         perimeter_m = 2 * (10.0 + 6.0)
         assert wall.quantity == pytest.approx(round(perimeter_m * 3.0, 2))
 
@@ -97,3 +99,4 @@ class TestWallHeightLevelDatumWiring:
         wall = preds["perimeter_walling"]
         assert wall.dimensions[1] == extractor.default_ceiling_height_m
         assert wall.metadata["wall_height_source"] == "default_ceiling_height_assumption"
+        assert wall.metadata["wall_height_authority"] == "provisional"

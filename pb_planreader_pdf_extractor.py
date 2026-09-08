@@ -603,7 +603,31 @@ class GenericPlanReaderExtractor:
                         f"level datum evidence)"
                         if height_is_genuine_evidence
                         else f"{effective_wall_height_m}m height (no level-datum evidence "
-                        f"found; assumed default)"
+                        f"found; assumed default -- provisional, not a firm measurement)"
+                    )
+                    # Known authority/safety debt (F.23A): this default-height
+                    # fallback still exists -- a genuinely unresolved height
+                    # is not replaced with a real measurement, only with a
+                    # clearly-flagged, low-confidence assumption. Investigated
+                    # directly against both real diagnostic project PDFs for
+                    # stronger generic vertical evidence (explicit floor-to-
+                    # ceiling dimensions, wall-plate/eaves/beam/lintel datums,
+                    # section dimension chains, ceiling/floor level
+                    # annotations) beyond what F.14's level-datum parser
+                    # already recognizes: comprehensive keyword search across
+                    # every page of both documents, plus a spatial check for
+                    # a genuine vertical (column-oriented) dimension chain
+                    # near the elevation/section views, found nothing further
+                    # in either document. Where no such evidence exists, this
+                    # fallback is demoted (never invented a different guessed
+                    # height) so a downstream commercial consumer gating on
+                    # confidence or wall_height_authority cannot mistake an
+                    # assumption for a firm, evidence-based quantity.
+                    from pb_geometry_takeoff_model import MeasurementAuthorityType
+                    wall_height_authority = (
+                        MeasurementAuthorityType.DOCUMENTED_DIMENSION.value
+                        if height_is_genuine_evidence
+                        else MeasurementAuthorityType.PROVISIONAL.value
                     )
                     pred_dict["perimeter_walling"] = ExtractedPrediction(
                         tag="perimeter_walling",
@@ -611,7 +635,7 @@ class GenericPlanReaderExtractor:
                         description=f"Perimeter walling (2x({length_m}+{width_m})m perimeter at {height_desc})",
                         quantity=gross_wall_area,
                         unit="SM",
-                        confidence=0.93 if height_is_genuine_evidence else 0.88,
+                        confidence=0.93 if height_is_genuine_evidence else 0.6,
                         source_page=page_num,
                         sheet_number=sheet_no,
                         dimensions=[perimeter_m, effective_wall_height_m],
@@ -625,6 +649,7 @@ class GenericPlanReaderExtractor:
                                 if height_is_genuine_evidence
                                 else "default_ceiling_height_assumption"
                             ),
+                            "wall_height_authority": wall_height_authority,
                         },
                     )
 
@@ -682,6 +707,7 @@ class GenericPlanReaderExtractor:
                             "derivation": "internal_face_area_from_resolved_wall_thickness",
                             "wall_thickness_m": global_resolved_wall_thickness_m,
                             "independent_gross_area_m2": internal_face_gross_area_m2,
+                            "wall_height_authority": wall_height_authority,
                             "note": (
                                 "Internal face area computed from a genuinely "
                                 "corroborated wall-thickness dimension chain "
@@ -689,11 +715,31 @@ class GenericPlanReaderExtractor:
                                 "thickness), not copied from the external wall area."
                             ),
                         }
-                        internal_confidence = 0.8
+                        # The wall-thickness evidence is genuine either way,
+                        # but this area still multiplies by cur_height -- when
+                        # that height is only the assumed default (F.23A
+                        # authority debt), the result silently inherits that
+                        # same unresolved-height uncertainty and must not be
+                        # presented at the same confidence as when BOTH
+                        # thickness and height are genuinely evidenced.
+                        if height_is_genuine_evidence:
+                            internal_confidence = 0.8
+                            _internal_face_derivation["note"] += (
+                                " Wall height is also genuinely evidenced."
+                            )
+                        else:
+                            internal_confidence = 0.65
+                            _internal_face_derivation["note"] += (
+                                " Wall height is still only the assumed default "
+                                "(no level-datum evidence resolved), so this "
+                                "area is provisional despite the genuine "
+                                "thickness evidence."
+                            )
                         internal_quantity = internal_face_gross_area_m2
                     else:
                         _internal_face_derivation = {
                             "derivation": "external_wall_area_proxy_no_internal_face_evidence",
+                            "wall_height_authority": wall_height_authority,
                             "note": (
                                 "No wall-thickness evidence available to compute a true "
                                 "internal face area; this reuses the external net wall "
@@ -746,6 +792,7 @@ class GenericPlanReaderExtractor:
                         sheet_number=sheet_no,
                         metadata={
                             "derivation": "external_wall_area_copy_keyword_triggered",
+                            "wall_height_authority": wall_height_authority,
                             "note": (
                                 "Triggered by a key-pointing keyword in the page text "
                                 "with no independent measurement of its own extent; "

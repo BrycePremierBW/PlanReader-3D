@@ -459,13 +459,29 @@ _ROOF_LIKE = {"roof", "ceiling", "beam"}
 _FLOOR_LIKE = {"floor", "ground"}
 
 
-def resolve_wall_height(levels: Sequence[LevelMarker], scope_id: Optional[str] = None) -> HeightResolution:
+def resolve_wall_height(
+    levels: Sequence[LevelMarker],
+    scope_id: Optional[str] = None,
+    agreement_tolerance_m: float = 0.01,
+) -> HeightResolution:
     """Resolve clear wall/room height strictly from real level-marker
     evidence sharing `scope_id` — never mixing a local scope's markers
     into the general datum or vice versa, and never substituting a
     default height when evidence is missing. A local scope_id (e.g. one
     room's bulkhead) resolves independently of the general building
-    datum, so a local override can never leak into unrelated geometry."""
+    datum, so a local override can never leak into unrelated geometry.
+
+    Multiple roof/ceiling (or floor/ground) readings that genuinely
+    corroborate (e.g. the same "Roof Level +3,325" figured twice, on two
+    different elevation sheets) are expected and resolve normally.
+    Multiple readings that disagree by more than `agreement_tolerance_m`
+    are a real conflict, not noise, and must never be silently collapsed
+    by taking the max/min as if only the most extreme reading counted —
+    that would fail closed for a missing reading but fail *open* for a
+    genuinely contradictory one. Such a conflict resolves to
+    CONFLICT_MANUAL_REVIEW instead, matching the same corroboration
+    discipline this module already applies elsewhere (see
+    reconcile_duplicate_observations)."""
     result = HeightResolution(scope_id=scope_id)
     scoped = [l for l in levels if l.scope_id == scope_id]
     roof_levels = [l.level_m for l in scoped if l.marker_type in _ROOF_LIKE]
@@ -476,6 +492,18 @@ def resolve_wall_height(levels: Sequence[LevelMarker], scope_id: Optional[str] =
         result.notes.append(
             f"Missing {'roof/ceiling' if not roof_levels else 'floor/ground'} "
             f"level evidence for scope {scope_id!r} — height left unresolved, not defaulted."
+        )
+        return result
+
+    roof_spread = max(roof_levels) - min(roof_levels)
+    floor_spread = max(floor_levels) - min(floor_levels)
+    if roof_spread > agreement_tolerance_m or floor_spread > agreement_tolerance_m:
+        result.status = ConstraintStatus.CONFLICT_MANUAL_REVIEW.value
+        result.notes.append(
+            f"Roof/ceiling level readings disagree by {roof_spread:.4f}m and "
+            f"floor/ground level readings disagree by {floor_spread:.4f}m "
+            f"(tolerance {agreement_tolerance_m:.4f}m) for scope {scope_id!r} — "
+            f"height left unresolved rather than picking either reading."
         )
         return result
 
