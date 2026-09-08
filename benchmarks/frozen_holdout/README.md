@@ -35,6 +35,11 @@ containing the same four files as a development project under
 - `expected_boq_summary.json` — the ground-truth answer key. **Never
   read this while developing.**
 
+All four JSON files are benchmark-defining inputs. Registration freezes
+all four by SHA-256. Changing expected quantities, tolerances, mappings,
+project metadata, or source identity after registration invalidates the
+holdout and must fail verification before scoring.
+
 Source PDFs themselves are not committed to the repository; they are
 referenced by filename in `source_manifest.json` and kept alongside the
 benchmark tooling's existing local file conventions.
@@ -59,12 +64,11 @@ record = register_holdout_project(
 This validates the four required files are present and parse as JSON,
 rejects the project if its identity (`project_name` / `project_number` /
 `client`) collides with a known development project, and writes a
-`.holdout_lock.json` recording a SHA-256 checksum of the ground-truth
-answer file. Registration is a one-time administrative step — it may
-require reading the real BOQ to populate `expected_boq_summary.json` in
-the first place, which is legitimate; the discipline is about not
-reading it *during extraction development*, not about it never being
-created.
+`.holdout_lock.json` recording SHA-256 checksums of every benchmark-defining
+JSON file. Registration is a one-time administrative step — it may require
+reading the real BOQ to populate `expected_boq_summary.json` in the first
+place, which is legitimate; the discipline is about not reading it *during
+extraction development*, not about it never being created.
 
 ## Verifying nothing was edited after registration
 
@@ -75,10 +79,10 @@ result = verify_holdout_untouched(Path("benchmarks/frozen_holdout/some_new_proje
 assert result.is_untouched, result.mismatches
 ```
 
-This recomputes the checksum and compares it to what was recorded at
-registration — a concrete, technical proof that the ground truth was not
-quietly edited later (e.g. to "improve" a score), not just a matter of
-trusting unaided discipline.
+This recomputes all four checksums and compares them to what was recorded
+at registration. A missing checksum in an older/incomplete lock fails
+closed; the project must not be scored until it is registered under the
+current integrity contract.
 
 ## Status
 
