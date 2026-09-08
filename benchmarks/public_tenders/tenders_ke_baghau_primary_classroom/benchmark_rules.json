@@ -1,0 +1,35 @@
+{
+  "benchmark_id": "tenders_ke_baghau_primary_classroom",
+  "identity_match_required": true,
+  "match_keys": ["project_name", "tender_reference", "organization"],
+  "comparison_rules": {
+    "ignore_preliminaries_in_accuracy": true,
+    "require_drawing_trace_for_measurable": true,
+    "provisional_sums_counted_as_provisional": true,
+    "rate_only_excluded_from_quantities": true,
+    "exclude_document_conflicts": ["blackboards"]
+  },
+  "tolerances": {
+    "wall_area_pct": 5.0,
+    "floor_finish_area_pct": 5.0,
+    "internal_plaster_area_pct": 5.0,
+    "external_pointing_area_pct": 5.0,
+    "opening_counts_exact": true
+  },
+  "item_mappings": {
+    "BOQ-CL2-B": "floor_screed",
+    "BOQ-CL2-F": "substructure_a142_mesh",
+    "BOQ-CL3-A": "damp_proof_course",
+    "BOQ-CL3-B": "substructure_bed_dpm",
+    "BOQ-CL4-E": "perimeter_walling",
+    "BOQ-CL5-M": "roof_covering",
+    "BOQ-CL6-DA": "D1",
+    "BOQ-CL6-WA": "W1",
+    "BOQ-CL6-WB": "W2",
+    "BOQ-CL7-A": "internal_plaster",
+    "BOQ-CL7-B": "external_render",
+    "BOQ-CL7-C": "external_key_pointing",
+    "BOQ-CL7-E": "floor_screed",
+    "BOQ-CL7-K": "internal_paint"
+  }
+}
