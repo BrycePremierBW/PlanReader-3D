@@ -1,0 +1,43 @@
+name: F21 Apply Staged Patch
+
+on:
+  push:
+    branches:
+      - feat/f21-internal-clear-floor-area
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/f21-internal-clear-floor-area
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Apply exact F.21 patch
+        run: python tools/_f21_patch_extractor.py
+
+      - name: Parse changed Python files
+        run: >-
+          python -m py_compile
+          pb_floor_finish_geometry.py
+          pb_planreader_pdf_extractor.py
+          tests/benchmarks/test_mutation_internal_clear_floor_finish.py
+
+      - name: Remove temporary patch machinery and push result
+        run: |
+          rm tools/_f21_patch_extractor.py
+          rm .github/workflows/f21-apply-patch.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat(accuracy): wire evidenced internal clear floor area (F.21)"
+          git push origin HEAD:feat/f21-internal-clear-floor-area
