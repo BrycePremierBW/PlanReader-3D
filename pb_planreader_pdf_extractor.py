@@ -228,6 +228,7 @@ class GenericPlanReaderExtractor:
         global_has_dpm = False
         global_has_mesh = False
         global_level_markers: List[Any] = []  # List[LevelMarker], imported lazily below
+        global_dimension_chains: List[Any] = []  # List[DimensionChain], imported lazily below
 
         for p_idx in target_pages:
             if p_idx < 0 or p_idx >= len(doc):
@@ -279,6 +280,15 @@ class GenericPlanReaderExtractor:
             from pb_level_datum_extraction import find_level_markers
             global_level_markers.extend(find_level_markers(pg_txt, source_page=p_idx + 1))
 
+            # Spatially-reconstructed dimension chains (Phase F.15): real
+            # figured wall-thickness evidence, when the drawing's own
+            # dimension strings carry a genuine wall-span-wall bracket --
+            # see pb_dimension_chain_evidence_extractor.
+            from pb_dimension_chain_evidence_extractor import extract_dimension_chains_from_page
+            global_dimension_chains.extend(
+                extract_dimension_chains_from_page(doc[p_idx], page_num=p_idx + 1, view_id=f"page_{p_idx + 1}")
+            )
+
         # Resolve wall height strictly from real level-datum evidence when
         # present; otherwise this stays None and every wall-height use below
         # falls back to self.default_ceiling_height_m exactly as before --
@@ -289,6 +299,13 @@ class GenericPlanReaderExtractor:
             height_res = resolve_wall_height(global_level_markers, scope_id=None)
             if height_res.status == ConstraintStatus.FULLY_CONSTRAINED.value:
                 global_resolved_wall_height_m = height_res.clear_height_m
+
+        # Resolve wall thickness strictly from corroborated (>=2 independent
+        # chains agreeing) dimension-chain evidence; stays None otherwise,
+        # in which case internal-face-area predictions below fall back to
+        # their existing external-area-proxy behaviour unchanged.
+        from pb_dimension_chain_evidence_extractor import resolve_corroborated_wall_thickness_m
+        global_resolved_wall_thickness_m: Optional[float] = resolve_corroborated_wall_thickness_m(global_dimension_chains)
 
         pred_dict: Dict[str, ExtractedPrediction] = {}
 
@@ -496,39 +513,70 @@ class GenericPlanReaderExtractor:
             if "floor_screed" in pred_dict:
                 cur_wall = pred_dict["perimeter_walling"].quantity
                 cur_perim = pred_dict["perimeter_walling"].dimensions[0] if pred_dict["perimeter_walling"].dimensions else 0.0
+                cur_wall_dims = pred_dict["perimeter_walling"].dimensions
+                cur_height = cur_wall_dims[1] if cur_wall_dims and len(cur_wall_dims) > 1 else None
 
-                # Internal plaster & paint. `cur_wall` is the EXTERNAL wall
-                # net area (perimeter x height, minus deducted openings) --
-                # this extractor has no wall-thickness evidence, so it cannot
-                # currently compute a true internal-face area (which is
-                # genuinely smaller, by the wall thickness, than the external
-                # one). Copying the external value across as a rough proxy is
-                # the best this extraction path can do today, but it must
-                # never be presented with the same confidence as an
-                # independently measured quantity -- see F.13's
-                # pb_dimension_graph_constraint_engine.py for the eventual
-                # fix (wiring real wall-thickness evidence in to compute a
-                # genuine internal perimeter), tracked as a follow-on.
+                # Internal face area (Phase F.15): when real, corroborated
+                # wall-thickness dimension-chain evidence resolved, compute
+                # a genuine internal perimeter (external perimeter minus 8x
+                # the wall thickness -- the standard rectangle relation) and
+                # a true internal face area, distinct from (and smaller
+                # than) the external wall's gross area. The opening
+                # deduction pipeline (F.9) deducts the SAME openings from
+                # this independent gross value via
+                # metadata["independent_gross_area_m2"] rather than
+                # overwriting it with the external wall's net area -- see
+                # pb_opening_deduction_pipeline.propagate_to_predictions.
+                # Falls back to the pre-existing external-area proxy,
+                # unchanged, whenever thickness evidence does not resolve.
+                internal_face_gross_area_m2: Optional[float] = None
+                if (
+                    global_resolved_wall_thickness_m is not None
+                    and cur_height is not None
+                    and cur_perim > 0
+                ):
+                    internal_perimeter_m = cur_perim - 8.0 * global_resolved_wall_thickness_m
+                    if internal_perimeter_m > 0:
+                        internal_face_gross_area_m2 = round(internal_perimeter_m * cur_height, 4)
+
                 if any(k in pt_norm for k in (
                     "internal plaster", "plaster to internal", "plaster and paint",
                     "finish internally", "two-coat plaster", "two coat plaster",
                     "internal wall finish",
                 )):
-                    _internal_face_derivation = {
-                        "derivation": "external_wall_area_proxy_no_internal_face_evidence",
-                        "note": (
-                            "No wall-thickness evidence available to compute a true "
-                            "internal face area; this reuses the external net wall "
-                            "area as a rough proxy and should be treated as provisional."
-                        ),
-                    }
+                    if internal_face_gross_area_m2 is not None:
+                        _internal_face_derivation = {
+                            "derivation": "internal_face_area_from_resolved_wall_thickness",
+                            "wall_thickness_m": global_resolved_wall_thickness_m,
+                            "independent_gross_area_m2": internal_face_gross_area_m2,
+                            "note": (
+                                "Internal face area computed from a genuinely "
+                                "corroborated wall-thickness dimension chain "
+                                "(internal perimeter = external perimeter - 8x "
+                                "thickness), not copied from the external wall area."
+                            ),
+                        }
+                        internal_confidence = 0.8
+                        internal_quantity = internal_face_gross_area_m2
+                    else:
+                        _internal_face_derivation = {
+                            "derivation": "external_wall_area_proxy_no_internal_face_evidence",
+                            "note": (
+                                "No wall-thickness evidence available to compute a true "
+                                "internal face area; this reuses the external net wall "
+                                "area as a rough proxy and should be treated as provisional."
+                            ),
+                        }
+                        internal_confidence = 0.5
+                        internal_quantity = cur_wall
+
                     pred_dict["internal_plaster"] = ExtractedPrediction(
                         tag="internal_plaster",
                         trade_type="finishes",
                         description="Internal plastering to wall surfaces",
-                        quantity=cur_wall,
+                        quantity=internal_quantity,
                         unit="SM",
-                        confidence=0.5,
+                        confidence=internal_confidence,
                         source_page=page_num,
                         sheet_number=sheet_no,
                         metadata=dict(_internal_face_derivation),
@@ -537,9 +585,9 @@ class GenericPlanReaderExtractor:
                         tag="internal_paint",
                         trade_type="finishes",
                         description="Internal vinyl/emulsion paint to wall surfaces",
-                        quantity=cur_wall,
+                        quantity=internal_quantity,
                         unit="SM",
-                        confidence=0.5,
+                        confidence=internal_confidence,
                         source_page=page_num,
                         sheet_number=sheet_no,
                         metadata=dict(_internal_face_derivation),
