@@ -1,6 +1,6 @@
 {
   "benchmark_id": "tenders_ke_murera_science_lab",
-  "timestamp": "2026-09-09T18:35:43.873629+00:00",
+  "timestamp": "2026-09-09T18:41:22.089258+00:00",
   "project_name": "Proposed Construction of a Science Laboratory at Murera Senior School",
   "organization": "Ministry of Education / State Department for Basic Education / County Commissioner Meru",
   "tender_reference": "MOE/SEEQIP/C012/01/2026-2027",
@@ -193,10 +193,10 @@
     }
   ],
   "errors": [],
-  "run_id": "ea8c3973d0734aa7b8e30e2b18d03d47",
-  "evaluated_commit_sha": "bd00700678937e9ffdf82ba7cd2384b23f95c031",
+  "run_id": "b9c67eed9f814546846daa3d36281083",
+  "evaluated_commit_sha": "cb9ba9af5eba8341c88f60ee327a5ec1f697d1bb",
   "scoring_policy_identifier": "public_tender_exact_or_within_5pct_v1",
   "schema_version": "1.0.0",
   "evaluator_version": "pb_benchmark_accuracy_engine.v1",
-  "generated_at": "2026-09-09T18:35:59.135571+00:00"
+  "generated_at": "2026-09-09T18:41:38.832296+00:00"
 }

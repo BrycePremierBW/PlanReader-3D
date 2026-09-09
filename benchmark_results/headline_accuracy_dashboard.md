@@ -1,6 +1,6 @@
 # PlanReader Public Tender Benchmark — Executive Headline Accuracy Dashboard
 
-**Generated**: `2026-09-09T18:35:28.868676+00:00`
+**Generated**: `2026-09-09T18:40:54.738454+00:00`
 
 > **Official Headline Accuracy**: **`39.3%`** across `5` headline-verified public tender benchmark(s).  
 > **Strict Exact Accuracy** (zero-tolerance): **`29.5%`**.

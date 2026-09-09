@@ -3,7 +3,7 @@
 - **Benchmark ID**: `tenders_ke_ghazi_science_lab`
 - **Organization**: NG-CDF Voi Constituency / Ministry of Public Works
 - **Tender Reference**: `NG-CDF/VOI/GZ/34/2023-2024`
-- **Evaluation Timestamp**: `2026-09-09T18:35:48.164505+00:00`
+- **Evaluation Timestamp**: `2026-09-09T18:41:28.024546+00:00`
 - **Evaluation Status**: `scored`
 - **Source PDF**: `C:\Users\bryce\Documents\PB-PlanReader-3D\benchmarks\sources\1739211305954-tender-document-for-construction-of-science-laboratory-at-ghazi-primary-school.pdf`
 
@@ -37,7 +37,7 @@ Contractor overheads, site preliminaries, and provisional budget allowances are 
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | `GZ-E1-E` | 500 gauge polythene damp proof membrane laid on hardcore under ground floor slab | `measurable_from_drawings` | 160.00 | 162.69 | SM | +2.69 | 1.7% | `within_5_percent` | Sheet Design Scheme (Plan) 1 of 3 (p. 167) |
 | `GZ-E3-A` | Bituminous felt damp proof course 190mm thick under all 200mm thick walling | `measurable_from_drawings` | 51.00 | - | LM | - | - | `missed_in_extraction` | Sheet Design Scheme (Plan) 1 of 3 (p. 167) |
-| `GZ-E3-B` | Approved coral block walling in 200mm thick walling externally | `measurable_from_drawings` | 109.00 | 151.20 | SM | +42.20 | 38.7% | `gross_mismatch` | Sheet Design Scheme (Plan) 1 of 3 (p. 167) |
+| `GZ-E3-B` | Approved coral block walling in 200mm thick walling externally | `measurable_from_drawings` | 109.00 | 135.24 | SM | +26.24 | 24.1% | `gross_mismatch` | Sheet Design Scheme (Plan) 1 of 3 (p. 167) |
 | `GZ-E3-C` | Ditto internally (200mm thick coral block walling) | `measurable_from_drawings` | 41.00 | - | SM | - | - | `missed_in_extraction` | Sheet Design Scheme (Plan) 1 of 3 (p. 167) |
 | `GZ-E3-D` | Ditto gable wall (200mm thick coral block walling) | `measurable_from_drawings` | 12.00 | - | SM | - | - | `missed_in_extraction` | Sheet Design Scheme (Plan) 1 of 3 (p. 167) |
 | `GZ-E3-E` | 75mm diameter G.I column not exceeding 3000mm long | `measurable_from_drawings` | 8.00 | 8.00 | NO | +0.00 | 0.0% | `exact_match` | Sheet Design Scheme (Plan) 1 of 3 (p. 167) |
@@ -51,7 +51,7 @@ Contractor overheads, site preliminaries, and provisional budget allowances are 
 
 ## 4. Gross Mismatches (> 20%)
 
-- **`GZ-E3-B`** (Approved coral block walling in 200mm thick walling externally): Expected `109.0`, Extracted `151.2` (38.7% error). Comparison evaluated against 109.0 SM
+- **`GZ-E3-B`** (Approved coral block walling in 200mm thick walling externally): Expected `109.0`, Extracted `135.24` (24.1% error). Comparison evaluated against 109.0 SM
 
 ## 5. Missed Items
 

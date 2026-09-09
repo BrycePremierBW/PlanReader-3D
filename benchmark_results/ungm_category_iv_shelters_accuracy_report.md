@@ -3,7 +3,7 @@
 - **Benchmark ID**: `ungm_category_iv_shelters`
 - **Organization**: IOM / UNGM
 - **Tender Reference**: `RFP/2024/CAT4-S`
-- **Evaluation Timestamp**: `2026-09-09T18:35:59.002610+00:00`
+- **Evaluation Timestamp**: `2026-09-09T18:41:38.660634+00:00`
 - **Evaluation Status**: `candidate_unverified`
 - **Source PDF**: `None / Not supplied`
 

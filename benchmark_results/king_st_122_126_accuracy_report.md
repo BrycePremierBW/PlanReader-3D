@@ -3,7 +3,7 @@
 - **Benchmark ID**: `king_st_122_126`
 - **Organization**: Public Tender / Commercial Client
 - **Tender Reference**: `23-060`
-- **Evaluation Timestamp**: `2026-09-09T18:35:59.003988+00:00`
+- **Evaluation Timestamp**: `2026-09-09T18:41:38.666211+00:00`
 - **Evaluation Status**: `candidate_unverified`
 - **Source PDF**: `None / Not supplied`
 

@@ -30,7 +30,7 @@
         "within_5_percent": 0
       },
       "tender_reference": "ITB/2023/45890",
-      "timestamp": "2026-09-09T18:35:59.001388+00:00"
+      "timestamp": "2026-09-09T18:41:38.659528+00:00"
     },
     {
       "benchmark_id": "ungm_category_iv_housing_units",
@@ -62,7 +62,7 @@
         "within_5_percent": 0
       },
       "tender_reference": "ITB/2023/CAT4-H",
-      "timestamp": "2026-09-09T18:35:59.002085+00:00"
+      "timestamp": "2026-09-09T18:41:38.660197+00:00"
     },
     {
       "benchmark_id": "ungm_category_iv_shelters",
@@ -94,7 +94,7 @@
         "within_5_percent": 0
       },
       "tender_reference": "RFP/2024/CAT4-S",
-      "timestamp": "2026-09-09T18:35:59.002610+00:00"
+      "timestamp": "2026-09-09T18:41:38.660634+00:00"
     },
     {
       "benchmark_id": "ungm_fmns_faculty_building",
@@ -126,7 +126,7 @@
         "within_5_percent": 0
       },
       "tender_reference": "ITB/2023/FMNS-08",
-      "timestamp": "2026-09-09T18:35:59.003215+00:00"
+      "timestamp": "2026-09-09T18:41:38.661031+00:00"
     },
     {
       "benchmark_id": "ungm_al_qayarah_hospital_renovation",
@@ -158,7 +158,7 @@
         "within_5_percent": 0
       },
       "tender_reference": "RFP/2024/78912",
-      "timestamp": "2026-09-09T18:35:59.003607+00:00"
+      "timestamp": "2026-09-09T18:41:38.661434+00:00"
     },
     {
       "benchmark_id": "king_st_122_126",
@@ -190,12 +190,12 @@
         "within_5_percent": 0
       },
       "tender_reference": "23-060",
-      "timestamp": "2026-09-09T18:35:59.003988+00:00"
+      "timestamp": "2026-09-09T18:41:38.666211+00:00"
     }
   ],
-  "evaluated_commit_sha": "bd00700678937e9ffdf82ba7cd2384b23f95c031",
+  "evaluated_commit_sha": "cb9ba9af5eba8341c88f60ee327a5ec1f697d1bb",
   "evaluator_version": "pb_benchmark_accuracy_engine.v1",
-  "generated_at": "2026-09-09T18:35:59.131093+00:00",
+  "generated_at": "2026-09-09T18:41:38.826233+00:00",
   "headline_metrics": {
     "exact_matches": 18,
     "gross_mismatches": 13,
@@ -435,7 +435,7 @@
         "within_5_percent": 2
       },
       "tender_reference": "KSTVET/008/24",
-      "timestamp": "2026-09-09T18:35:28.868694+00:00"
+      "timestamp": "2026-09-09T18:40:54.738471+00:00"
     },
     {
       "benchmark_id": "tenders_ke_murera_science_lab",
@@ -631,7 +631,7 @@
         "within_5_percent": 0
       },
       "tender_reference": "MOE/SEEQIP/C012/01/2026-2027",
-      "timestamp": "2026-09-09T18:35:43.873629+00:00"
+      "timestamp": "2026-09-09T18:41:22.089258+00:00"
     },
     {
       "benchmark_id": "tenders_ke_ghazi_science_lab",
@@ -671,15 +671,15 @@
         },
         {
           "category": "measurable_from_drawings",
-          "delta": 42.2,
+          "delta": 26.24,
           "description": "Approved coral block walling in 200mm thick walling externally",
           "drawing_page": 167,
           "drawing_sheet": "Design Scheme (Plan) 1 of 3",
           "expected_quantity": 109.0,
-          "extracted_quantity": 151.2,
+          "extracted_quantity": 135.24,
           "item_id": "GZ-E3-B",
           "notes": "Comparison evaluated against 109.0 SM",
-          "pct_error": 38.72,
+          "pct_error": 24.07,
           "status": "gross_mismatch",
           "tolerance_tier": "gross",
           "unit": "SM"
@@ -857,7 +857,7 @@
         "within_5_percent": 2
       },
       "tender_reference": "NG-CDF/VOI/GZ/34/2023-2024",
-      "timestamp": "2026-09-09T18:35:48.164505+00:00"
+      "timestamp": "2026-09-09T18:41:28.024546+00:00"
     },
     {
       "benchmark_id": "tenders_ke_umma_hostels",
@@ -1113,7 +1113,7 @@
         "within_5_percent": 0
       },
       "tender_reference": "UUT/02/2026",
-      "timestamp": "2026-09-09T18:35:49.025988+00:00"
+      "timestamp": "2026-09-09T18:41:31.187858+00:00"
     },
     {
       "benchmark_id": "tenders_ke_lamu_ishakani_ecd_classrooms",
@@ -1279,7 +1279,7 @@
         "within_5_percent": 2
       },
       "tender_reference": "N/A (no tender reference number printed on this document)",
-      "timestamp": "2026-09-09T18:35:54.023823+00:00"
+      "timestamp": "2026-09-09T18:41:35.885737+00:00"
     }
   ],
   "non_penalized_exclusions": {
@@ -1287,7 +1287,7 @@
     "preliminaries_excluded": 0,
     "provisional_sums_excluded": 1
   },
-  "run_id": "ea8c3973d0734aa7b8e30e2b18d03d47",
+  "run_id": "b9c67eed9f814546846daa3d36281083",
   "schema_version": "1.0.0",
   "scoring_policy_identifier": "public_tender_exact_or_within_5pct_v1",
   "stress_test_reports": [
@@ -1319,7 +1319,7 @@
         "within_5_percent": 0
       },
       "tender_reference": "2028763-2025/2026",
-      "timestamp": "2026-09-09T18:35:48.154500+00:00"
+      "timestamp": "2026-09-09T18:41:27.969436+00:00"
     }
   ],
   "summary_counts": {
@@ -1328,5 +1328,5 @@
     "stress_test_benchmarks": 1,
     "total_registered": 12
   },
-  "timestamp": "2026-09-09T18:35:28.868676+00:00"
+  "timestamp": "2026-09-09T18:40:54.738454+00:00"
 }

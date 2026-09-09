@@ -3,7 +3,7 @@
 - **Benchmark ID**: `ungm_fmns_faculty_building`
 - **Organization**: UNDP / UNGM
 - **Tender Reference**: `ITB/2023/FMNS-08`
-- **Evaluation Timestamp**: `2026-09-09T18:35:59.003215+00:00`
+- **Evaluation Timestamp**: `2026-09-09T18:41:38.661031+00:00`
 - **Evaluation Status**: `candidate_unverified`
 - **Source PDF**: `None / Not supplied`
 
