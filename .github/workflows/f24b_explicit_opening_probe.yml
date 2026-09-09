@@ -1,4 +1,4 @@
-name: F25 Source View Context Probe
+name: F25 Raster View Classification Probe
 
 on:
   push:
@@ -16,22 +16,60 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-      - name: Install source inspection dependency
-        run: pip install PyMuPDF==1.28.0
+      - name: Install source inspection dependencies
+        run: pip install PyMuPDF==1.28.0 Pillow==12.3.0 numpy==2.3.5 rapidocr==3.9.2 onnxruntime==1.29.0
       - name: Download hash-verified development drawing source
         run: |
           curl -fL --retry 3 --retry-delay 2 'https://tenders.go.ke/storage/Documents/1785347143869-bqs-drawings.pdf' -o /tmp/source_b.pdf
           echo '84dec737ede7adfa32b02c6732d4289a6a2d25f7ae50cf07209428f1b4e0c94b  /tmp/source_b.pdf' | sha256sum -c -
-      - name: Print native source context around image-heavy opening views
+      - name: OCR source-discovered raster opening views for semantic titles
         env:
           PYTHONUNBUFFERED: '1'
         run: |
           python - <<'PY'
+          import re
           import fitz
+          import numpy as np
+          from PIL import Image, ImageEnhance
+          from rapidocr import RapidOCR
+
+          engine=RapidOCR()
+          semantic=re.compile(r'plan|elevat|section|schedule|window|door|laboratory|science|floor|general',re.I)
+          tag=re.compile(r'^\s*[WD]\s*[-_.]?\s*\d{1,3}\s*$',re.I)
           doc=fitz.open('/tmp/source_b.pdf')
-          for page_no in range(220, 231):
+          for page_no in (228,230):
               page=doc[page_no-1]
-              text=' | '.join(line.strip() for line in (page.get_text('text') or '').splitlines() if line.strip())
-              print(f'PAGE {page_no} images={len(page.get_images(full=True))} chars={len(text)} TEXT={text[:1800]}')
+              dpi=220; r=page.rect; cols=rows=3; ov=.06; tw=r.width/cols; th=r.height/rows
+              detections=[]
+              for iy in range(rows):
+                  for ix in range(cols):
+                      clip=fitz.Rect(max(r.x0,r.x0+ix*tw-tw*ov),max(r.y0,r.y0+iy*th-th*ov),min(r.x1,r.x0+(ix+1)*tw+tw*ov),min(r.y1,r.y0+(iy+1)*th+th*ov))
+                      pix=page.get_pixmap(clip=clip,dpi=dpi,alpha=False)
+                      base=Image.frombytes('RGB',[pix.width,pix.height],pix.samples)
+                      for variant in (base,ImageEnhance.Contrast(base).enhance(1.35)):
+                          result=engine(np.asarray(variant))
+                          txts=getattr(result,'txts',None) or []; scores=getattr(result,'scores',None) or []; boxes=getattr(result,'boxes',None)
+                          if boxes is None: continue
+                          scale=72.0/dpi
+                          for i,raw in enumerate(txts):
+                              text=' '.join(str(raw).split()).strip()
+                              if not text: continue
+                              pts=boxes[i].tolist() if hasattr(boxes[i],'tolist') else boxes[i]
+                              xs=[float(p[0]) for p in pts]; ys=[float(p[1]) for p in pts]
+                              bb=(clip.x0+min(xs)*scale,clip.y0+min(ys)*scale,clip.x0+max(xs)*scale,clip.y0+max(ys)*scale)
+                              detections.append((text,float(scores[i]) if i<len(scores) else 0.0,bb))
+              kept=[]
+              for text,conf,bb in sorted(detections,key=lambda x:-x[1]):
+                  cx=(bb[0]+bb[2])/2; cy=(bb[1]+bb[3])/2
+                  dup=False
+                  for pt,pc,pb in kept:
+                      if text.casefold()!=pt.casefold(): continue
+                      pcx=(pb[0]+pb[2])/2; pcy=(pb[1]+pb[3])/2
+                      if abs(cx-pcx)<=6 and abs(cy-pcy)<=6: dup=True; break
+                  if not dup: kept.append((text,conf,bb))
+              print('PAGE',page_no,'SEMANTIC')
+              for text,conf,bb in sorted(kept,key=lambda x:(x[2][1],x[2][0])):
+                  if conf>=.60 and (semantic.search(text) or tag.fullmatch(text)):
+                      print(round(conf,3),tuple(round(v,1) for v in bb),text)
           doc.close()
           PY
