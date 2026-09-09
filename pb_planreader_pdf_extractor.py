@@ -1186,9 +1186,14 @@ class GenericPlanReaderExtractor:
                 EvidenceReconciler,
                 EvidenceStatus,
             )
+            from pb_portable_raster_ocr import (
+                extract_opening_instance_evidence,
+                resolve_cross_page_opening_instances,
+            )
 
             ocr_engine = DrawingOCREngine()
             dwg_pages = [p for p in target_pages if 0 <= p < len(doc) and self.is_drawing_page(doc[p].get_text("text"))]
+            raster_instance_evidence = []
 
             for p_num in dwg_pages:
                 page = doc[p_num]
@@ -1205,6 +1210,8 @@ class GenericPlanReaderExtractor:
                     and all(p.quantity is not None and p.quantity > 0 for p in native_openings_on_page)
                 )
                 is_scanned_or_raster = len(p_text.strip()) < 150
+                has_embedded_raster = bool(page.get_images(full=True))
+                has_raster_opening_candidate = has_embedded_raster and not has_complete_native_openings
                 has_schedule_word = any(
                     k in p_text.lower()
                     for k in ("schedule of doors", "schedule of windows", "window schedule", "door schedule")
@@ -1226,7 +1233,7 @@ class GenericPlanReaderExtractor:
                     )
                 )
 
-                native_insufficient = is_scanned_or_raster or (
+                native_insufficient = is_scanned_or_raster or has_raster_opening_candidate or (
                     (has_schedule_word or has_opening_keyword) and not has_complete_native_openings
                 )
                 if not native_insufficient:
@@ -1241,7 +1248,18 @@ class GenericPlanReaderExtractor:
                 # evidence on this page is insufficient (raster/scanned
                 # sheet, or a schedule-word page with incomplete native
                 # window/door quantities).
-                ocr_lines = ocr_engine.recognize_page_rect(page, dpi=150)
+                if has_embedded_raster:
+                    ocr_lines = ocr_engine.recognize_page_tiled(page, dpi=220)
+                else:
+                    ocr_lines = ocr_engine.recognize_page_rect(page, dpi=150)
+
+                raster_instance_evidence.extend(
+                    extract_opening_instance_evidence(
+                        ocr_lines,
+                        source_page=p_num + 1,
+                    )
+                )
+
                 ocr_records: List[DrawingEvidenceRecord] = []
                 for o_line in ocr_lines:
                     rec = DrawingEvidenceParser.parse_schedule_line(
@@ -1311,6 +1329,37 @@ class GenericPlanReaderExtractor:
                         elif r.status == EvidenceStatus.CONFLICT_MANUAL_REVIEW.value:
                             if r.tag in pred_dict:
                                 del pred_dict[r.tag]
+
+            # Explicit raster tag placements are a separate lower-authority
+            # quantity source. Never sum across pages/views: repeated pages must
+            # agree. Existing native/schedule predictions retain authority.
+            for inst in resolve_cross_page_opening_instances(raster_instance_evidence):
+                if inst.tag in pred_dict:
+                    continue
+                boxes = list(inst.bounding_boxes)
+                bbox = None
+                if boxes:
+                    bbox = [
+                        min(b[0] for b in boxes),
+                        min(b[1] for b in boxes),
+                        max(b[2] for b in boxes),
+                        max(b[3] for b in boxes),
+                    ]
+                pred_dict[inst.tag] = ExtractedPrediction(
+                    tag=inst.tag,
+                    trade_type=inst.trade_type,
+                    description=f"{inst.tag} explicit raster tagged opening placements",
+                    quantity=float(inst.quantity),
+                    unit="NO",
+                    confidence=min(float(inst.confidence), 0.86),
+                    source_page=inst.source_page,
+                    bounding_box=bbox,
+                    metadata={
+                        "derivation": "raster_explicit_opening_instance_count",
+                        "extraction_method": EvidenceMethod.RASTER_OCR.value,
+                        "status": EvidenceStatus.CONFIRMED.value,
+                    },
+                )
         except Exception:
             pass
 
