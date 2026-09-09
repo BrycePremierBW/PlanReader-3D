@@ -1,0 +1,36 @@
+{
+  "benchmark_id": "tenders_ke_ghazi_science_lab",
+  "identity_match_required": true,
+  "match_keys": [
+    "project_name",
+    "tender_reference",
+    "organization"
+  ],
+  "comparison_rules": {
+    "ignore_preliminaries_in_accuracy": true,
+    "require_drawing_trace_for_measurable": true,
+    "provisional_sums_counted_as_provisional": true,
+    "rate_only_excluded_from_quantities": true
+  },
+  "tolerances": {
+    "wall_area_pct": 5.0,
+    "floor_finish_area_pct": 5.0,
+    "internal_plaster_area_pct": 5.0,
+    "verandah_pillars_exact": true
+  },
+  "item_mappings": {
+    "GZ-E1-E": "substructure_bed_dpm",
+    "GZ-E3-A": "damp_proof_course",
+    "GZ-E3-B": "perimeter_walling",
+    "GZ-E3-C": "internal_walling",
+    "GZ-E3-D": "gable_walling",
+    "GZ-E3-E": "verandah_pillars",
+    "GZ-E5-A": "D1",
+    "GZ-E5-B": "D2",
+    "GZ-E6-D": "W1",
+    "GZ-E8-A": "internal_plaster",
+    "GZ-E8-C": "internal_paint",
+    "GZ-E8-D": "floor_screed",
+    "GZ-E8-H": "ceiling_lining"
+  }
+}

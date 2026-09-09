@@ -1,0 +1,139 @@
+{
+  "benchmark_id": "tenders_ke_ghazi_science_lab",
+  "total_line_items": 70,
+  "measurable_items_count": 13,
+  "preliminaries_count": 11,
+  "provisional_sums_count": 0,
+  "rate_only_count": 0,
+  "not_architectural_count": 1,
+  "classified_breakdown": {
+    "measurable_from_drawings": 10,
+    "schedule_extractable": 3,
+    "scope_allowance_only": 0,
+    "provisional_sum": 0,
+    "rate_only": 0,
+    "preliminaries": 11,
+    "not_architectural": 1,
+    "not_applicable_to_planreader": 0,
+    "unknown_requires_review": 0
+  },
+  "sample_measurable_items": [
+    {
+      "item_id": "GZ-E1-E",
+      "description": "500 gauge polythene damp proof membrane laid on hardcore under ground floor slab",
+      "expected_quantity": 160.0,
+      "unit": "SM",
+      "category": "measurable_from_drawings",
+      "drawing_sheet": "Design Scheme (Plan) 1 of 3",
+      "drawing_page": 167
+    },
+    {
+      "item_id": "GZ-E3-A",
+      "description": "Bituminous felt damp proof course 190mm thick under all 200mm thick walling",
+      "expected_quantity": 51.0,
+      "unit": "LM",
+      "category": "measurable_from_drawings",
+      "drawing_sheet": "Design Scheme (Plan) 1 of 3",
+      "drawing_page": 167
+    },
+    {
+      "item_id": "GZ-E3-B",
+      "description": "Approved coral block walling in 200mm thick walling externally",
+      "expected_quantity": 109.0,
+      "unit": "SM",
+      "category": "measurable_from_drawings",
+      "drawing_sheet": "Design Scheme (Plan) 1 of 3",
+      "drawing_page": 167
+    },
+    {
+      "item_id": "GZ-E3-C",
+      "description": "Ditto internally (200mm thick coral block walling)",
+      "expected_quantity": 41.0,
+      "unit": "SM",
+      "category": "measurable_from_drawings",
+      "drawing_sheet": "Design Scheme (Plan) 1 of 3",
+      "drawing_page": 167
+    },
+    {
+      "item_id": "GZ-E3-D",
+      "description": "Ditto gable wall (200mm thick coral block walling)",
+      "expected_quantity": 12.0,
+      "unit": "SM",
+      "category": "measurable_from_drawings",
+      "drawing_sheet": "Design Scheme (Plan) 1 of 3",
+      "drawing_page": 167
+    },
+    {
+      "item_id": "GZ-E3-E",
+      "description": "75mm diameter G.I column not exceeding 3000mm long",
+      "expected_quantity": 8.0,
+      "unit": "NO",
+      "category": "measurable_from_drawings",
+      "drawing_sheet": "Design Scheme (Plan) 1 of 3",
+      "drawing_page": 167
+    },
+    {
+      "item_id": "GZ-E5-A",
+      "description": "External door overall size 1500 x 2400mm high, unequal double leaf",
+      "expected_quantity": 2.0,
+      "unit": "NO",
+      "category": "schedule_extractable",
+      "drawing_sheet": "Design Scheme (Plan) 1 of 3",
+      "drawing_page": 167
+    },
+    {
+      "item_id": "GZ-E5-B",
+      "description": "45mm internal quality flush door overall size 850 x 2120mm shutter",
+      "expected_quantity": 3.0,
+      "unit": "NO",
+      "category": "schedule_extractable",
+      "drawing_sheet": "Design Scheme (Plan) 1 of 3",
+      "drawing_page": 167
+    },
+    {
+      "item_id": "GZ-E6-D",
+      "description": "Metal casement window overall size 1800 x 1500mm high with 2No openable",
+      "expected_quantity": 7.0,
+      "unit": "NO",
+      "category": "schedule_extractable",
+      "drawing_sheet": "Design Scheme (Plan) 1 of 3",
+      "drawing_page": 167
+    },
+    {
+      "item_id": "GZ-E8-A",
+      "description": "20mm thick cement and sand (1:5) plaster steel trowelled to internal walls",
+      "expected_quantity": 203.0,
+      "unit": "SM",
+      "category": "measurable_from_drawings",
+      "drawing_sheet": "Design Scheme (Plan) 1 of 3",
+      "drawing_page": 167
+    },
+    {
+      "item_id": "GZ-E8-C",
+      "description": "Prepare and apply three coats first grade plastic paint to plastered internal walls",
+      "expected_quantity": 203.0,
+      "unit": "SM",
+      "category": "measurable_from_drawings",
+      "drawing_sheet": "Design Scheme (Plan) 1 of 3",
+      "drawing_page": 167
+    },
+    {
+      "item_id": "GZ-E8-D",
+      "description": "25mm thick cement sand plaster wood float to receive floor paving (floor screed)",
+      "expected_quantity": 160.0,
+      "unit": "SM",
+      "category": "measurable_from_drawings",
+      "drawing_sheet": "Design Scheme (Plan) 1 of 3",
+      "drawing_page": 167
+    },
+    {
+      "item_id": "GZ-E8-H",
+      "description": "10mm chip board ceiling lining on brandering",
+      "expected_quantity": 160.0,
+      "unit": "SM",
+      "category": "measurable_from_drawings",
+      "drawing_sheet": "Design Scheme (Plan) 1 of 3",
+      "drawing_page": 167
+    }
+  ]
+}
