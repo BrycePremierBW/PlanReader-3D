@@ -1,0 +1,64 @@
+name: F30 Orthogonal Envelope Probe
+
+on:
+  push:
+    branches: [diag/f30-orthogonal-envelope]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pip install PyMuPDF==1.28.0
+      - name: Download hash-verified Ghazi source
+        run: |
+          curl -fL --retry 3 --retry-delay 2 'https://tenders.go.ke/storage/Documents/1739211305954-tender-document-for-construction-of-science-laboratory-at-ghazi-primary-school.pdf' -o /tmp/ghazi.pdf
+          echo 'c8c001c9dadb791e7cb18b7bea19ce795eebba2f9b9eb7dec4844212da4d8f4f  /tmp/ghazi.pdf' | sha256sum -c -
+      - name: Inspect dimension line directions
+        env:
+          PYTHONPATH: .
+        run: |
+          python - <<'PY'
+          import re
+          import fitz
+          from pb_planreader_pdf_extractor import GenericPlanReaderExtractor
+
+          doc = fitz.open('/tmp/ghazi.pdf')
+          page = doc[166]
+          pat = re.compile(r'\b(\d{1,2})[,.]?(\d{3})\b')
+          by_orient = {'H': [], 'V': [], 'D': []}
+          data = page.get_text('dict')
+          for block in data.get('blocks', []):
+              for line in block.get('lines', []):
+                  dx, dy = line.get('dir', (1.0, 0.0))
+                  orient = 'H' if abs(dx) >= 0.85 and abs(dx) >= abs(dy) else ('V' if abs(dy) >= 0.85 and abs(dy) > abs(dx) else 'D')
+                  text = ' '.join(str(s.get('text','')) for s in line.get('spans', []))
+                  for major, minor in pat.findall(text):
+                      value = float(major) + float(minor) / 1000.0
+                      if 2.0 <= value <= 35.0:
+                          by_orient[orient].append((round(value,3), text.strip(), tuple(round(float(v),3) for v in (dx,dy)), line.get('bbox')))
+          for orient in ('H','V','D'):
+              print('\nORIENT', orient)
+              for row in sorted(by_orient[orient], reverse=True):
+                  print(row)
+          parsed = []
+          text = page.get_text('text') or ''
+          for major, minor in pat.findall(text):
+              value = float(major) + float(minor) / 1000.0
+              if 2.0 <= value <= 35.0:
+                  parsed.append(round(value,3))
+          print('\nCURRENT_ENVELOPE', GenericPlanReaderExtractor._detect_outer_envelope(parsed, None, False))
+          h = sorted({r[0] for r in by_orient['H']}, reverse=True)
+          v = sorted({r[0] for r in by_orient['V']}, reverse=True)
+          print('H_UNIQUE', h)
+          print('V_UNIQUE', v)
+          if h and v:
+              print('ORTHOGONAL_MAX_PAIR', (h[0], v[0]), 'AREA', round(h[0]*v[0],3), 'PERIM', round(2*(h[0]+v[0]),3))
+          doc.close()
+          PY
