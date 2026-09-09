@@ -1,0 +1,110 @@
+name: F31 Ghazi Image Layer Probe
+
+on:
+  push:
+    branches: [diag/f31-ghazi-vector-wall-network]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pip install PyMuPDF==1.28.0 opencv-python-headless==4.14.0.94 numpy==2.3.5
+      - name: Download hash-verified Ghazi source
+        run: |
+          curl -fL --retry 3 --retry-delay 2 'https://tenders.go.ke/storage/Documents/1739211305954-tender-document-for-construction-of-science-laboratory-at-ghazi-primary-school.pdf' -o /tmp/ghazi.pdf
+          echo 'c8c001c9dadb791e7cb18b7bea19ce795eebba2f9b9eb7dec4844212da4d8f4f  /tmp/ghazi.pdf' | sha256sum -c -
+      - name: Inspect images and raster line geometry
+        run: |
+          python - <<'PY'
+          import collections
+          import math
+          import cv2
+          import fitz
+          import numpy as np
+
+          doc = fitz.open('/tmp/ghazi.pdf')
+          page = doc[166]
+          print('PAGE_RECT', tuple(round(v,3) for v in page.rect))
+          images = page.get_images(full=True)
+          print('IMAGE_COUNT', len(images))
+          for idx, image in enumerate(images):
+              xref = image[0]
+              rects = page.get_image_rects(xref, transform=True)
+              print('IMAGE', idx, 'XREF', xref, 'META', image)
+              print('  RECTS', [(tuple(round(float(v),3) for v in r), tuple(round(float(v),5) for v in m)) for r,m in rects])
+              try:
+                  info = doc.extract_image(xref)
+                  print('  EXTRACT', {k:v for k,v in info.items() if k not in ('image','smask')})
+              except Exception as exc:
+                  print('  EXTRACT_ERROR', repr(exc))
+
+          blocks = page.get_text('dict').get('blocks', [])
+          print('BLOCK_TYPES', collections.Counter(b.get('type') for b in blocks))
+          for b in blocks:
+              if b.get('type') == 1:
+                  print('IMAGE_BLOCK', {k:v for k,v in b.items() if k not in ('image','mask')})
+
+          # Render page at 2x. Analyse only left ~70% where the plan/elevation
+          # graphics live; exclude the notes/title block to avoid text-line noise.
+          scale = 2.0
+          pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
+          arr = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
+          gray = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
+          x_max = int(pix.width * 0.72)
+          roi = gray[:, :x_max]
+          bw = cv2.threshold(roi, 120, 255, cv2.THRESH_BINARY_INV)[1]
+
+          # Morphological long-line extraction, intentionally orientation-specific.
+          results = []
+          for orient, kernel in (
+              ('H', cv2.getStructuringElement(cv2.MORPH_RECT, (35, 1))),
+              ('V', cv2.getStructuringElement(cv2.MORPH_RECT, (1, 35))),
+          ):
+              opened = cv2.morphologyEx(bw, cv2.MORPH_OPEN, kernel)
+              n, labels, stats, cents = cv2.connectedComponentsWithStats(opened, 8)
+              comps = []
+              for i in range(1, n):
+                  x,y,w,h,area = [int(v) for v in stats[i]]
+                  if orient == 'H' and w < 35:
+                      continue
+                  if orient == 'V' and h < 35:
+                      continue
+                  comps.append((x,y,w,h,area,round(float(cents[i][0]),2),round(float(cents[i][1]),2)))
+              comps.sort(key=lambda r:max(r[2],r[3]), reverse=True)
+              print('\nMORPH', orient, 'COUNT', len(comps))
+              for row in comps[:160]:
+                  # Convert back to PDF points as well as rendered pixels.
+                  x,y,w,h,area,cx,cy = row
+                  print({'px':row,'pt':(round(x/scale,2),round(y/scale,2),round(w/scale,2),round(h/scale,2))})
+              results.append((orient, comps))
+
+          # Hough segments for a second independent view of line geometry.
+          edges = cv2.Canny(roi, 50, 150, apertureSize=3)
+          lines = cv2.HoughLinesP(edges, 1, np.pi/180.0, threshold=80, minLineLength=60, maxLineGap=8)
+          axis = []
+          if lines is not None:
+              for raw in lines[:,0,:]:
+                  x1,y1,x2,y2 = [int(v) for v in raw]
+                  dx,dy = x2-x1,y2-y1
+                  length = math.hypot(dx,dy)
+                  if abs(dy) <= 3:
+                      orient='H'
+                  elif abs(dx) <= 3:
+                      orient='V'
+                  else:
+                      continue
+                  axis.append((round(length,1),orient,(x1,y1,x2,y2),(round(x1/scale,2),round(y1/scale,2),round(x2/scale,2),round(y2/scale,2))))
+          axis.sort(reverse=True)
+          print('\nHOUGH_AXIS_COUNT', len(axis))
+          for row in axis[:240]:
+              print('HOUGH', row)
+
+          doc.close()
+          PY
