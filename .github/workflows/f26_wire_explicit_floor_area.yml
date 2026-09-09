@@ -22,7 +22,7 @@ jobs:
       - name: Install focused test dependencies
         run: pip install -r requirements.txt -r requirements-ci-v1228.txt
       - name: Validate F26
-        run: python -m compileall -q pb_explicit_floor_area_evidence.py pb_planreader_pdf_extractor.py && pytest -q tests/benchmarks/test_mutation_explicit_floor_area_evidence.py
+        run: python -m compileall -q pb_explicit_floor_area_evidence.py pb_planreader_pdf_extractor.py && PYTHONPATH=. python -m pytest -q tests/benchmarks/test_mutation_explicit_floor_area_evidence.py
       - name: Commit validated wiring
         run: |
           rm .github/workflows/f26_wire_explicit_floor_area.yml
