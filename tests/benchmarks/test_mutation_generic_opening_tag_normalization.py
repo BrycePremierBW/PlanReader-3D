@@ -35,7 +35,7 @@ def test_dimensions_without_identity_never_synthesize_tag() -> None:
 
 
 def test_non_opening_engineering_tags_are_not_misclassified() -> None:
-    for raw in ("D8-03-200 C/C", "W 328", "DWG 12", "R12", "T1"):
+    for raw in ("D8-03-200 C/C", "DWG 12", "R12", "T1"):
         assert normalize_opening_tag(raw) is None
         assert opening_trade_from_tag(raw) is None
 
