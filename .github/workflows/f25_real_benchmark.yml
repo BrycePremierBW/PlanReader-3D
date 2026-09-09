@@ -1,5 +1,6 @@
 name: F25 Real Development Benchmark
 
+# Re-run marker: sparse-raster eligibility is now wired into the OCR lane.
 on:
   push:
     branches:
