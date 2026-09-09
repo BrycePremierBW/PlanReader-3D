@@ -473,6 +473,9 @@ def test_provider_and_shadow_runner_are_gold_free() -> None:
         "benchmark_runner",
         "holdout_suite",
         "expected_boq",
+        "expected_project",
+        "benchmark_rules",
+        "holdout_suite",
         "pb_shadow_opening_count_eval",
         "pb_quantity_commercial_adapter",
     )

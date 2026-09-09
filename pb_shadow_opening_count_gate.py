@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 
-# Frozen before development-project measurement. Do not revise after scoring.
+# Canonical frozen gate. Do not revise after scoring. Coverage is not a gate input.
 OPENING_COUNT_MIGRATION_GATE = {
     "min_precision_on_answered_identities": 0.99,
     "min_exact_correctness_on_answered_counts": 0.99,
@@ -23,6 +23,8 @@ OPENING_COUNT_MIGRATION_GATE = {
 }
 
 OPENING_COUNT_FAMILIES = frozenset({"window_count", "door_count", "opening_count"})
+OPENING_COUNT_AUTHORITY_STATE = "new_shadow"
+OPENING_COUNT_AUTHORITY_RECOMMENDATION = "remain_new_shadow"
 
 
 def evaluate_opening_count_migration_gate(metrics: Mapping[str, Any]) -> dict[str, Any]:
@@ -58,6 +60,7 @@ def evaluate_opening_count_migration_gate(metrics: Mapping[str, Any]) -> dict[st
         "gate": gate,
         "checks": checks,
         "decision": "PASS" if passed else "FAIL",
-        "authority_recommendation": "remain_new_shadow",
+        "authority_recommendation": OPENING_COUNT_AUTHORITY_RECOMMENDATION,
+        "authority_state": OPENING_COUNT_AUTHORITY_STATE,
         "coverage_is_not_a_gate_input": True,
     }

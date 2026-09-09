@@ -48,3 +48,4 @@ def test_gate_passes_only_when_all_frozen_thresholds_hold() -> None:
     )
     assert result["decision"] == "PASS"
     assert result["authority_recommendation"] == "remain_new_shadow"
+    assert result["authority_state"] == "new_shadow"

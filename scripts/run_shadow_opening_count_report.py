@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Run the gold-joining opening-count shadow report after provider outputs freeze."""
+"""Reproduce the development opening-count shadow report.
+
+Gold is joined only after new QuantityEvidence is frozen. This does not
+activate NEW_SELECTIVE or NEW_AUTHORITATIVE.
+
+    PYTHONPATH=. python3 scripts/run_shadow_opening_count_report.py \\
+        --output shadow_reports/opening_count_shadow_development.json
+"""
 from __future__ import annotations
 
 import argparse

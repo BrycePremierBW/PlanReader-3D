@@ -18,6 +18,8 @@ from pb_gold_free_shadow_runner import GoldFreeShadowRunner
 from pb_migration_contracts import QuantityEvidence
 from pb_opening_tag_normalization import normalize_opening_tag
 from pb_shadow_opening_count_gate import (
+    OPENING_COUNT_AUTHORITY_RECOMMENDATION,
+    OPENING_COUNT_AUTHORITY_STATE,
     OPENING_COUNT_FAMILIES,
     evaluate_opening_count_migration_gate,
 )
@@ -282,50 +284,52 @@ def run_project_shadow(
     runner: Optional[GoldFreeShadowRunner] = None,
     provider: Optional[ShadowOpeningCountProvider] = None,
 ) -> dict[str, Any]:
-    eligible = load_eligible_opening_items(benchmark_id)
+    """Extract and freeze new quantities, then join gold evaluator-side only."""
     pdf_path = _load_manifest_pdf(benchmark_id)
-    if pdf_path is None:
-        metrics = score_frozen_quantities(
-            benchmark_id=benchmark_id,
-            frozen_quantities=(),
-            eligible=eligible,
-            source_status="SOURCE_UNAVAILABLE",
-        )
-        return {
-            "benchmark_id": benchmark_id,
-            "source_status": "SOURCE_UNAVAILABLE",
-            "frozen_quantities": [],
-            "metrics": metrics,
-        }
+    frozen: tuple[QuantityEvidence, ...] = ()
+    bundle = None
+    pages: Optional[list[int]] = None
+    shadow = None
+    source_status = "SOURCE_UNAVAILABLE"
+    if pdf_path is not None:
+        engine = provider or ShadowOpeningCountProvider()
+        import fitz
 
-    engine = provider or ShadowOpeningCountProvider()
-    import fitz
+        doc = fitz.open(pdf_path)
+        try:
+            pages = probe_opening_evidence_pages(doc)
+        finally:
+            doc.close()
 
-    doc = fitz.open(pdf_path)
-    try:
-        pages = probe_opening_evidence_pages(doc)
-    finally:
-        doc.close()
+        bundle = engine.extract_bundle(pdf_path, pages=pages or None)
+        frozen = tuple(bundle.quantities)
+        shadow = (runner or GoldFreeShadowRunner()).run(pdf_path, engine, pages=pages or None)
+        source_status = "ok"
 
-    bundle = engine.extract_bundle(pdf_path, pages=pages or None)
-    frozen = tuple(bundle.quantities)
-    shadow = (runner or GoldFreeShadowRunner()).run(pdf_path, engine, pages=pages or None)
+    eligible = load_eligible_opening_items(benchmark_id)
     metrics = score_frozen_quantities(
         benchmark_id=benchmark_id,
         frozen_quantities=frozen,
         eligible=eligible,
-        conflicts=bundle.conflicts,
-        ambiguous_marks=bundle.ambiguous_marks,
-        duplicate_observations=bundle.duplicate_observations,
-        comparisons=[row.to_dict() for row in shadow.comparisons],
-        source_status="ok",
+        conflicts=bundle.conflicts if bundle is not None else (),
+        ambiguous_marks=bundle.ambiguous_marks if bundle is not None else (),
+        duplicate_observations=bundle.duplicate_observations if bundle is not None else 0,
+        comparisons=[row.to_dict() for row in shadow.comparisons] if shadow is not None else (),
+        source_status=source_status,
     )
+    if bundle is None:
+        return {
+            "benchmark_id": benchmark_id,
+            "source_status": source_status,
+            "frozen_quantities": [],
+            "metrics": metrics,
+        }
     return {
         "benchmark_id": benchmark_id,
-        "source_status": "ok",
+        "source_status": source_status,
         "source_pdf": str(pdf_path),
         "pages": pages,
-        "shadow_result_id": shadow.result_id,
+        "shadow_result_id": shadow.result_id if shadow is not None else None,
         "frozen_quantities": [item.to_dict() for item in frozen],
         "entity_evidence": [item.to_dict() for item in bundle.entity_evidence],
         "canonical_openings": [item.to_dict() for item in bundle.canonical_openings],
@@ -399,12 +403,12 @@ def run_development_shadow_report(
     gate = evaluate_opening_count_migration_gate(aggregated)
     return {
         "family": "opening_count",
-        "authority_state": "new_shadow",
+        "authority_state": OPENING_COUNT_AUTHORITY_STATE,
         "authoritative_engine": "legacy",
         "gold_joined_after_freeze": True,
         "holdout_scored": False,
         "projects": projects,
         "metrics": aggregated,
         "migration_gate": gate,
-        "recommendation": "remain_new_shadow",
+        "recommendation": OPENING_COUNT_AUTHORITY_RECOMMENDATION,
     }
