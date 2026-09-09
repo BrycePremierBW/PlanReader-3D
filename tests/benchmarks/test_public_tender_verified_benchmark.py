@@ -173,15 +173,15 @@ def test_preliminaries_and_provisional_sums_excluded_from_physical_accuracy() ->
 def test_missing_quantity_counted_as_missing_not_correct() -> None:
     """Missing expected quantity in predictions is counted as missing/failure, not correct."""
     bench = PublicTenderBenchmark.load(BENCHMARK_ID)
-    # Provide only 1 prediction out of 12 expected items
+    # Provide only 1 prediction out of 13 expected items
     partial_predictions = [
         {"item_id": "BOQ-C44-A", "value": 1.0}  # Mild steel double door
     ]
     res = bench.evaluate_accuracy_summary(predictions=partial_predictions)
     assert res["is_scored"] is True
     assert res["passed_items_count"] == 1
-    assert res["missing_items_count"] == 11
-    assert res["failed_items_count"] == 11
+    assert res["missing_items_count"] == 12
+    assert res["failed_items_count"] == 12
     assert res["accuracy_score"] < 0.15
 
 
@@ -207,7 +207,7 @@ def test_prediction_inside_tolerance_passes() -> None:
     ]
     res = bench.evaluate_accuracy_summary(predictions=perfect_predictions)
     assert res["is_scored"] is True
-    assert res["passed_items_count"] == 12
+    assert res["passed_items_count"] == 13
     assert res["failed_items_count"] == 0
     assert res["missing_items_count"] == 0
     assert res["accuracy_score"] == 1.0

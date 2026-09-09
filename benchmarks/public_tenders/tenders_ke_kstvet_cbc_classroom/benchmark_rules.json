@@ -20,6 +20,7 @@
     "verandah_pillars_exact": true
   },
   "item_mappings": {
+    "BOQ-C31-C": "substructure_surface_bed",
     "BOQ-C36-A": "perimeter_walling",
     "BOQ-C36-B": "gable_walling",
     "BOQ-C41-B": "W1",

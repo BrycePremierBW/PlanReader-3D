@@ -1,18 +1,18 @@
 {
-  "timestamp": "2026-09-09T05:47:14.114651+00:00",
+  "timestamp": "2026-09-09T06:06:59.954163+00:00",
   "headline_metrics": {
-    "overall_accuracy_percentage": 32.69,
+    "overall_accuracy_percentage": 34.62,
     "strict_exact_accuracy_percentage": 26.92,
     "total_headline_benchmarks": 4,
-    "total_measurable_expected": 50,
+    "total_measurable_expected": 51,
     "total_items_compared": 52,
     "exact_matches": 14,
-    "within_5_percent": 3,
+    "within_5_percent": 4,
     "within_10_percent": 0,
     "within_20_percent": 0,
     "gross_mismatches": 12,
     "missed_items": 21,
-    "hallucinated_items": 2
+    "hallucinated_items": 1
   },
   "non_penalized_exclusions": {
     "preliminaries_excluded": 0,
@@ -28,7 +28,7 @@
   "headline_reports": [
     {
       "benchmark_id": "tenders_ke_kstvet_cbc_classroom",
-      "timestamp": "2026-09-09T05:47:14.114668+00:00",
+      "timestamp": "2026-09-09T06:06:59.954180+00:00",
       "project_name": "Proposed Construction of CBC Classroom and Integrated Resource Center",
       "organization": "Kenya School of TVET / Ministry of Education",
       "tender_reference": "KSTVET/008/24",
@@ -38,19 +38,19 @@
       "source_pdf": "C:\\Users\\bryce\\Documents\\PB-PlanReader-3D\\benchmarks\\sources\\1727358888238-bq-nd-drawing.pdf",
       "summary": {
         "total_boq_items": 58,
-        "total_measurable_expected": 12,
+        "total_measurable_expected": 13,
         "total_items_compared": 13,
         "exact_matches": 1,
-        "within_5_percent": 1,
+        "within_5_percent": 2,
         "within_10_percent": 0,
         "within_20_percent": 0,
         "gross_mismatches": 5,
         "missed_items": 5,
-        "hallucinated_items": 1,
+        "hallucinated_items": 0,
         "preliminaries_excluded": 0,
         "provisional_sums_excluded": 0,
         "non_architectural_excluded": 0,
-        "overall_accuracy_percentage": 15.38,
+        "overall_accuracy_percentage": 23.08,
         "strict_exact_accuracy_percentage": 7.69
       },
       "item_results": [
@@ -190,6 +190,21 @@
           "notes": "Comparison evaluated against 69.0 SM"
         },
         {
+          "item_id": "BOQ-C31-C",
+          "description": "75 mm Thick horizontal floor bed",
+          "category": "measurable_from_drawings",
+          "expected_quantity": 102.0,
+          "extracted_quantity": 103.02,
+          "unit": "SM",
+          "delta": 1.02,
+          "pct_error": 1.0,
+          "status": "within_5_percent",
+          "tolerance_tier": "5%",
+          "drawing_sheet": "KSTVET/08/2024-AD01",
+          "drawing_page": 54,
+          "notes": "Comparison evaluated against 102.0 SM"
+        },
+        {
           "item_id": "BOQ-C47-A",
           "description": "Extra over walling for key pointing externally",
           "category": "measurable_from_drawings",
@@ -233,28 +248,13 @@
           "drawing_sheet": "KSTVET/08/2024-AD01",
           "drawing_page": 54,
           "notes": "Item present in BOQ but absent from extraction predictions"
-        },
-        {
-          "item_id": "substructure_surface_bed",
-          "description": "Reinforced concrete ground-bearing surface bed (103.02 m2)",
-          "category": "hallucinated",
-          "expected_quantity": null,
-          "extracted_quantity": 103.02,
-          "unit": "SM",
-          "delta": null,
-          "pct_error": null,
-          "status": "hallucinated_item",
-          "tolerance_tier": "hallucinated",
-          "drawing_sheet": "Drawing",
-          "drawing_page": 54,
-          "notes": "Item present in extraction but absent from verified BOQ ground truth"
         }
       ],
       "errors": []
     },
     {
       "benchmark_id": "tenders_ke_murera_science_lab",
-      "timestamp": "2026-09-09T05:47:25.006694+00:00",
+      "timestamp": "2026-09-09T06:07:11.033467+00:00",
       "project_name": "Proposed Construction of a Science Laboratory at Murera Senior School",
       "organization": "Ministry of Education / State Department for Basic Education / County Commissioner Meru",
       "tender_reference": "MOE/SEEQIP/C012/01/2026-2027",
@@ -450,7 +450,7 @@
     },
     {
       "benchmark_id": "tenders_ke_ghazi_science_lab",
-      "timestamp": "2026-09-09T05:47:27.917036+00:00",
+      "timestamp": "2026-09-09T06:07:14.195922+00:00",
       "project_name": "Proposed Construction of a Science Laboratory at Ghazi Primary School",
       "organization": "NG-CDF Voi Constituency / Ministry of Public Works",
       "tender_reference": "NG-CDF/VOI/GZ/34/2023-2024",
@@ -676,7 +676,7 @@
     },
     {
       "benchmark_id": "tenders_ke_umma_hostels",
-      "timestamp": "2026-09-09T05:47:28.544826+00:00",
+      "timestamp": "2026-09-09T06:07:14.896919+00:00",
       "project_name": "Proposed Student Hostels for Umma University in Kajiado",
       "organization": "Umma University",
       "tender_reference": "UUT/02/2026",
@@ -934,7 +934,7 @@
   "stress_test_reports": [
     {
       "benchmark_id": "tenders_ke_mbagha_maternity_dispensary",
-      "timestamp": "2026-09-09T05:47:27.912524+00:00",
+      "timestamp": "2026-09-09T06:07:14.185395+00:00",
       "project_name": "Proposed Construction of a Maternity Block at Mbagha Dispensary in Mwatate Sub-County",
       "organization": "County Government of Taita Taveta",
       "tender_reference": "2028763-2025/2026",
@@ -966,7 +966,7 @@
   "candidate_seed_reports": [
     {
       "benchmark_id": "ungm_unops_wecc_torit",
-      "timestamp": "2026-09-09T05:47:33.194518+00:00",
+      "timestamp": "2026-09-09T06:07:19.772735+00:00",
       "project_name": "UNOPS WECC Torit Vocational Training Centre",
       "organization": "UNOPS",
       "tender_reference": "ITB/2023/45890",
@@ -998,7 +998,7 @@
     },
     {
       "benchmark_id": "ungm_category_iv_housing_units",
-      "timestamp": "2026-09-09T05:47:33.195675+00:00",
+      "timestamp": "2026-09-09T06:07:19.773355+00:00",
       "project_name": "UNGM Category IV Housing Units",
       "organization": "UN-Habitat",
       "tender_reference": "ITB/2023/CAT4-H",
@@ -1030,7 +1030,7 @@
     },
     {
       "benchmark_id": "ungm_category_iv_shelters",
-      "timestamp": "2026-09-09T05:47:33.196349+00:00",
+      "timestamp": "2026-09-09T06:07:19.774218+00:00",
       "project_name": "UNGM Category IV Shelters / House Units",
       "organization": "IOM / UNGM",
       "tender_reference": "RFP/2024/CAT4-S",
@@ -1062,7 +1062,7 @@
     },
     {
       "benchmark_id": "ungm_fmns_faculty_building",
-      "timestamp": "2026-09-09T05:47:33.197032+00:00",
+      "timestamp": "2026-09-09T06:07:19.775202+00:00",
       "project_name": "UNGM FMNS Faculty of Mathematical and Natural Sciences Building",
       "organization": "UNDP / UNGM",
       "tender_reference": "ITB/2023/FMNS-08",
@@ -1094,7 +1094,7 @@
     },
     {
       "benchmark_id": "ungm_al_qayarah_hospital_renovation",
-      "timestamp": "2026-09-09T05:47:33.197676+00:00",
+      "timestamp": "2026-09-09T06:07:19.775903+00:00",
       "project_name": "UNGM Al Qayarah General Hospital Renovation",
       "organization": "UNDP / UNGM",
       "tender_reference": "RFP/2024/78912",
@@ -1126,7 +1126,7 @@
     },
     {
       "benchmark_id": "king_st_122_126",
-      "timestamp": "2026-09-09T05:47:33.198285+00:00",
+      "timestamp": "2026-09-09T06:07:19.776584+00:00",
       "project_name": "122-126 King St, Buderim - Construction Issue",
       "organization": "Public Tender / Commercial Client",
       "tender_reference": "23-060",

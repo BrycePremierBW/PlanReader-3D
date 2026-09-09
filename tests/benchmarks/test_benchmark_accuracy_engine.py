@@ -73,6 +73,7 @@ def test_exact_matches_evaluation(engine):
         {"item_id": "BOQ-C47-A", "quantity": 60.0},
         {"item_id": "BOQ-C47-B", "quantity": 20.0},
         {"item_id": "BOQ-C47-D", "quantity": 4.0},
+        {"item_id": "BOQ-C31-C", "quantity": 102.0},
     ]
     report = engine.evaluate_benchmark(
         benchmark_id="tenders_ke_kstvet_cbc_classroom",
@@ -80,7 +81,7 @@ def test_exact_matches_evaluation(engine):
     )
     assert report.is_scored is True
     assert report.status == "scored"
-    assert report.exact_matches == 12
+    assert report.exact_matches == 13
     assert report.within_5_percent == 0
     assert report.gross_mismatches == 0
     assert report.missed_items == 0
@@ -108,20 +109,21 @@ def test_tolerance_tiers_5_10_20_percent(engine):
         {"item_id": "BOQ-C47-A", "quantity": 60.0},
         {"item_id": "BOQ-C47-B", "quantity": 20.0},
         {"item_id": "BOQ-C47-D", "quantity": 4.0},
+        {"item_id": "BOQ-C31-C", "quantity": 102.0},
     ]
     report = engine.evaluate_benchmark(
         benchmark_id="tenders_ke_kstvet_cbc_classroom",
         predictions=predictions,
     )
-    assert report.exact_matches == 9
+    assert report.exact_matches == 10
     assert report.within_5_percent == 1
     assert report.within_10_percent == 1
     assert report.within_20_percent == 1
     assert report.gross_mismatches == 0
-    # Overall accuracy accepts exact + within 5% = 10 / 12 = 83.33%
-    assert report.overall_accuracy_percentage == pytest.approx(83.33, abs=0.01)
-    # Strict exact is 9 / 12 = 75.0%
-    assert report.strict_exact_accuracy_percentage == 75.0
+    # Overall accuracy accepts exact + within 5% = 11 / 13 = 84.62%
+    assert report.overall_accuracy_percentage == pytest.approx(84.62, abs=0.01)
+    # Strict exact is 10 / 13 = 76.92%
+    assert report.strict_exact_accuracy_percentage == pytest.approx(76.92, abs=0.01)
 
 
 def test_gross_mismatches_detection(engine):
@@ -142,20 +144,21 @@ def test_gross_mismatches_detection(engine):
         {"item_id": "BOQ-C47-A", "quantity": 60.0},
         {"item_id": "BOQ-C47-B", "quantity": 20.0},
         {"item_id": "BOQ-C47-D", "quantity": 4.0},
+        {"item_id": "BOQ-C31-C", "quantity": 102.0},
     ]
     report = engine.evaluate_benchmark(
         benchmark_id="tenders_ke_kstvet_cbc_classroom",
         predictions=predictions,
     )
     assert report.gross_mismatches == 2
-    assert report.exact_matches == 10
-    # 10 / 12 = 83.33%
-    assert report.overall_accuracy_percentage == pytest.approx(83.33, abs=0.01)
+    assert report.exact_matches == 11
+    # 11 / 13 = 84.62%
+    assert report.overall_accuracy_percentage == pytest.approx(84.62, abs=0.01)
 
 
 def test_missed_items_penalize_accuracy(engine):
     """Items present in BOQ but missing from predictions are counted as missed."""
-    # Only provide 8 of the 12 items
+    # Only provide 8 of the 13 items
     predictions = [
         {"item_id": "BOQ-C36-A", "quantity": 58.0},
         {"item_id": "BOQ-C36-B", "quantity": 13.0},
@@ -170,10 +173,10 @@ def test_missed_items_penalize_accuracy(engine):
         benchmark_id="tenders_ke_kstvet_cbc_classroom",
         predictions=predictions,
     )
-    assert report.missed_items == 4
+    assert report.missed_items == 5
     assert report.exact_matches == 8
-    # 8 / 12 = 66.67%
-    assert report.overall_accuracy_percentage == pytest.approx(66.67, abs=0.01)
+    # 8 / 13 = 61.54%
+    assert report.overall_accuracy_percentage == pytest.approx(61.54, abs=0.01)
 
 
 def test_hallucinated_items_penalize_accuracy(engine):
@@ -191,6 +194,7 @@ def test_hallucinated_items_penalize_accuracy(engine):
         {"item_id": "BOQ-C47-A", "quantity": 60.0},
         {"item_id": "BOQ-C47-B", "quantity": 20.0},
         {"item_id": "BOQ-C47-D", "quantity": 4.0},
+        {"item_id": "BOQ-C31-C", "quantity": 102.0},
     ]
     hallucinated = [
         {"item_id": "HALLUCINATED-SWIMMING-POOL", "quantity": 1.0, "unit": "NO"},
@@ -202,10 +206,10 @@ def test_hallucinated_items_penalize_accuracy(engine):
         hallucinated_predictions=hallucinated,
     )
     assert report.hallucinated_items == 2
-    assert report.exact_matches == 12
-    # Total compared = 12 + 2 = 14. Accuracy = 12 / 14 = 85.71%
-    assert report.total_items_compared == 14
-    assert report.overall_accuracy_percentage == pytest.approx(85.71, abs=0.01)
+    assert report.exact_matches == 13
+    # Total compared = 13 + 2 = 15. Accuracy = 13 / 15 = 86.67%
+    assert report.total_items_compared == 15
+    assert report.overall_accuracy_percentage == pytest.approx(86.67, abs=0.01)
 
 
 def test_exclusions_preliminaries_and_provisional(engine, tmp_path):
