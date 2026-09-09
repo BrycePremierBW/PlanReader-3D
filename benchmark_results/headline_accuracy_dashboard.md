@@ -1,33 +1,33 @@
 # PlanReader Public Tender Benchmark — Executive Headline Accuracy Dashboard
 
-**Generated**: `2026-09-07T15:37:23.228714+00:00`
+**Generated**: `2026-09-09T02:00:54.145119+00:00`
 
-> **Official Headline Accuracy**: **`17.4%`** across `2` headline-verified public tender benchmark(s).
-> **Strict Exact Accuracy** (zero-tolerance): **`17.4%`**.
+> **Official Headline Accuracy**: **`20.8%`** across `2` headline-verified public tender benchmark(s).  
+> **Strict Exact Accuracy** (zero-tolerance): **`16.7%`**.
 
 ## 1. Executive Headline Metrics (1:1 Material Scope Packages)
 
 | Metric | Value | Description |
 | :--- | :--- | :--- |
-| **Headline Overall Accuracy (<= 5% tol)** | **`17.4%`** | Combined exact matches and <= 5% tolerance across headline benchmarks |
-| **Headline Strict Exact Accuracy** | **`17.4%`** | Zero-tolerance exact numerical matches across headline benchmarks |
+| **Headline Overall Accuracy (<= 5% tol)** | **`20.8%`** | Combined exact matches and <= 5% tolerance across headline benchmarks |
+| **Headline Strict Exact Accuracy** | **`16.7%`** | Zero-tolerance exact numerical matches across headline benchmarks |
 | Scored Headline Benchmarks | `2` | Verified packages with 1:1 physical drawing-to-BOQ scope match |
 | Measurable Items Evaluated | `22` | Total expected architectural takeoff items |
-| Total Items Compared (Denominator) | `23` | Expected items + hallucinated extra predictions across packages |
+| Total Items Compared (Denominator) | `24` | Expected items + hallucinated extra predictions across packages |
 | Exact Matches | `4` | Exactly matched quantities |
-| Within 5% Tolerance | `0` | Minor variations within 5% tolerance |
-| Within 10% Tolerance | `1` | Minor variations (5% to 10%) |
-| Within 20% Tolerance | `1` | Moderate variations (10% to 20%) |
-| Gross Mismatches (> 20%) | `11` | Discrepancies exceeding 20% |
+| Within 5% Tolerance | `1` | Minor variations within 5% tolerance |
+| Within 10% Tolerance | `0` | Minor variations (5% to 10%) |
+| Within 20% Tolerance | `0` | Moderate variations (10% to 20%) |
+| Gross Mismatches (> 20%) | `12` | Discrepancies exceeding 20% |
 | Missed in Extraction | `5` | BOQ items missing from drawing predictions |
-| Hallucinated Extra Predictions | `1` | Predictions with no counterpart in BOQ |
+| Hallucinated Extra Predictions | `2` | Predictions with no counterpart in BOQ |
 
 ## 2. Headline Benchmark Breakdown (1:1 Physical Scope Match)
 
 | Benchmark ID | Project Name | Scope | Expected | Compared | Exact | <= 5% | Gross | Missed | Halluc. | Accuracy | Strict % | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `tenders_ke_kstvet_cbc_classroom` | Proposed Construction of CBC Classroom and Integrated Resource Center | 1:1 Match | `12` | `12` | `3` | `0` | `6` | `2` | `0` | **`25.0%`** | `25.0%` | `verified_scored_benchmark` |
-| `tenders_ke_murera_science_lab` | Proposed Construction of a Science Laboratory at Murera Senior School | 1:1 Match | `10` | `11` | `1` | `0` | `5` | `3` | `1` | **`9.1%`** | `9.1%` | `verified_scored_benchmark` |
+| `tenders_ke_kstvet_cbc_classroom` | Proposed Construction of CBC Classroom and Integrated Resource Center | 1:1 Match | `12` | `13` | `3` | `1` | `6` | `2` | `1` | **`30.8%`** | `23.1%` | `verified_scored_benchmark` |
+| `tenders_ke_murera_science_lab` | Proposed Construction of a Science Laboratory at Murera Senior School | 1:1 Match | `10` | `11` | `1` | `0` | `6` | `3` | `1` | **`9.1%`** | `9.1%` | `verified_scored_benchmark` |
 
 ## 3. Real-World Scope Divergence Stress Tests (Excluded from Headline)
 
@@ -35,7 +35,7 @@
 
 | Benchmark ID | Project Name | Scope Divergence | Total BOQ Items | Evaluated | Exact | Gross | Missed | Overall Acc | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `tenders_ke_mbagha_maternity_dispensary` | Proposed Construction of a Maternity Block at Mbagha Dispensary in Mwatate Sub-County | Facility drawings vs single-wing BOQ | `123` | `18` | `0` | `4` | `12` | `0.0%` | `verified_scope_mismatch` |
+| `tenders_ke_mbagha_maternity_dispensary` | Proposed Construction of a Maternity Block at Mbagha Dispensary in Mwatate Sub-County | Facility drawings vs single-wing BOQ | `123` | `0` | `0` | `0` | `0` | `N/A` | `candidate_unscored` |
 
 ## 4. Candidate Seed Inventory (Unverified / Excluded)
 
@@ -54,5 +54,5 @@
 
 Contractor overheads, site preliminaries, and provisional budget allowances are transparently excluded from physical geometric accuracy:
 - **Total Preliminaries Excluded**: `0`
-- **Total Provisional Sums Excluded**: `0`
+- **Total Provisional Sums Excluded**: `1`
 - **Total Non-Architectural Excluded**: `0`

@@ -6,3 +6,4 @@ venv/
 .env
 planreader_data/
 *.db
+benchmarks/sources/
