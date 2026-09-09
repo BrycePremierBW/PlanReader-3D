@@ -6,6 +6,11 @@ benchmark, gold, mapping, scoring, or holdout modules.
 
 Inspection is deterministic AST / import-graph analysis.  It does not execute
 provider code and does not load expected quantities.
+
+Static AST analysis is necessary and catches the import shapes we test, but it
+is NOT mathematically complete runtime isolation.  It cannot see
+``importlib.import_module(variable)``, ``exec``/``eval``, or C-level I/O.
+Pair this checker with ``pb_provider_runtime_isolation``.
 """
 from __future__ import annotations
 
@@ -148,6 +153,13 @@ def _imported_names(source: str, *, current_module: str) -> tuple[str, ...]:
                 imported = node.module or ""
             if imported:
                 names.append(imported)
+                for alias in node.names:
+                    if alias.name and alias.name != "*":
+                        names.append(f"{imported}.{alias.name}")
+            elif node.names:
+                for alias in node.names:
+                    if alias.name and alias.name != "*":
+                        names.append(alias.name)
         elif isinstance(node, ast.Call):
             func = node.func
             is_dynamic = (

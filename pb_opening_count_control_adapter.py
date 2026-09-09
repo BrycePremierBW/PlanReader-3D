@@ -19,6 +19,7 @@ from pb_migration_provider_envelope import (
     ProviderResult,
     fingerprint_source_files,
 )
+from pb_migration_eligibility import production_opening_count_eligibility
 from pb_opening_tag_normalization import normalize_opening_tag
 from pb_provider_gold_isolation import assert_provider_gold_free
 from pb_shadow_opening_count_gate import OPENING_COUNT_AUTHORITY_STATE, OPENING_COUNT_FAMILIES
@@ -74,24 +75,28 @@ class OpeningCountControlAdapter:
         return opening_count_descriptor()
 
     def eligibility(self, context: ProviderContext) -> EligibilityDecision:
-        reasons = []
-        eligible = True
-        if not context.source_sha256:
-            eligible = False
-            reasons.append("missing_source_sha")
-        if not context.document_id:
-            eligible = False
-            reasons.append("missing_document")
+        """Production eligibility from source/context/domain rules only.
+
+        Does not enumerate gold identities.  ``eligible_semantic_keys`` stays
+        empty so answered keys cannot become the denominator.  The development
+        evaluation universe of 24 is owned by the evaluator, not this adapter.
+        """
+        decision = production_opening_count_eligibility(context)
+        reasons = list(decision.reasons)
         if OPENING_COUNT_AUTHORITY_STATE != "new_shadow":
-            eligible = False
             reasons.append("unexpected_authority_state")
-        if not reasons:
-            reasons.append("opening_count_family_registered")
+            return EligibilityDecision(
+                eligible=False,
+                family=ADAPTER_FAMILY,
+                reasons=tuple(reasons),
+                declared_identity_grammar=decision.declared_identity_grammar,
+                eligible_semantic_keys=(),
+            )
         return EligibilityDecision(
-            eligible=eligible,
+            eligible=decision.eligible,
             family=ADAPTER_FAMILY,
             reasons=tuple(reasons),
-            declared_identity_grammar="normalized_opening_tag|WD\\d+",
+            declared_identity_grammar=decision.declared_identity_grammar,
             eligible_semantic_keys=(),
         )
 

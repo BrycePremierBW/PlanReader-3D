@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 import json
+import sqlite3
+import subprocess
+import sys
 
 import fitz
 import pytest
@@ -22,7 +25,7 @@ from pb_migration_claim_arbiter import (
     claim_key,
 )
 from pb_migration_contracts import MigrationAuthorityState, QuantityEvidence
-from pb_migration_decision_ledger import MigrationDecisionLedger
+from pb_migration_decision_ledger import LedgerTransactionError, MigrationDecisionLedger, record_state_transition
 from pb_migration_family_router import FamilyAuthorityRouter, FamilyRegistration
 from pb_migration_measurement_authority_binder import (
     MeasurementAuthorityBindingError,
@@ -35,6 +38,12 @@ from pb_migration_provider_envelope import (
     ProviderDescriptor,
     ProviderResult,
 )
+from pb_migration_eligibility import (
+    EligibilityContractError,
+    lock_opening_count_development_universe,
+    production_opening_count_eligibility,
+)
+from pb_migration_gold_join_boundary import GoldJoinBoundaryError, GoldJoinEvaluator, MigrationExtractPipeline
 from pb_migration_report import build_migration_report
 from pb_migration_source_trace_binder import (
     SourceTraceBindingError,
@@ -55,10 +64,13 @@ from pb_provider_gold_isolation import (
     inspect_provider_isolation,
     inspect_registered_production_providers,
 )
-from pb_quantity_commercial_adapter import (
-    CommercialProjectionContext,
+from pb_quantity_takeoff_adapter import (
+    CommercialMeasurementAuthority as M5MeasurementAuthority,
+    CommercialTakeoffSourceTrace as M5SourceTrace,
     quantity_evidence_to_takeoff_output_row,
 )
+import pb_quantity_commercial_adapter as commercial_alias
+import pb_quantity_takeoff_adapter as takeoff_adapter
 from pb_shadow_opening_count_provider import ShadowOpeningCountProvider
 from pb_takeoff_authority_v164 import ai_takeoff_authority, takeoff_row_publishability
 
@@ -120,6 +132,7 @@ def _context(tmp_path: Path | None = None, **overrides) -> ProviderContext:
         canonical_graph_snapshot_id=None,
         measurement_authority_snapshot_id="meas_1",
         source_pdf=str(tmp_path / "x.pdf") if tmp_path else None,
+        workspace_record_id=1,
     )
     payload.update(overrides)
     return ProviderContext(**payload)
@@ -465,8 +478,9 @@ def test_20_unresolved_scaled_authority_rejected() -> None:
 def test_21_direct_evidence_binder() -> None:
     qty = _qty("W1", 6)
     bound = bind_direct_evidence_authority(qty, source_type="schedule_extracted")
-    assert bound.source_type == "schedule_extracted"
-    assert bound.scale_calibration_status is None
+    assert bound.method == "direct_evidence"
+    assert bound.resolved_scale_id is None
+    assert isinstance(bound, M5MeasurementAuthority)
 
 
 def test_22_figured_authority_binder() -> None:
@@ -477,10 +491,11 @@ def test_22_figured_authority_binder() -> None:
         authority=MeasurementAuthorityType.DOCUMENTED_DIMENSION.value,
     )
     bound = bind_commercial_measurement_authority(qty, figured_text="6500")
-    assert bound.source_type == MeasurementAuthorityType.DOCUMENTED_DIMENSION.value
-    assert bound.figured_mm == 6500.0
+    assert bound.method == "figured_dimension"
+    assert bound.metadata.get("figured_mm") == 6500.0
     existing = resolve_measurement_authority(figured_text="6500")
-    assert bound.authority_status == existing.authority_status
+    assert existing.figured_mm == 6500.0
+    assert isinstance(bound, M5MeasurementAuthority)
 
 
 def test_23_multi_page_provenance() -> None:
@@ -491,10 +506,11 @@ def test_23_multi_page_provenance() -> None:
         contributing_pages=(2, 5),
         contributing_viewports=("vp_plan", "vp_sched"),
     )
-    assert provenance.primary.source_page == 2
+    assert provenance.primary.source_page == "2"
     assert [item.page for item in provenance.contributors] == [2, 5]
     assert provenance.evidence_fingerprint
     assert provenance.primary.project_id == "proj_1"
+    assert isinstance(provenance.primary, M5SourceTrace)
 
 
 def test_24_aggregate_instance_collision() -> None:
@@ -511,30 +527,29 @@ def test_24_aggregate_instance_collision() -> None:
 
 def test_25_estimator_approval_remains_separate() -> None:
     qty = _qty("W1", 6)
+    context = _context()
     row = quantity_evidence_to_takeoff_output_row(
         qty,
-        CommercialProjectionContext(project_id="proj_1", source_sha256=SHA),
+        trace=bind_commercial_source_trace(qty, context),
+        authority=bind_direct_evidence_authority(qty, source_type="schedule_extracted"),
     )
     assert row is not None
-    assert row.approved_by is None
-    assert str(row.confidence) not in {"approved", "estimator_verified"}
+    assert row["origin"] == "AI"
+    assert row["quantity_status"] == "To review"
+    assert row["confidence"] == 0.8
+    assert "approved_by" not in row or not row.get("approved_by")
 
 
 def test_26_commercial_publishability_controlled_by_existing_authority() -> None:
     qty = _qty("W1", 6)
+    context = _context()
     row = quantity_evidence_to_takeoff_output_row(
         qty,
-        CommercialProjectionContext(project_id="proj_1", source_sha256=SHA),
+        trace=bind_commercial_source_trace(qty, context),
+        authority=bind_direct_evidence_authority(qty, source_type="schedule_extracted"),
     )
-    review = {
-        "origin": "AI",
-        "quantity": row.value,
-        "quantity_status": "to_review",
-        "confidence": str(row.confidence),
-        "source_reference": "ai draft opening-count shadow",
-    }
-    publishable, reason = takeoff_row_publishability(review)
-    ai_ok, _ = ai_takeoff_authority(review)
+    publishable, reason = takeoff_row_publishability(row)
+    ai_ok, _ = ai_takeoff_authority(row)
     assert publishable is False
     assert ai_ok is False
     assert "estimator" in reason.lower() or "ai" in reason.lower()
@@ -719,3 +734,284 @@ def test_headline_dashboard_still_canonical() -> None:
     accepted = int(metrics["exact_matches"]) + int(metrics["within_5_percent"])
     assert accepted == 24
     assert int(metrics["total_items_compared"]) == 61
+    assert pytest.approx(metrics["overall_accuracy_percentage"], rel=0, abs=0.01) == 39.34
+
+
+def _assert_rejected(module: str, token: str, via_token: str | None = None) -> None:
+    report = inspect_provider_isolation("probe", module)
+    assert report.ok is False
+    assert any(token in item.reason or token in "->".join(item.via) for item in report.findings)
+    if via_token:
+        assert any(via_token in "->".join(item.via) for item in report.findings), report.findings
+
+
+def test_isolation_c_relative_import_rejected() -> None:
+    _assert_rejected(
+        "tests.fixtures.migration_isolation.relpkg.provider",
+        "pb_public_tender_benchmark",
+        via_token="helper",
+    )
+
+
+def test_isolation_d_aliased_import_rejected() -> None:
+    _assert_rejected(
+        "tests.fixtures.migration_isolation.alias_dirty_provider",
+        "pb_public_tender_benchmark",
+    )
+
+
+def test_isolation_e_package_init_import_rejected() -> None:
+    _assert_rejected(
+        "tests.fixtures.migration_isolation.pkg_init_dirty",
+        "pb_benchmark_accuracy_engine",
+    )
+
+
+def test_isolation_f_function_import_rejected() -> None:
+    _assert_rejected(
+        "tests.fixtures.migration_isolation.fn_dirty_provider",
+        "pb_benchmark_accuracy_engine",
+    )
+
+
+def test_isolation_g_class_method_import_rejected() -> None:
+    _assert_rejected(
+        "tests.fixtures.migration_isolation.class_dirty_provider",
+        "pb_holdout_suite_registry",
+    )
+
+
+def test_isolation_h_importlib_literal_rejected() -> None:
+    _assert_rejected(
+        "tests.fixtures.migration_isolation.importlib_dirty_provider",
+        "pb_public_tender_benchmark",
+    )
+
+
+def test_isolation_i_dunder_import_rejected() -> None:
+    _assert_rejected(
+        "tests.fixtures.migration_isolation.dunder_import_dirty_provider",
+        "pb_shadow_opening_count_eval",
+    )
+
+
+def test_isolation_j_cyclic_local_import_still_finds_gold() -> None:
+    report = inspect_provider_isolation(
+        "cycle",
+        "tests.fixtures.migration_isolation.cycle_a",
+    )
+    assert report.ok is False
+    assert any("pb_public_tender_benchmark" in item.reason for item in report.findings)
+    assert any("cycle_b" in "->".join(item.via) for item in report.findings)
+    clean = inspect_provider_isolation(
+        "clean_cycle",
+        "tests.fixtures.migration_isolation.clean_cycle_a",
+    )
+    assert clean.ok is True
+
+
+def test_canonical_m5_alias_does_not_fork() -> None:
+    assert commercial_alias.CANONICAL_M5_MODULE == "pb_quantity_takeoff_adapter"
+    assert (
+        commercial_alias.quantity_evidence_to_takeoff_output_row
+        is takeoff_adapter.quantity_evidence_to_takeoff_output_row
+    )
+    assert commercial_alias.CommercialTakeoffSourceTrace is takeoff_adapter.CommercialTakeoffSourceTrace
+    assert commercial_alias.CommercialMeasurementAuthority is takeoff_adapter.CommercialMeasurementAuthority
+
+
+def test_production_eligibility_before_answers_and_not_gold() -> None:
+    context = _context()
+    before = production_opening_count_eligibility(context)
+    assert before.eligible is True
+    assert before.eligible_semantic_keys == ()
+    assert "computed_before_extract" in before.reasons
+    adapter = OpeningCountControlAdapter()
+    decision = adapter.eligibility(context)
+    assert decision.eligible_semantic_keys == ()
+    universe = lock_opening_count_development_universe()
+    assert universe.universe.eligible_count == 24
+    universe.universe.reject_answer_driven_shrink(answered=15)
+    with pytest.raises(EligibilityContractError, match="locked"):
+        universe.replace_eligible_count(15)
+    report = build_migration_report(
+        family="opening_count",
+        descriptor=_descriptor(),
+        migration_state=MigrationAuthorityState.NEW_SHADOW.value,
+        source_set_fingerprint="src",
+        evaluated_commit="test",
+        eligible=universe.universe.eligible_count,
+        eligible_keys=(),
+        frozen_new=(_qty("W1", 6),),
+        exact_among_answered=1.0,
+        precision=1.0,
+        gate_decision="HOLD",
+        gate_reasons=("remain_new_shadow",),
+    )
+    assert report.payload["population"]["eligible"] == 24
+    assert report.payload["population"]["answered"] == 1
+    assert report.payload["population"]["evaluation_eligible_universe_count"] == 24
+    abstained = _qty("W2", abstained=True)
+    assert abstained.abstained is True
+    report_abs = build_migration_report(
+        family="opening_count",
+        descriptor=_descriptor(),
+        migration_state=MigrationAuthorityState.NEW_SHADOW.value,
+        source_set_fingerprint="src",
+        evaluated_commit="test",
+        eligible=24,
+        eligible_keys=(),
+        frozen_new=(abstained,),
+        gate_decision="HOLD",
+        gate_reasons=("abstention_still_eligible",),
+    )
+    assert report_abs.payload["population"]["eligible"] == 24
+    assert report_abs.payload["population"]["answered"] == 0
+    assert report_abs.payload["population"]["abstained"] == 1
+
+
+def test_atomic_exactly_one_authority_persistence(tmp_path: Path) -> None:
+    ledger = MigrationDecisionLedger(tmp_path / "atomic.sqlite")
+    context = _context()
+    record_state_transition(
+        ledger,
+        family="opening_count",
+        provider_id="shadow_opening_count",
+        provider_version="1",
+        provider_fingerprint="fp",
+        prior_state="new_shadow",
+        current_state="new_shadow",
+        project_id=context.project_id,
+        revision_id=context.revision_id or "",
+        semantic_claim="W1",
+        selected_authority="legacy",
+    )
+    assert ledger.selected_authority_count("opening_count", "proj_1", "rev-a", "W1") == 1
+    with pytest.raises(sqlite3.IntegrityError):
+        ledger.force_second_selection("opening_count", "proj_1", "rev-a", "W1", "new")
+    assert ledger.selected_authority_count("opening_count", "proj_1", "rev-a", "W1") == 1
+    failing = MigrationDecisionLedger(tmp_path / "fail.sqlite", failpoint="after_selection_before_commit")
+    with pytest.raises(LedgerTransactionError):
+        record_state_transition(
+            failing,
+            family="opening_count",
+            provider_id="shadow_opening_count",
+            provider_version="1",
+            provider_fingerprint="fp",
+            prior_state="new_shadow",
+            current_state="new_shadow",
+            project_id="proj_1",
+            revision_id="rev-a",
+            semantic_claim="W1",
+            selected_authority="legacy",
+        )
+    assert failing.selected_authority_count("opening_count", "proj_1", "rev-a", "W1") in {0, 1}
+    assert failing.selected_authority_count("opening_count", "proj_1", "rev-a", "W1") == 0
+    assert failing.history("opening_count") == []
+
+
+def test_atomic_state_transition_and_rollback_audit(tmp_path: Path) -> None:
+    ledger = MigrationDecisionLedger(tmp_path / "state.sqlite")
+    desc = _descriptor()
+    router = FamilyAuthorityRouter(ledger)
+    router.set_state(
+        "opening_count",
+        MigrationAuthorityState.NEW_SELECTIVE.value,
+        project_id="p",
+        provider=desc,
+        reason="test_only",
+    )
+    assert router.current_state("opening_count") == MigrationAuthorityState.NEW_SELECTIVE.value
+    assert ledger.history("opening_count")
+    failing = MigrationDecisionLedger(tmp_path / "state_fail.sqlite", failpoint="after_audit_before_state")
+    bad_router = FamilyAuthorityRouter(failing)
+    with pytest.raises(LedgerTransactionError):
+        bad_router.set_state(
+            "opening_count",
+            MigrationAuthorityState.NEW_SELECTIVE.value,
+            project_id="p",
+            provider=desc,
+            reason="should_not_commit",
+        )
+    assert bad_router.current_state("opening_count") == MigrationAuthorityState.NEW_SHADOW.value
+    assert bad_router.ledger.history("opening_count") == []
+    other = ProviderDescriptor(
+        provider_id="other_family_provider",
+        family="other_family",
+        provider_version="1.0.0",
+        output_schema_version="1.0.0",
+        code_fingerprint="0" * 64,
+    )
+    router.registry["other_family"] = FamilyRegistration(
+        family="other_family",
+        provider_id="other_family_provider",
+        provider_module="pb_migration_contracts",
+        default_state=MigrationAuthorityState.NEW_SELECTIVE.value,
+    )
+    router.set_state("other_family", MigrationAuthorityState.NEW_SELECTIVE.value, project_id="p", provider=other, reason="unrelated")
+    router.rollback(
+        "opening_count",
+        target=MigrationAuthorityState.NEW_SHADOW.value,
+        project_id="p",
+        provider=desc,
+        reason="atomic_rollback",
+    )
+    assert router.current_state("opening_count") == MigrationAuthorityState.NEW_SHADOW.value
+    assert router.current_state("other_family") == MigrationAuthorityState.NEW_SELECTIVE.value
+    history = router.ledger.history("opening_count")
+    assert any(row["current_state"] == "new_shadow" and row["fallback_reason"] == "atomic_rollback" for row in history)
+
+
+def test_gold_join_cannot_reextract_after_seal(tmp_path: Path) -> None:
+    pdf = _schedule_pdf(tmp_path)
+    adapter = OpeningCountControlAdapter()
+    context = _context(tmp_path, source_pdf=str(pdf), source_sha256=source_sha256(pdf), selected_pages=(0,))
+    eligibility = adapter.eligibility(context)
+    pipeline = MigrationExtractPipeline()
+    sealed = pipeline.run(provider=adapter, context=context, eligibility=eligibility)
+    with pytest.raises(GoldJoinBoundaryError, match="sealed"):
+        sealed.extract(context)
+    with pytest.raises(GoldJoinBoundaryError):
+        pipeline.extract(context)
+    evaluator = GoldJoinEvaluator(sealed)
+    with pytest.raises(GoldJoinBoundaryError):
+        _ = evaluator.provider
+    with pytest.raises(GoldJoinBoundaryError):
+        evaluator.extract(context)
+    scored = evaluator.load_gold_and_score({"joined_after_freeze": True})
+    assert scored["gold_joined_after_freeze"] is True
+    assert scored["reextract_possible"] is False
+    assert scored["used_result_fingerprint"] == sealed.frozen.result_fingerprint
+
+
+def test_runtime_isolation_subprocess_matches_frozen_extract(tmp_path: Path) -> None:
+    pdf = _schedule_pdf(tmp_path)
+    baseline = [item.to_dict() for item in OpeningCountControlAdapter().extract_quantities(pdf, pages=[0])]
+    out = tmp_path / "isolated.json"
+    script = Path("scripts/run_isolated_opening_count_extract.py")
+    proc = subprocess.run(
+        [sys.executable, str(script), str(pdf), str(out)],
+        cwd="/workspace",
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0
+    isolated = json.loads(out.read_text(encoding="utf-8"))
+    assert isolated == baseline
+
+
+def test_opening_count_frozen_shadow_metrics_unchanged() -> None:
+    report = json.loads(Path("shadow_reports/opening_count_shadow_development.json").read_text(encoding="utf-8"))
+    metrics = report["metrics"]
+    assert report["authority_state"] == "new_shadow"
+    assert report.get("holdout_scored") is False
+    assert int(metrics["eligible_opening_count_items"]) == 24
+    assert int(metrics["answered"]) == 15
+    assert metrics["coverage"] == pytest.approx(0.625)
+    assert metrics["precision_on_answered_identities"] == 1.0
+    assert metrics["exact_correctness_on_answered_counts"] == 1.0
+    assert int(metrics["hallucinations"]) == 0
+    assert int(metrics["conflicts"]) == 0
+    assert int(metrics["critical_duplicate_counts"]) == 0
+

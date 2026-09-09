@@ -62,14 +62,20 @@ def current_commit_sha(repo_root: Optional[Path] = None) -> str:
     return ref
 
 
+class LedgerTransactionError(RuntimeError):
+    """Injected or real failure inside an atomic ledger transaction."""
+
+
 class MigrationDecisionLedger:
     """Append-only JSONL + SQLite ledger for family routing decisions."""
 
-    def __init__(self, path: Path | str) -> None:
+    def __init__(self, path: Path | str, *, failpoint: Optional[str] = None) -> None:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.jsonl_path = self.path.with_suffix(".jsonl")
+        self.failpoint = failpoint
         self._conn = sqlite3.connect(self.path)
+        self._conn.isolation_level = None
         self._conn.row_factory = sqlite3.Row
         self._init()
 
@@ -107,56 +113,162 @@ class MigrationDecisionLedger:
             )
             """
         )
-        self._conn.commit()
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS current_selections (
+                family TEXT NOT NULL,
+                project_id TEXT NOT NULL,
+                revision_id TEXT NOT NULL,
+                semantic_claim TEXT NOT NULL,
+                selected_authority TEXT NOT NULL,
+                decision_id INTEGER NOT NULL,
+                PRIMARY KEY (family, project_id, revision_id, semantic_claim)
+            )
+            """
+        )
 
     def close(self) -> None:
         self._conn.close()
 
+    def _maybe_fail(self, name: str) -> None:
+        if self.failpoint == name:
+            raise LedgerTransactionError(f"injected ledger failure at {name}")
+
     def append(self, record: MigrationDecisionRecord) -> int:
+        """Atomically write audit + current selection + family state, then JSONL."""
         payload = record.to_dict()
-        cur = self._conn.execute(
-            """
-            INSERT INTO migration_decisions (
-                family, provider_id, provider_version, provider_fingerprint,
-                prior_state, current_state, project_id, revision_id, semantic_claim,
-                selected_authority, fallback_reason, blocker, decided_at, code_commit,
-                run_id, extra_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                record.family,
-                record.provider_id,
-                record.provider_version,
-                record.provider_fingerprint,
-                record.prior_state,
-                record.current_state,
-                record.project_id,
-                record.revision_id,
-                record.semantic_claim,
-                record.selected_authority,
-                record.fallback_reason,
-                record.blocker,
-                record.decided_at,
-                record.code_commit,
-                record.run_id,
-                canonical_contract_json(record.extra),
-            ),
-        )
-        self._conn.execute(
-            """
-            INSERT INTO family_state (family, current_state, updated_at, last_decision_id)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(family) DO UPDATE SET
-                current_state=excluded.current_state,
-                updated_at=excluded.updated_at,
-                last_decision_id=excluded.last_decision_id
-            """,
-            (record.family, record.current_state, record.decided_at, cur.lastrowid),
-        )
-        self._conn.commit()
+        try:
+            self._conn.execute("BEGIN")
+            cur = self._conn.execute(
+                """
+                INSERT INTO migration_decisions (
+                    family, provider_id, provider_version, provider_fingerprint,
+                    prior_state, current_state, project_id, revision_id, semantic_claim,
+                    selected_authority, fallback_reason, blocker, decided_at, code_commit,
+                    run_id, extra_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    record.family,
+                    record.provider_id,
+                    record.provider_version,
+                    record.provider_fingerprint,
+                    record.prior_state,
+                    record.current_state,
+                    record.project_id,
+                    record.revision_id,
+                    record.semantic_claim,
+                    record.selected_authority,
+                    record.fallback_reason,
+                    record.blocker,
+                    record.decided_at,
+                    record.code_commit,
+                    record.run_id,
+                    canonical_contract_json(record.extra),
+                ),
+            )
+            decision_id = int(cur.lastrowid)
+            self._maybe_fail("after_audit_before_state")
+            self._conn.execute(
+                """
+                INSERT INTO family_state (family, current_state, updated_at, last_decision_id)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(family) DO UPDATE SET
+                    current_state=excluded.current_state,
+                    updated_at=excluded.updated_at,
+                    last_decision_id=excluded.last_decision_id
+                """,
+                (record.family, record.current_state, record.decided_at, decision_id),
+            )
+            self._maybe_fail("after_state_before_selection")
+            if record.semantic_claim and record.semantic_claim != "*":
+                existing = self.selected_authority_count(
+                    record.family,
+                    record.project_id,
+                    record.revision_id,
+                    record.semantic_claim,
+                )
+                if existing > 1:
+                    raise LedgerTransactionError("current selection already violated exactly-one invariant")
+                self._conn.execute(
+                    """
+                    INSERT INTO current_selections (
+                        family, project_id, revision_id, semantic_claim,
+                        selected_authority, decision_id
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(family, project_id, revision_id, semantic_claim) DO UPDATE SET
+                        selected_authority=excluded.selected_authority,
+                        decision_id=excluded.decision_id
+                    """,
+                    (
+                        record.family,
+                        record.project_id,
+                        record.revision_id,
+                        record.semantic_claim,
+                        record.selected_authority,
+                        decision_id,
+                    ),
+                )
+            self._maybe_fail("after_selection_before_commit")
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
         with self.jsonl_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(payload, sort_keys=True) + "\n")
-        return int(cur.lastrowid)
+        return decision_id
+
+    def selected_authority_count(
+        self,
+        family: str,
+        project_id: str,
+        revision_id: str,
+        semantic_claim: str,
+    ) -> int:
+        row = self._conn.execute(
+            """
+            SELECT COUNT(*) AS n FROM current_selections
+            WHERE family = ? AND project_id = ? AND revision_id = ? AND semantic_claim = ?
+            """,
+            (family, project_id, revision_id, semantic_claim),
+        ).fetchone()
+        return int(row["n"] if row else 0)
+
+    def current_selected_authority(
+        self,
+        family: str,
+        project_id: str,
+        revision_id: str,
+        semantic_claim: str,
+    ) -> Optional[str]:
+        row = self._conn.execute(
+            """
+            SELECT selected_authority FROM current_selections
+            WHERE family = ? AND project_id = ? AND revision_id = ? AND semantic_claim = ?
+            """,
+            (family, project_id, revision_id, semantic_claim),
+        ).fetchone()
+        return str(row["selected_authority"]) if row else None
+
+    def force_second_selection(
+        self,
+        family: str,
+        project_id: str,
+        revision_id: str,
+        semantic_claim: str,
+        selected_authority: str,
+    ) -> None:
+        """Test helper: attempt to insert a second live selection without replacing."""
+        self._conn.execute(
+            """
+            INSERT INTO current_selections (
+                family, project_id, revision_id, semantic_claim,
+                selected_authority, decision_id
+            ) VALUES (?, ?, ?, ?, ?, -1)
+            """,
+            (family, project_id, revision_id, semantic_claim, selected_authority),
+        )
+        self._conn.commit()
 
     def family_state(self, family: str, default: str = MigrationAuthorityState.NEW_SHADOW.value) -> str:
         row = self._conn.execute(

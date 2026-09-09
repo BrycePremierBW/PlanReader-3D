@@ -1,12 +1,12 @@
-"""Shared measurement-authority binder for M5 commercial projection.
+"""Shared measurement-authority binder for canonical M5 projection.
 
 Providers must not independently manufacture figured/scaled/resolved-scale
 authority.  This binder reuses the existing scale, figured-dimension, and
-geometry authority modules.  It does not create a second authority ladder.
+geometry authority modules, then constructs the canonical M5
+``CommercialMeasurementAuthority``.  It does not define a second authority type.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Optional
 
 from pb_figured_dimension_authority import resolve_measurement_authority
@@ -17,6 +17,7 @@ from pb_page_scale_calibration_authority import (
     measurement_authority_for_page_scale,
     unknown_calibration,
 )
+from pb_quantity_takeoff_adapter import CommercialMeasurementAuthority
 
 
 class MeasurementAuthorityBindingError(RuntimeError):
@@ -30,18 +31,7 @@ UNRELIABLE_SCALE = {
     ScaleCalibrationStatus.BLOCKED.value,
 }
 
-
-@dataclass(frozen=True)
-class CommercialMeasurementAuthority:
-    """Projection-facing authority record built only from existing modules."""
-
-    source_type: str
-    authority_status: str
-    scale_calibration_status: Optional[str]
-    figured_mm: Optional[float]
-    scaled_mm: Optional[float]
-    notes: str
-    blockers: tuple[str, ...]
+_RESOLVED_SCALE = {"resolved", "verified", "authoritative", "calibrated"}
 
 
 def bind_commercial_measurement_authority(
@@ -51,52 +41,60 @@ def bind_commercial_measurement_authority(
     figured_mm: Optional[float] = None,
     scaled_mm: Optional[float] = None,
     scale_calibration: Optional[ScaleCalibration] = None,
+    figured_dimension_ids: tuple[str, ...] = (),
 ) -> CommercialMeasurementAuthority:
-    """Resolve figured-vs-scaled authority with existing shared policy."""
-    blockers: list[str] = []
-    calibration = scale_calibration
-    scale_status = None
-    scale_reliable = True
-    if quantity.authority == MeasurementAuthorityType.PDF_SCALED.value or scaled_mm is not None:
+    """Resolve figured-vs-scaled authority with existing shared policy, then emit M5 type."""
+    wants_scaled = quantity.authority == MeasurementAuthorityType.PDF_SCALED.value or scaled_mm is not None
+    if wants_scaled and not figured_text and figured_mm is None:
+        calibration = scale_calibration
         if calibration is None:
             calibration = unknown_calibration(page_no=int((quantity.metadata or {}).get("source_page") or 1))
-        scale_status = calibration.status
+        scale_status = str(calibration.status)
         measured = measurement_authority_for_page_scale(calibration)
         if scale_status in UNRELIABLE_SCALE or measured == AuthorityStatus.BLOCKED.value:
-            scale_reliable = False
-            blockers.append("unresolved_scale")
             raise MeasurementAuthorityBindingError(
                 "scaled geometry requires resolved/verified/calibrated scale; unresolved scale fails closed"
             )
+        if scale_status.lower() not in _RESOLVED_SCALE:
+            raise MeasurementAuthorityBindingError(
+                "scaled geometry requires resolved/verified/calibrated scale; unresolved scale fails closed"
+            )
+        resolved_scale_id = str((quantity.metadata or {}).get("scale_id") or getattr(calibration, "scale_id", "") or "bound_scale")
+        return CommercialMeasurementAuthority(
+            method="scaled_geometry",
+            resolved_scale_id=resolved_scale_id,
+            scale_status=scale_status.lower() if scale_status.lower() in _RESOLVED_SCALE else "resolved",
+            metadata={
+                "bound_by": "pb_migration_measurement_authority_binder",
+                "canonical_m5_module": "pb_quantity_takeoff_adapter",
+                "existing_resolver": "pb_page_scale_calibration_authority",
+            },
+        )
 
     result = resolve_measurement_authority(
         scaled_mm=scaled_mm,
         figured_text=figured_text,
         figured_mm=figured_mm,
-        scale_reliable=scale_reliable,
+        scale_reliable=not wants_scaled,
     )
     if result.authority_status == AuthorityStatus.BLOCKED.value and not figured_text and figured_mm is None:
         if quantity.authority == MeasurementAuthorityType.PDF_SCALED.value:
             raise MeasurementAuthorityBindingError(result.notes)
 
-    source_type = result.source_type or quantity.authority
-    if quantity.authority == MeasurementAuthorityType.DOCUMENTED_DIMENSION.value:
-        source_type = MeasurementAuthorityType.DOCUMENTED_DIMENSION.value
-    if quantity.authority == MeasurementAuthorityType.SCHEDULE_EXTRACTED.value:
-        source_type = MeasurementAuthorityType.SCHEDULE_EXTRACTED.value
-
-    if result.authority_status == AuthorityStatus.BLOCKED.value:
-        blockers.append(result.notes)
-
-    return CommercialMeasurementAuthority(
-        source_type=source_type,
-        authority_status=result.authority_status,
-        scale_calibration_status=scale_status,
-        figured_mm=result.figured_mm,
-        scaled_mm=result.scaled_mm,
-        notes=result.notes,
-        blockers=tuple(blockers),
-    )
+    ids = figured_dimension_ids or tuple(quantity.evidence_ids[:1]) or ("figured_bound",)
+    if quantity.authority == MeasurementAuthorityType.DOCUMENTED_DIMENSION.value or figured_text or figured_mm is not None:
+        return CommercialMeasurementAuthority(
+            method="figured_dimension",
+            figured_dimension_ids=ids,
+            metadata={
+                "bound_by": "pb_migration_measurement_authority_binder",
+                "canonical_m5_module": "pb_quantity_takeoff_adapter",
+                "existing_resolver": "pb_figured_dimension_authority",
+                "figured_mm": result.figured_mm,
+                "notes": result.notes,
+            },
+        )
+    return bind_direct_evidence_authority(quantity, source_type=quantity.authority)
 
 
 def bind_direct_evidence_authority(
@@ -107,15 +105,13 @@ def bind_direct_evidence_authority(
     """Schedule / documented evidence without inventing scaled firmness."""
     if source_type == MeasurementAuthorityType.PDF_SCALED.value:
         raise MeasurementAuthorityBindingError("direct evidence binder cannot certify scaled geometry")
-    status = quantity.status or AuthorityStatus.PROVISIONAL.value
-    if status == AuthorityStatus.FIRM.value and source_type == MeasurementAuthorityType.AI_DETECTED.value:
-        status = AuthorityStatus.PROVISIONAL.value
     return CommercialMeasurementAuthority(
-        source_type=source_type,
-        authority_status=status,
-        scale_calibration_status=None,
-        figured_mm=None,
-        scaled_mm=None,
-        notes="direct evidence authority copied from existing quantity authority; not provider-certified",
-        blockers=(),
+        method="direct_evidence",
+        metadata={
+            "bound_by": "pb_migration_measurement_authority_binder",
+            "canonical_m5_module": "pb_quantity_takeoff_adapter",
+            "source_type": source_type,
+            "quantity_status": quantity.status,
+            "notes": "direct evidence authority copied from existing quantity authority; not provider-certified",
+        },
     )

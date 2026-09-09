@@ -72,12 +72,14 @@ class ProviderContext:
     canonical_graph_snapshot_id: Optional[str] = None
     measurement_authority_snapshot_id: Optional[str] = None
     source_pdf: Optional[str] = None
+    workspace_record_id: Optional[int] = 1
 
     def fingerprint(self) -> str:
         return fingerprint_payload(
             {
                 "run_id": self.run_id,
                 "workspace_id": self.workspace_id,
+                "workspace_record_id": self.workspace_record_id,
                 "project_id": self.project_id,
                 "document_id": self.document_id,
                 "source_sha256": self.source_sha256,

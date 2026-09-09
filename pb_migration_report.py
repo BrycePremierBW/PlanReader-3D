@@ -97,6 +97,9 @@ def build_migration_report(
             "answered": len(answered),
             "abstained": len(abstained),
             "eligible_defined_independently_of_answers": True,
+            "production_eligible_semantic_keys": [],
+            "evaluation_eligible_universe_count": eligible,
+            "evaluation_eligible_source": "development_evaluator" if family == "opening_count" else "caller",
         },
         "accuracy": {
             "coverage": coverage,
