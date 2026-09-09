@@ -1,0 +1,2009 @@
+{
+  "source_sha256": "c8c001c9dadb791e7cb18b7bea19ce795eebba2f9b9eb7dec4844212da4d8f4f",
+  "source_page": 167,
+  "page_rect": [
+    0.0,
+    0.0,
+    841.92,
+    595.44
+  ],
+  "keyword_lines": [
+    "06. DPC (Dam Proof Course) to be laid under all walls and",
+    "09. 500mm gauge polythene, DPM (Damp Proof",
+    "under ground floor concrete slab.",
+    "02. All reinforced concrete to be grade 25 mix giving a",
+    "ff. cement/sand screed",
+    "Engineer for inspection prior to concreting.",
+    "Structural Engineer for his approval prior to placing of",
+    "the Structural Engineer shall be consulted before final",
+    "02. 40mm to columns above ground level.",
+    "AREA in M2",
+    "FLOOR AREA",
+    "VERANDAH",
+    "ff. cement/sand screed",
+    "100mm Dia. RHS Steel Poles",
+    "PLAN : FLOOR LAYOUT"
+  ],
+  "keyword_blocks": [
+    {
+      "text": "01. All dimensions are in millimeters. 02. All dimensions should be checked on site and any discrepancies be reported to the Architect. 03. All works to be carried in acccordance with the Local Authority Standards. 04. Use figured dimensions only, do not scale from the drawing. 05. Walls to be reinforced with hoop iron at every alternative course. 06. DPC (Dam Proof Course) to be laid under all walls and should be minimum 150mm above finished ground level. 200",
+      "bbox": [
+        133.97,
+        76.73,
+        801.18,
+        145.14
+      ],
+      "block_no": 17
+    },
+    {
+      "text": "07. All drainage pipes passing under buildings and drive way to be encased in 150mm concrete sorround. 08. All inspection chambers in drive ways to be heavy duty covers. 09. 500mm gauge polythene, DPM (Damp Proof Membrane) and anti-termite treatment to be provided under ground floor concrete slab. 10. No alterations should be made whatsover without the consent of the Architect.",
+      "bbox": [
+        701.47,
+        135.08,
+        801.66,
+        178.79
+      ],
+      "block_no": 25
+    },
+    {
+      "text": "CONCRETE 01. Blinding under Pad foundation shall be 1:4:8 mix. 02. All reinforced concrete to be grade 25 mix giving a minimum crushing strength of 25 N/mm2 of 28 days. 03. Cement shall be Portland Cement to comply with BS 12.",
+      "bbox": [
+        701.47,
+        181.47,
+        797.56,
+        210.26
+      ],
+      "block_no": 26
+    },
+    {
+      "text": "LABORATORY ff. cement/sand screed",
+      "bbox": [
+        290.23,
+        360.58,
+        349.48,
+        377.04
+      ],
+      "block_no": 37
+    },
+    {
+      "text": "Engineer for inspection prior to concreting.",
+      "bbox": [
+        708.43,
+        237.42,
+        781.48,
+        241.94
+      ],
+      "block_no": 47
+    },
+    {
+      "text": "EXCAVATIONS 01. All excavations for foundation shall be presented to the Structural Engineer for his approval prior to placing of blinding. 2 02. Depth of foundation on all drawings are provisional and the Structural Engineer shall be consulted before final depth is carried during construction.",
+      "bbox": [
+        631.63,
+        244.62,
+        803.58,
+        278.44
+      ],
+      "block_no": 48
+    },
+    {
+      "text": "COVER Unless otherwise stated, cover to main steel shall be as follows :- 01. 50mm to all steel below ground level. 02. 40mm to columns above ground level. 03. 25mm to steel in beams. 04. 20mm to steel in slabs and staircase.",
+      "bbox": [
+        701.23,
+        281.12,
+        793.96,
+        314.92
+      ],
+      "block_no": 49
+    },
+    {
+      "text": "AREA in M2",
+      "bbox": [
+        741.34,
+        373.78,
+        764.2,
+        378.3
+      ],
+      "block_no": 53
+    },
+    {
+      "text": "FLOOR AREA - 162.69M2",
+      "bbox": [
+        702.67,
+        383.65,
+        798.3,
+        388.17
+      ],
+      "block_no": 54
+    },
+    {
+      "text": "VERANDAH ff. cement/sand screed",
+      "bbox": [
+        358.9,
+        432.85,
+        416.1,
+        449.33
+      ],
+      "block_no": 57
+    },
+    {
+      "text": "100mm Dia. RHS Steel Poles B C D",
+      "bbox": [
+        418.68,
+        482.52,
+        601.55,
+        500.49
+      ],
+      "block_no": 71
+    },
+    {
+      "text": "PLAN : FLOOR LAYOUT",
+      "bbox": [
+        147.41,
+        504.86,
+        296.98,
+        518.67
+      ],
+      "block_no": 73
+    }
+  ],
+  "key_words": [
+    {
+      "text": "D",
+      "bbox": [
+        593.69,
+        91.69,
+        599.75,
+        100.98
+      ],
+      "block": 15,
+      "line": 1,
+      "word": 0
+    },
+    {
+      "text": "columns",
+      "bbox": [
+        723.1,
+        300.8,
+        737.39,
+        305.32
+      ],
+      "block": 49,
+      "line": 4,
+      "word": 3
+    },
+    {
+      "text": "VERANDAH",
+      "bbox": [
+        363.22,
+        432.85,
+        409.83,
+        442.14
+      ],
+      "block": 57,
+      "line": 0,
+      "word": 0
+    },
+    {
+      "text": "RHS",
+      "bbox": [
+        451.54,
+        482.52,
+        463.75,
+        489.17
+      ],
+      "block": 71,
+      "line": 0,
+      "word": 2
+    },
+    {
+      "text": "Poles",
+      "bbox": [
+        479.66,
+        482.52,
+        492.31,
+        489.17
+      ],
+      "block": 71,
+      "line": 0,
+      "word": 4
+    },
+    {
+      "text": "D",
+      "bbox": [
+        593.93,
+        491.19,
+        599.99,
+        500.49
+      ],
+      "block": 71,
+      "line": 3,
+      "word": 0
+    }
+  ],
+  "dimension_chains": [
+    {
+      "chain_id": "chain_p167_page_167_0",
+      "orientation": "horizontal",
+      "values_m": [
+        15.95
+      ],
+      "bbox": [
+        362.02,
+        107.77,
+        384.93,
+        117.06
+      ],
+      "support_status": null,
+      "support_count": null,
+      "observations": [
+        {
+          "raw_text": "15,950",
+          "value_m": 15.95,
+          "bbox": [
+            362.02,
+            107.77,
+            384.93,
+            117.06
+          ]
+        }
+      ]
+    },
+    {
+      "chain_id": "chain_p167_page_167_1",
+      "orientation": "horizontal",
+      "values_m": [
+        0.2,
+        11.05,
+        0.2,
+        4.3,
+        0.2
+      ],
+      "bbox": [
+        134.93,
+        121.93,
+        592.85,
+        131.22
+      ],
+      "support_status": "unresolved",
+      "support_count": null,
+      "observations": [
+        {
+          "raw_text": "200",
+          "value_m": 0.2,
+          "bbox": [
+            134.93,
+            121.93,
+            147.29,
+            131.22
+          ]
+        },
+        {
+          "raw_text": "11,050",
+          "value_m": 11.05,
+          "bbox": [
+            292.42,
+            121.93,
+            315.33,
+            131.22
+          ]
+        },
+        {
+          "raw_text": "200",
+          "value_m": 0.2,
+          "bbox": [
+            453.48,
+            121.93,
+            465.84,
+            131.22
+          ]
+        },
+        {
+          "raw_text": "4,300",
+          "value_m": 4.3,
+          "bbox": [
+            517.1,
+            121.93,
+            535.92,
+            131.22
+          ]
+        },
+        {
+          "raw_text": "200",
+          "value_m": 0.2,
+          "bbox": [
+            580.49,
+            121.93,
+            592.85,
+            131.22
+          ]
+        }
+      ]
+    },
+    {
+      "chain_id": "chain_p167_page_167_2",
+      "orientation": "horizontal",
+      "values_m": [
+        0.15
+      ],
+      "bbox": [
+        742.96,
+        125.53,
+        755.96,
+        130.05
+      ],
+      "support_status": null,
+      "support_count": null,
+      "observations": [
+        {
+          "raw_text": "150mm",
+          "value_m": 0.15,
+          "bbox": [
+            742.96,
+            125.53,
+            755.96,
+            130.05
+          ]
+        }
+      ]
+    },
+    {
+      "chain_id": "chain_p167_page_167_3",
+      "orientation": "horizontal",
+      "values_m": [
+        0.2,
+        11.05,
+        0.2,
+        0.2,
+        0.2
+      ],
+      "bbox": [
+        133.97,
+        135.85,
+        592.85,
+        145.14
+      ],
+      "support_status": "unresolved",
+      "support_count": null,
+      "observations": [
+        {
+          "raw_text": "200",
+          "value_m": 0.2,
+          "bbox": [
+            133.97,
+            135.85,
+            146.33,
+            145.14
+          ]
+        },
+        {
+          "raw_text": "11,050",
+          "value_m": 11.05,
+          "bbox": [
+            291.67,
+            135.85,
+            314.58,
+            145.14
+          ]
+        },
+        {
+          "raw_text": "200",
+          "value_m": 0.2,
+          "bbox": [
+            453.0,
+            135.85,
+            465.36,
+            145.14
+          ]
+        },
+        {
+          "raw_text": "200",
+          "value_m": 0.2,
+          "bbox": [
+            516.62,
+            135.85,
+            528.98,
+            145.14
+          ]
+        },
+        {
+          "raw_text": "200",
+          "value_m": 0.2,
+          "bbox": [
+            580.49,
+            135.85,
+            592.85,
+            145.14
+          ]
+        }
+      ]
+    },
+    {
+      "chain_id": "chain_p167_page_167_4",
+      "orientation": "horizontal",
+      "values_m": [
+        0.15
+      ],
+      "bbox": [
+        744.15,
+        140.17,
+        757.14,
+        144.69
+      ],
+      "support_status": null,
+      "support_count": null,
+      "observations": [
+        {
+          "raw_text": "150mm",
+          "value_m": 0.15,
+          "bbox": [
+            744.15,
+            140.17,
+            757.14,
+            144.69
+          ]
+        }
+      ]
+    },
+    {
+      "chain_id": "chain_p167_page_167_5",
+      "orientation": "horizontal",
+      "values_m": [
+        0.475,
+        1.5,
+        0.75,
+        1.5,
+        0.75,
+        1.5,
+        0.75,
+        1.5,
+        0.75,
+        1.5,
+        0.75,
+        1.5,
+        0.75,
+        1.5,
+        0.475
+      ],
+      "bbox": [
+        133.97,
+        150.03,
+        584.69,
+        159.32
+      ],
+      "support_status": "unresolved",
+      "support_count": null,
+      "observations": [
+        {
+          "raw_text": "475",
+          "value_m": 0.475,
+          "bbox": [
+            133.97,
+            150.03,
+            146.33,
+            159.32
+          ]
+        },
+        {
+          "raw_text": "1,500",
+          "value_m": 1.5,
+          "bbox": [
+            172.61,
+            150.03,
+            191.43,
+            159.32
+          ]
+        },
+        {
+          "raw_text": "750",
+          "value_m": 0.75,
+          "bbox": [
+            207.65,
+            150.03,
+            220.01,
+            159.32
+          ]
+        },
+        {
+          "raw_text": "1,500",
+          "value_m": 1.5,
+          "bbox": [
+            236.23,
+            150.03,
+            255.05,
+            159.32
+          ]
+        },
+        {
+          "raw_text": "750",
+          "value_m": 0.75,
+          "bbox": [
+            271.51,
+            150.03,
+            283.87,
+            159.32
+          ]
+        },
+        {
+          "raw_text": "1,500",
+          "value_m": 1.5,
+          "bbox": [
+            300.1,
+            150.03,
+            318.92,
+            159.32
+          ]
+        },
+        {
+          "raw_text": "750",
+          "value_m": 0.75,
+          "bbox": [
+            335.14,
+            150.03,
+            347.5,
+            159.32
+          ]
+        },
+        {
+          "raw_text": "1,500",
+          "value_m": 1.5,
+          "bbox": [
+            363.94,
+            150.03,
+            382.76,
+            159.32
+          ]
+        },
+        {
+          "raw_text": "750",
+          "value_m": 0.75,
+          "bbox": [
+            399.0,
+            150.03,
+            411.36,
+            159.32
+          ]
+        },
+        {
+          "raw_text": "1,500",
+          "value_m": 1.5,
+          "bbox": [
+            427.8,
+            150.03,
+            446.62,
+            159.32
+          ]
+        },
+        {
+          "raw_text": "750",
+          "value_m": 0.75,
+          "bbox": [
+            462.86,
+            150.03,
+            475.22,
+            159.32
+          ]
+        },
+        {
+          "raw_text": "1,500",
+          "value_m": 1.5,
+          "bbox": [
+            491.42,
+            150.03,
+            510.24,
+            159.32
+          ]
+        },
+        {
+          "raw_text": "750",
+          "value_m": 0.75,
+          "bbox": [
+            526.7,
+            150.03,
+            539.54,
+            159.32
+          ]
+        },
+        {
+          "raw_text": "1,500",
+          "value_m": 1.5,
+          "bbox": [
+            548.81,
+            150.03,
+            567.86,
+            159.32
+          ]
+        },
+        {
+          "raw_text": "475",
+          "value_m": 0.475,
+          "bbox": [
+            572.33,
+            150.03,
+            584.69,
+            159.32
+          ]
+        }
+      ]
+    },
+    {
+      "chain_id": "chain_p167_page_167_6",
+      "orientation": "horizontal",
+      "values_m": [
+        0.2
+      ],
+      "bbox": [
+        124.81,
+        154.27,
+        134.1,
+        166.63
+      ],
+      "support_status": null,
+      "support_count": null,
+      "observations": [
+        {
+          "raw_text": "200",
+          "value_m": 0.2,
+          "bbox": [
+            124.81,
+            154.27,
+            134.1,
+            166.63
+          ]
+        }
+      ]
+    },
+    {
+      "chain_id": "chain_p167_page_167_7",
+      "orientation": "horizontal",
+      "values_m": [
+        0.5
+      ],
+      "bbox": [
+        707.71,
+        154.59,
+        720.47,
+        159.11
+      ],
+      "support_status": null,
+      "support_count": null,
+      "observations": [
+        {
+          "raw_text": "500mm",
+          "value_m": 0.5,
+          "bbox": [
+            707.71,
+            154.59,
+            720.47,
+            159.11
+          ]
+        }
+      ]
+    },
+    {
+      "chain_id": "chain_p167_page_167_8",
+      "orientation": "horizontal",
+      "values_m": [
+        0.4,
+        0.2,
+        0.6,
+        0.2
+      ],
+      "bbox": [
+        110.62,
+        179.71,
+        614.7,
+        193.51
+      ],
+      "support_status": "unresolved",
+      "support_count": null,
+      "observations": [
+        {
+          "raw_text": "400",
+          "value_m": 0.4,
+          "bbox": [
+            110.62,
+            179.71,
+            119.91,
+            192.07
+          ]
+        },
+        {
+          "raw_text": "200",
+          "value_m": 0.2,
+          "bbox": [
+            124.57,
+            179.71,
+            133.86,
+            192.07
+          ]
+        },
+        {
+          "raw_text": "600",
+          "value_m": 0.6,
+          "bbox": [
+            218.67,
+            181.15,
+            227.96,
+            193.51
+          ]
+        },
+        {
+          "raw_text": "200",
+          "value_m": 0.2,
+          "bbox": [
+            605.41,
+            179.71,
+            614.7,
+            192.07
+          ]
+        }
+      ]
+    },
+    {
+      "chain_id": "chain_p167_page_167_9",
+      "orientation": "horizontal",
+      "values_m": [
+        0.025
+      ],
+      "bbox": [
+        767.15,
+        191.31,
+        771.34,
+        195.83
+      ],
+      "support_status": null,
+      "support_count": null,
+      "observations": [
+        {
+          "raw_text": "25",
+          "value_m": 0.025,
+          "bbox": [
+            767.15,
+            191.31,
+            771.34,
+            195.83
+          ]
+        }
+      ]
+    },
+    {
+      "chain_id": "chain_p167_page_167_10",
+      "orientation": "horizontal",
+      "values_m": [
+        0.025,
+        0.028
+      ],
+      "bbox": [
+        759.82,
+        196.11,
+        786.58,
+        200.63
+      ],
+      "support_status": "resolved",
+      "support_count": 3,
+      "observations": [
+        {
+          "raw_text": "25",
+          "value_m": 0.025,
+          "bbox": [
+            759.82,
+            196.11,
+            764.02,
+            200.63
+          ]
+        },
+        {
+          "raw_text": "28",
+          "value_m": 0.028,
+          "bbox": [
+            782.38,
+            196.11,
+            786.58,
+            200.63
+          ]
+        }
+      ]
+    },
+    {
+      "chain_id": "chain_p167_page_167_11",
+      "orientation": "horizontal",
+      "values_m": [
+        1.2
+      ],
+      "bbox": [
+        218.43,
+        203.28,
+        227.72,
+        222.1
+      ],
+      "support_status": null,
+      "support_count": null,
+      "observations": [
+        {
+          "raw_text": "1,200",
+          "value_m": 1.2,
+          "bbox": [
+            218.43,
+            203.28,
+            227.72,
+            222.1
+          ]
+        }
+      ]
+    },
+    {
+      "chain_id": "chain_p167_page_167_12",
+      "orientation": "horizontal",
+      "values_m": [
+        0.4
+      ],
+      "bbox": [
+        345.46,
+        208.38,
+        371.4,
+        217.67
+      ],
+      "support_status": null,
+      "support_count": null,
+      "observations": [
+        {
+          "raw_text": "400mm",
+          "value_m": 0.4,
+          "bbox": [
+            345.46,
+            208.38,
+            371.4,
+            217.67
+          ]
+        }
+      ]
+    },
+    {
+      "chain_id": "chain_p167_page_167_13",
+      "orientation": "horizontal",
+      "values_m": [
+        1.8
+      ],
+      "bbox": [
+        203.55,
+        211.92,
+        212.84,
+        230.74
+      ],
+      "support_status": null,
+      "support_count": null,
+      "observations": [
+        {
+          "raw_text": "1,800",
+          "value_m": 1.8,
+          "bbox": [
+            203.55,
+            211.92,
+            212.84,
+            230.74
+          ]
+        }
+      ]
+    },
+    {
+      "chain_id": "chain_p167_page_167_14",
+      "orientation": "horizontal",
+      "values_m": [
+        1.8,
+        1.2,
+        0.7,
+        1.0,
+        0.7,
+        1.0,
+        0.7,
+        1.0,
+        0.7,
+        1.65,
+        0.6,
+        3.0
+      ],
+      "bbox": [
+        169.49,
+        217.98,
+        614.7,
+        236.98
+      ],
+      "support_status": "unresolved",
+      "support_count": null,
+      "observations": [
+        {
+          "raw_text": "1,800",
+          "value_m": 1.8,
+          "bbox": [
+            169.49,
+            217.98,
+            188.31,
+            227.27
+          ]
+        },
+        {
+          "raw_text": "1,200",
+          "value_m": 1.2,
+          "bbox": [
+            211.75,
+            217.98,
+            230.57,
+            227.27
+          ]
+        },
+        {
+          "raw_text": "700",
+          "value_m": 0.7,
+          "bbox": [
+            241.75,
+            217.98,
+            254.59,
+            227.27
+          ]
+        },
+        {
+          "raw_text": "1,000",
+          "value_m": 1.0,
+          "bbox": [
+            262.63,
+            217.98,
+            281.45,
+            227.27
+          ]
+        },
+        {
+          "raw_text": "700",
+          "value_m": 0.7,
+          "bbox": [
+            289.51,
+            217.98,
+            302.35,
+            227.27
+          ]
+        },
+        {
+          "raw_text": "1,000",
+          "value_m": 1.0,
+          "bbox": [
+            310.42,
+            217.98,
+            329.47,
+            227.27
+          ]
+        },
+        {
+          "raw_text": "700",
+          "value_m": 0.7,
+          "bbox": [
+            337.3,
+            217.98,
+            350.14,
+            227.27
+          ]
+        },
+        {
+          "raw_text": "1,000",
+          "value_m": 1.0,
+          "bbox": [
+            357.94,
+            217.98,
+            376.99,
+            227.27
+          ]
+        },
+        {
+          "raw_text": "700",
+          "value_m": 0.7,
+          "bbox": [
+            385.08,
+            217.98,
+            397.2,
+            227.27
+          ]
+        },
+        {
+          "raw_text": "1,650",
+          "value_m": 1.65,
+          "bbox": [
+            416.52,
+            217.98,
+            435.34,
+            227.27
+          ]
+        },
+        {
+          "raw_text": "600",
+          "value_m": 0.6,
+          "bbox": [
+            451.56,
+            217.98,
+            463.92,
+            227.27
+          ]
+        },
+        {
+          "raw_text": "3,000",
+          "value_m": 3.0,
+          "bbox": [
+            605.41,
+            218.61,
+            614.7,
+            236.98
+          ]
+        }
+      ]
+    },
+    {
+      "chain_id": "chain_p167_page_167_15",
+      "orientation": "horizontal",
+      "values_m": [
+        0.2
+      ],
+      "bbox": [
+        605.41,
+        270.48,
+        614.7,
+        282.84
+      ],
+      "support_status": null,
+      "support_count": null,
+      "observations": [
+        {
+          "raw_text": "200",
+          "value_m": 0.2,
+          "bbox": [
+            605.41,
+            270.48,
+            614.7,
+            282.84
+          ]
+        }
+      ]
+    },
+    {
+      "chain_id": "chain_p167_page_167_16",
+      "orientation": "horizontal",
+      "values_m": [
+        8.2,
+        7.8,
+        3.0,
+        1.3
+      ],
+      "bbox": [
+        96.46,
+        279.12,
+        455.29,
+        298.68
+      ],
+      "support_status": "unresolved",
+      "support_count": null,
+      "observations": [
+        {
+          "raw_text": "8,200",
+          "value_m": 8.2,
+          "bbox": [
+            96.46,
+            279.86,
+            105.75,
+            298.68
+          ]
+        },
+        {
+          "raw_text": "7,800",
+          "value_m": 7.8,
+          "bbox": [
+            124.81,
+            279.86,
+            134.1,
+            298.68
+          ]
+        },
+        {
+          "raw_text": "3,000",
+          "value_m": 3.0,
+          "bbox": [
+            203.55,
+            279.86,
+            212.84,
+            298.68
+          ]
+        },
+        {
+          "raw_text": "1,300",
+          "value_m": 1.3,
+          "bbox": [
+            446.0,
+            279.12,
+            455.29,
+            297.72
+          ]
+        }
+      ]
+    },
+    {
+      "chain_id": "chain_p167_page_167_17",
+      "orientation": "horizontal",
+      "values_m": [
+        4.3
+      ],
+      "bbox": [
+        218.43,
+        281.3,
+        227.72,
+        300.12
+      ],
+      "support_status": null,
+      "support_count": null,
+      "observations": [
+        {
+          "raw_text": "4,300",
+          "value_m": 4.3,
+          "bbox": [
+            218.43,
+            281.3,
+            227.72,
+            300.12
+          ]
+        }
+      ]
+    },
+    {
+      "chain_id": "chain_p167_page_167_18",
+      "orientation": "horizontal",
+      "values_m": [
+        7.8
+      ],
+      "bbox": [
+        110.38,
+        286.34,
+        119.67,
+        305.16
+      ],
+      "support_status": null,
+      "support_count": null,
+      "observations": [
+        {
+          "raw_text": "7,800",
+          "value_m": 7.8,
+          "bbox": [
+            110.38,
+            286.34,
+            119.67,
+            305.16
+          ]
+        }
+      ]
+    },
+    {
+      "chain_id": "chain_p167_page_167_19",
+      "orientation": "horizontal",
+      "values_m": [
+        0.05
+      ],
+      "bbox": [
+        707.47,
+        296.0,
+        718.07,
+        300.52
+      ],
+      "support_status": null,
+      "support_count": null,
+      "observations": [
+        {
+          "raw_text": "50mm",
+          "value_m": 0.05,
+          "bbox": [
+            707.47,
+            296.0,
+            718.07,
+            300.52
+          ]
+        }
+      ]
+    },
+    {
+      "chain_id": "chain_p167_page_167_20",
+      "orientation": "horizontal",
+      "values_m": [
+        0.04
+      ],
+      "bbox": [
+        707.47,
+        300.8,
+        718.07,
+        305.32
+      ],
+      "support_status": null,
+      "support_count": null,
+      "observations": [
+        {
+          "raw_text": "40mm",
+          "value_m": 0.04,
+          "bbox": [
+            707.47,
+            300.8,
+            718.07,
+            305.32
+          ]
+        }
+      ]
+    },
+    {
+      "chain_id": "chain_p167_page_167_21",
+      "orientation": "horizontal",
+      "values_m": [
+        0.025
+      ],
+      "bbox": [
+        707.47,
+        305.6,
+        718.07,
+        310.12
+      ],
+      "support_status": null,
+      "support_count": null,
+      "observations": [
+        {
+          "raw_text": "25mm",
+          "value_m": 0.025,
+          "bbox": [
+            707.47,
+            305.6,
+            718.07,
+            310.12
+          ]
+        }
+      ]
+    },
+    {
+      "chain_id": "chain_p167_page_167_22",
+      "orientation": "horizontal",
+      "values_m": [
+        0.6,
+        0.02
+      ],
+      "bbox": [
+        446.0,
+        308.4,
+        718.07,
+        321.24
+      ],
+      "support_status": "unresolved",
+      "support_count": null,
+      "observations": [
+        {
+          "raw_text": "600",
+          "value_m": 0.6,
+          "bbox": [
+            446.0,
+            308.4,
+            455.29,
+            321.24
+          ]
+        },
+        {
+          "raw_text": "20mm",
+          "value_m": 0.02,
+          "bbox": [
+            707.47,
+            310.4,
+            718.07,
+            314.92
+          ]
+        }
+      ]
+    },
+    {
+      "chain_id": "chain_p167_page_167_23",
+      "orientation": "horizontal",
+      "values_m": [
+        0.9
+      ],
+      "bbox": [
+        446.0,
+        329.54,
+        455.29,
+        342.38
+      ],
+      "support_status": null,
+      "support_count": null,
+      "observations": [
+        {
+          "raw_text": "900",
+          "value_m": 0.9,
+          "bbox": [
+            446.0,
+            329.54,
+            455.29,
+            342.38
+          ]
+        }
+      ]
+    },
+    {
+      "chain_id": "chain_p167_page_167_24",
+      "orientation": "horizontal",
+      "values_m": [
+        4.6
+      ],
+      "bbox": [
+        605.41,
+        331.72,
+        614.7,
+        350.54
+      ],
+      "support_status": null,
+      "support_count": null,
+      "observations": [
+        {
+          "raw_text": "4,600",
+          "value_m": 4.6,
+          "bbox": [
+            605.41,
+            331.72,
+            614.7,
+            350.54
+          ]
+        }
+      ]
+    },
+    {
+      "chain_id": "chain_p167_page_167_25",
+      "orientation": "horizontal",
+      "values_m": [
+        1.8
+      ],
+      "bbox": [
+        203.55,
+        348.04,
+        212.84,
+        366.86
+      ],
+      "support_status": null,
+      "support_count": null,
+      "observations": [
+        {
+          "raw_text": "1,800",
+          "value_m": 1.8,
+          "bbox": [
+            203.55,
+            348.04,
+            212.84,
+            366.86
+          ]
+        }
+      ]
+    },
+    {
+      "chain_id": "chain_p167_page_167_26",
+      "orientation": "horizontal",
+      "values_m": [
+        1.2,
+        1.2
+      ],
+      "bbox": [
+        218.43,
+        356.44,
+        455.29,
+        376.7
+      ],
+      "support_status": "resolved",
+      "support_count": 3,
+      "observations": [
+        {
+          "raw_text": "1,200",
+          "value_m": 1.2,
+          "bbox": [
+            218.43,
+            357.88,
+            227.72,
+            376.7
+          ]
+        },
+        {
+          "raw_text": "1,200",
+          "value_m": 1.2,
+          "bbox": [
+            446.0,
+            356.44,
+            455.29,
+            375.26
+          ]
+        }
+      ]
+    },
+    {
+      "chain_id": "chain_p167_page_167_27",
+      "orientation": "horizontal",
+      "values_m": [
+        0.6,
+        0.6
+      ],
+      "bbox": [
+        218.67,
+        385.25,
+        455.29,
+        397.61
+      ],
+      "support_status": "resolved",
+      "support_count": 3,
+      "observations": [
+        {
+          "raw_text": "600",
+          "value_m": 0.6,
+          "bbox": [
+            218.67,
+            385.25,
+            227.96,
+            397.61
+          ]
+        },
+        {
+          "raw_text": "600",
+          "value_m": 0.6,
+          "bbox": [
+            446.0,
+            385.25,
+            455.29,
+            397.61
+          ]
+        }
+      ]
+    },
+    {
+      "chain_id": "chain_p167_page_167_28",
+      "orientation": "horizontal",
+      "values_m": [
+        0.2
+      ],
+      "bbox": [
+        124.81,
+        386.69,
+        134.1,
+        399.05
+      ],
+      "support_status": null,
+      "support_count": null,
+      "observations": [
+        {
+          "raw_text": "200",
+          "value_m": 0.2,
+          "bbox": [
+            124.81,
+            386.69,
+            134.1,
+            399.05
+          ]
+        }
+      ]
+    },
+    {
+      "chain_id": "chain_p167_page_167_29",
+      "orientation": "horizontal",
+      "values_m": [
+        0.2
+      ],
+      "bbox": [
+        605.41,
+        406.61,
+        614.7,
+        418.97
+      ],
+      "support_status": null,
+      "support_count": null,
+      "observations": [
+        {
+          "raw_text": "200",
+          "value_m": 0.2,
+          "bbox": [
+            605.41,
+            406.61,
+            614.7,
+            418.97
+          ]
+        }
+      ]
+    },
+    {
+      "chain_id": "chain_p167_page_167_30",
+      "orientation": "horizontal",
+      "values_m": [
+        0.4,
+        0.2
+      ],
+      "bbox": [
+        110.38,
+        412.13,
+        134.1,
+        424.49
+      ],
+      "support_status": "unresolved",
+      "support_count": null,
+      "observations": [
+        {
+          "raw_text": "400",
+          "value_m": 0.4,
+          "bbox": [
+            110.38,
+            412.13,
+            119.67,
+            424.49
+          ]
+        },
+        {
+          "raw_text": "200",
+          "value_m": 0.2,
+          "bbox": [
+            124.81,
+            412.13,
+            134.1,
+            424.49
+          ]
+        }
+      ]
+    },
+    {
+      "chain_id": "chain_p167_page_167_31",
+      "orientation": "horizontal",
+      "values_m": [
+        2.25,
+        2.25,
+        2.25,
+        2.25,
+        2.25,
+        2.25,
+        2.25
+      ],
+      "bbox": [
+        172.61,
+        416.53,
+        574.35,
+        425.82
+      ],
+      "support_status": "resolved",
+      "support_count": 8,
+      "observations": [
+        {
+          "raw_text": "2,250",
+          "value_m": 2.25,
+          "bbox": [
+            172.61,
+            416.53,
+            191.43,
+            425.82
+          ]
+        },
+        {
+          "raw_text": "2,250",
+          "value_m": 2.25,
+          "bbox": [
+            236.47,
+            416.53,
+            255.29,
+            425.82
+          ]
+        },
+        {
+          "raw_text": "2,250",
+          "value_m": 2.25,
+          "bbox": [
+            300.34,
+            416.53,
+            319.16,
+            425.82
+          ]
+        },
+        {
+          "raw_text": "2,250",
+          "value_m": 2.25,
+          "bbox": [
+            363.94,
+            416.53,
+            382.76,
+            425.82
+          ]
+        },
+        {
+          "raw_text": "2,250",
+          "value_m": 2.25,
+          "bbox": [
+            427.8,
+            416.53,
+            446.62,
+            425.82
+          ]
+        },
+        {
+          "raw_text": "2,250",
+          "value_m": 2.25,
+          "bbox": [
+            491.66,
+            416.53,
+            510.48,
+            425.82
+          ]
+        },
+        {
+          "raw_text": "2,250",
+          "value_m": 2.25,
+          "bbox": [
+            555.53,
+            416.53,
+            574.35,
+            425.82
+          ]
+        }
+      ]
+    },
+    {
+      "chain_id": "chain_p167_page_167_32",
+      "orientation": "horizontal",
+      "values_m": [
+        1.8
+      ],
+      "bbox": [
+        124.81,
+        433.77,
+        134.1,
+        452.59
+      ],
+      "support_status": null,
+      "support_count": null,
+      "observations": [
+        {
+          "raw_text": "1,800",
+          "value_m": 1.8,
+          "bbox": [
+            124.81,
+            433.77,
+            134.1,
+            452.59
+          ]
+        }
+      ]
+    },
+    {
+      "chain_id": "chain_p167_page_167_33",
+      "orientation": "horizontal",
+      "values_m": [
+        2.25,
+        2.25,
+        2.25,
+        2.25,
+        2.25,
+        2.25,
+        2.25
+      ],
+      "bbox": [
+        172.61,
+        467.67,
+        574.35,
+        476.96
+      ],
+      "support_status": "resolved",
+      "support_count": 8,
+      "observations": [
+        {
+          "raw_text": "2,250",
+          "value_m": 2.25,
+          "bbox": [
+            172.61,
+            467.67,
+            191.43,
+            476.96
+          ]
+        },
+        {
+          "raw_text": "2,250",
+          "value_m": 2.25,
+          "bbox": [
+            236.47,
+            467.67,
+            255.29,
+            476.96
+          ]
+        },
+        {
+          "raw_text": "2,250",
+          "value_m": 2.25,
+          "bbox": [
+            300.34,
+            467.67,
+            319.16,
+            476.96
+          ]
+        },
+        {
+          "raw_text": "2,250",
+          "value_m": 2.25,
+          "bbox": [
+            363.94,
+            467.67,
+            382.76,
+            476.96
+          ]
+        },
+        {
+          "raw_text": "2,250",
+          "value_m": 2.25,
+          "bbox": [
+            427.8,
+            467.67,
+            446.62,
+            476.96
+          ]
+        },
+        {
+          "raw_text": "2,250",
+          "value_m": 2.25,
+          "bbox": [
+            491.66,
+            467.67,
+            510.48,
+            476.96
+          ]
+        },
+        {
+          "raw_text": "2,250",
+          "value_m": 2.25,
+          "bbox": [
+            555.53,
+            467.67,
+            574.35,
+            476.96
+          ]
+        }
+      ]
+    },
+    {
+      "chain_id": "chain_p167_page_167_34",
+      "orientation": "horizontal",
+      "values_m": [
+        0.1
+      ],
+      "bbox": [
+        418.68,
+        482.52,
+        437.48,
+        489.17
+      ],
+      "support_status": null,
+      "support_count": null,
+      "observations": [
+        {
+          "raw_text": "100mm",
+          "value_m": 0.1,
+          "bbox": [
+            418.68,
+            482.52,
+            437.48,
+            489.17
+          ]
+        }
+      ]
+    },
+    {
+      "chain_id": "chain_p167_page_167_35",
+      "orientation": "horizontal",
+      "values_m": [
+        0.727,
+        0.058,
+        0.293
+      ],
+      "bbox": [
+        737.5,
+        528.56,
+        751.54,
+        532.01
+      ],
+      "support_status": "unresolved",
+      "support_count": null,
+      "observations": [
+        {
+          "raw_text": "727",
+          "value_m": 0.727,
+          "bbox": [
+            737.5,
+            528.56,
+            741.94,
+            532.01
+          ]
+        },
+        {
+          "raw_text": "058",
+          "value_m": 0.058,
+          "bbox": [
+            742.54,
+            528.56,
+            746.98,
+            532.01
+          ]
+        },
+        {
+          "raw_text": "293",
+          "value_m": 0.293,
+          "bbox": [
+            747.58,
+            528.56,
+            751.54,
+            532.01
+          ]
+        }
+      ]
+    },
+    {
+      "chain_id": "chain_p167_page_167_36",
+      "orientation": "horizontal",
+      "values_m": [
+        0.722,
+        0.336,
+        0.568
+      ],
+      "bbox": [
+        737.5,
+        538.4,
+        751.54,
+        541.85
+      ],
+      "support_status": "unresolved",
+      "support_count": null,
+      "observations": [
+        {
+          "raw_text": "722",
+          "value_m": 0.722,
+          "bbox": [
+            737.5,
+            538.4,
+            741.94,
+            541.85
+          ]
+        },
+        {
+          "raw_text": "336",
+          "value_m": 0.336,
+          "bbox": [
+            742.54,
+            538.4,
+            746.98,
+            541.85
+          ]
+        },
+        {
+          "raw_text": "568",
+          "value_m": 0.568,
+          "bbox": [
+            747.58,
+            538.4,
+            751.54,
+            541.85
+          ]
+        }
+      ]
+    },
+    {
+      "chain_id": "chain_p167_page_167_37",
+      "orientation": "horizontal",
+      "values_m": [
+        0.1
+      ],
+      "bbox": [
+        780.94,
+        554.34,
+        786.82,
+        558.86
+      ],
+      "support_status": null,
+      "support_count": null,
+      "observations": [
+        {
+          "raw_text": "100",
+          "value_m": 0.1,
+          "bbox": [
+            780.94,
+            554.34,
+            786.82,
+            558.86
+          ]
+        }
+      ]
+    }
+  ],
+  "flat_parsed_dimensions_m": [
+    4.6,
+    15.95,
+    11.05,
+    4.3,
+    11.05,
+    2.05,
+    2.05,
+    4.449,
+    4.461,
+    4.483,
+    2.25,
+    2.25,
+    2.25,
+    2.25,
+    2.25,
+    2.25,
+    2.25,
+    2.25,
+    2.25,
+    2.25,
+    2.25,
+    2.25,
+    2.25,
+    2.25,
+    2.017,
+    2.0,
+    8.2,
+    7.8,
+    7.8,
+    3.0,
+    4.3,
+    3.0
+  ],
+  "flat_uniform_bay_runs": [
+    {
+      "bay_spans_m": [
+        4.6,
+        4.3
+      ],
+      "bay_count": 2,
+      "support_count": 3
+    },
+    {
+      "bay_spans_m": [
+        2.05,
+        2.05
+      ],
+      "bay_count": 2,
+      "support_count": 3
+    },
+    {
+      "bay_spans_m": [
+        4.449,
+        4.461,
+        4.483
+      ],
+      "bay_count": 3,
+      "support_count": 4
+    },
+    {
+      "bay_spans_m": [
+        2.25,
+        2.25,
+        2.25,
+        2.25,
+        2.25,
+        2.25,
+        2.25,
+        2.25,
+        2.25,
+        2.25,
+        2.25,
+        2.25,
+        2.25,
+        2.25
+      ],
+      "bay_count": 14,
+      "support_count": 15
+    },
+    {
+      "bay_spans_m": [
+        2.017,
+        2.0
+      ],
+      "bay_count": 2,
+      "support_count": 3
+    },
+    {
+      "bay_spans_m": [
+        7.8,
+        7.8
+      ],
+      "bay_count": 2,
+      "support_count": 3
+    }
+  ],
+  "schedule_rows": []
+}
