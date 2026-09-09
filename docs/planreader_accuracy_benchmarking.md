@@ -98,9 +98,11 @@ python scripts/run_planreader_benchmarks.py --benchmark school_rd_60_62 --pdf "p
 ```
 
 ### Output Reports
-Benchmark results are written to `benchmark_results/<benchmark_id>_results.json` containing:
+Internal golden-plan results are written to `benchmark_results/<benchmark_id>_results.json` containing:
 - `project_identity`: Extracted identity details.
 - `comparison_allowed`: Boolean status and rejection reason.
 - `pages_classified`: Breakdown of page roles and detected render sheets.
 - `quantities_compared`: Detailed line-by-line comparison with diff, diff %, status, confidence, and source trace.
 - `summary`: Overall accuracy, pass/fail counts, and readiness scores.
+
+Public-tender suite evaluation (`python pb_benchmark_accuracy_engine.py --all`) publishes an atomic report set under `benchmark_results/runs/<run_id>/` and points `benchmark_results/current.json` at that run only after every project report and the combined summary are complete. Compatibility dashboard and per-project files are copied from that same run. Do not compare a newly regenerated combined dashboard against project reports from an earlier commit or run ID.

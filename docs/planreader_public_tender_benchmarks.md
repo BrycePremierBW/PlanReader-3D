@@ -188,9 +188,22 @@ python pb_benchmark_accuracy_engine.py --benchmark tenders_ke_kstvet_cbc_classro
 python scripts/run_planreader_benchmarks.py --public-tender tenders_ke_kstvet_cbc_classroom
 ```
 
-Reports are automatically generated under `benchmark_results/`:
-- `<benchmark_id>_accuracy_report.json`: Machine-readable payload containing full summary metrics, itemized comparison records, deltas, percentage errors, and drawing trace citations.
-- `<benchmark_id>_accuracy_report.md`: Formatted GitHub Markdown document with executive badges, exclusion disclosures, detailed item breakdown tables, and highlighted sections for gross mismatches, missed items, and hallucinations.
+Reports are automatically generated under `benchmark_results/`. Suite runs (`--all`) write one atomic **report set** so the combined dashboard and every project report share a single run ID, evaluated commit SHA, source-document hashes, and scoring-policy identifier:
+
+```
+benchmark_results/
+  runs/<run_id>/
+    run_manifest.json
+    combined_summary.json          # public-safe; no expected quantities
+    projects/<project_id>.json    # holdouts use opaque identifiers
+  current.json                     # published only after the set validates
+  headline_accuracy_dashboard.json # compatibility alias from the same run
+  <benchmark_id>_accuracy_report.json
+```
+
+`current.json` is replaced with a single-file `os.replace` only after every required artifact exists and hashes. Interrupted generation leaves the previous complete pointer in place. Consumers must load `current.json` and reject incomplete sets, mixed run IDs, mixed commits, changed source hashes, extra artifacts, and unsupported schema versions.
+
+Compatibility files remain, but they are stale if their `run_id` / `evaluated_commit_sha` do not match `current.json`. Public-safe summaries never include raw expected quantities. Untouched-holdout identities are not written into the report set.
 
 ## 10. How to Add or Verify a Public Tender Benchmark
 1. Search public procurement portals for packages containing both drawings and BOQ/takeoffs.

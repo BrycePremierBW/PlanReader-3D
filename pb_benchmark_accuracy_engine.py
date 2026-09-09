@@ -35,6 +35,23 @@ from pb_planreader_pdf_extractor import (
     ExtractedPrediction,
     GenericPlanReaderExtractor,
 )
+from pb_benchmark_report_set import (
+    CLASSIFICATION_DEVELOPMENT,
+    CLASSIFICATION_DIAGNOSTIC,
+    ProjectReportSpec,
+    ReportRunContext,
+    attach_run_metadata,
+    atomic_write_json,
+    atomic_write_text,
+    classify_from_status,
+    new_run_id,
+    project_payload_from_accuracy_report,
+    public_combined_summary_from_projects,
+    publish_report_set,
+    resolve_evaluated_commit_sha,
+    sha256_file,
+    utc_now_iso,
+)
 
 
 class ItemMatchStatus(str, Enum):
@@ -948,6 +965,7 @@ class BenchmarkAccuracyEngine:
         self,
         report: BenchmarkAccuracyReport,
         output_dir: Optional[Path | str] = None,
+        run_context: Optional[ReportRunContext] = None,
     ) -> Tuple[Path, Path]:
         """Save report as JSON and Markdown files in output directory."""
         target_dir = Path(output_dir or self.output_dir)
@@ -956,7 +974,10 @@ class BenchmarkAccuracyEngine:
         json_path = target_dir / f"{report.benchmark_id}_accuracy_report.json"
         md_path = target_dir / f"{report.benchmark_id}_accuracy_report.md"
 
-        json_path.write_text(report.to_json(indent=2), encoding="utf-8")
+        json_payload = report.to_dict()
+        if run_context is not None:
+            json_payload = attach_run_metadata(json_payload, context=run_context)
+        json_path.write_text(json.dumps(json_payload, indent=2), encoding="utf-8")
         md_path.write_text(report.to_markdown(), encoding="utf-8")
 
         return json_path, md_path
@@ -967,6 +988,8 @@ class BenchmarkAccuracyEngine:
         auto_extract: bool = True,
         predictions_by_benchmark: Optional[Dict[str, Sequence[Dict[str, Any]]]] = None,
         output_dir: Optional[Path | str] = None,
+        require_source_documents: bool = False,
+        require_local_gold: bool = True,
     ) -> HeadlineAccuracyDashboard:
         """Evaluate all registered public tender benchmarks and generate headline dashboard.
 
@@ -1077,13 +1100,131 @@ class BenchmarkAccuracyEngine:
         )
 
         out_d = Path(output_dir or self.output_dir)
-        self.save_dashboard(dashboard, output_dir=out_d)
+        self.publish_and_materialize_suite(
+            dashboard,
+            output_dir=out_d,
+            require_source_documents=require_source_documents,
+            require_local_gold=require_local_gold,
+        )
         return dashboard
+
+    def _iter_suite_reports(
+        self, dashboard: HeadlineAccuracyDashboard
+    ) -> List[Tuple[str, BenchmarkAccuracyReport]]:
+        rows: List[Tuple[str, BenchmarkAccuracyReport]] = []
+        for report in dashboard.headline_reports:
+            rows.append(
+                (
+                    classify_from_status(
+                        report.status, is_headline_eligible=report.is_headline_eligible
+                    ),
+                    report,
+                )
+            )
+        for report in dashboard.stress_test_reports:
+            rows.append((CLASSIFICATION_DIAGNOSTIC, report))
+        for report in dashboard.candidate_seed_reports:
+            rows.append((CLASSIFICATION_DIAGNOSTIC, report))
+        return rows
+
+    def _project_spec_for_report(
+        self,
+        report: BenchmarkAccuracyReport,
+        classification: str,
+    ) -> ProjectReportSpec:
+        raw_id = report.benchmark_id
+        project_id = raw_id
+        gold_path = self.benchmarks_dir / raw_id / "expected_boq_summary.json"
+        source_hashes: Dict[str, str] = {}
+        required_gold: Dict[str, Path] = {}
+        required_sources: Dict[str, Path] = {}
+
+        if classification in {CLASSIFICATION_DEVELOPMENT, CLASSIFICATION_DIAGNOSTIC}:
+            required_gold["local_gold"] = gold_path
+            if gold_path.is_file():
+                source_hashes["local_gold"] = sha256_file(gold_path)
+
+        if report.source_pdf:
+            pdf_path = Path(report.source_pdf)
+            required_sources["source_pdf"] = pdf_path
+            if pdf_path.is_file():
+                source_hashes["source_pdf"] = sha256_file(pdf_path)
+
+        payload = project_payload_from_accuracy_report(
+            report, classification=classification, project_id=project_id
+        )
+        return ProjectReportSpec(
+            project_id=project_id,
+            classification=classification,
+            report_payload=payload,
+            source_hashes=source_hashes,
+            required_source_documents=required_sources,
+            required_gold_files=required_gold,
+            raw_benchmark_id=raw_id,
+        )
+
+    def publish_and_materialize_suite(
+        self,
+        dashboard: HeadlineAccuracyDashboard,
+        output_dir: Optional[Path | str] = None,
+        *,
+        require_source_documents: bool = False,
+        require_local_gold: bool = True,
+        evaluated_commit_sha: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Publish one atomic report set from an already-scored dashboard.
+
+        Score counts are copied from the evaluator.  This method does not
+        recompute mappings, denominators, or tolerances.
+        """
+        target_dir = Path(output_dir or self.output_dir)
+        context = ReportRunContext(
+            run_id=new_run_id(),
+            evaluated_commit_sha=evaluated_commit_sha or resolve_evaluated_commit_sha(),
+            started_at=utc_now_iso(),
+        )
+        specs = [
+            self._project_spec_for_report(report, classification)
+            for classification, report in self._iter_suite_reports(dashboard)
+        ]
+        project_payloads = [
+            project_payload_from_accuracy_report(
+                report, classification=classification, project_id=spec.project_id
+            )
+            for spec, (classification, report) in zip(specs, self._iter_suite_reports(dashboard))
+        ]
+        combined = public_combined_summary_from_projects(project_payloads)
+        published = publish_report_set(
+            target_dir,
+            context=context,
+            project_specs=specs,
+            combined_summary=combined,
+            require_source_documents=require_source_documents,
+            require_local_gold=require_local_gold,
+        )
+        self._materialize_legacy_aliases(dashboard, context=context, output_dir=target_dir)
+        return published
+
+    def _materialize_legacy_aliases(
+        self,
+        dashboard: HeadlineAccuracyDashboard,
+        *,
+        context: ReportRunContext,
+        output_dir: Path,
+    ) -> None:
+        """Write compatibility dashboard/project files from a published run."""
+        dashboard_payload = attach_run_metadata(dashboard.to_dict(), context=context)
+        atomic_write_json(output_dir / "headline_accuracy_dashboard.json", dashboard_payload)
+        atomic_write_text(output_dir / "headline_accuracy_dashboard.md", dashboard.to_markdown())
+        for classification, report in self._iter_suite_reports(dashboard):
+            if classification == CLASSIFICATION_DIAGNOSTIC or classification == CLASSIFICATION_DEVELOPMENT:
+                self.save_report(report, output_dir=output_dir, run_context=context)
 
     def save_dashboard(
         self,
         dashboard: HeadlineAccuracyDashboard,
         output_dir: Optional[Path | str] = None,
+        run_context: Optional[ReportRunContext] = None,
     ) -> Tuple[Path, Path]:
         """Save dashboard as JSON and Markdown files in output directory."""
         target_dir = Path(output_dir or self.output_dir)
@@ -1092,7 +1233,10 @@ class BenchmarkAccuracyEngine:
         json_path = target_dir / "headline_accuracy_dashboard.json"
         md_path = target_dir / "headline_accuracy_dashboard.md"
 
-        json_path.write_text(dashboard.to_json(indent=2), encoding="utf-8")
+        payload = dashboard.to_dict()
+        if run_context is not None:
+            payload = attach_run_metadata(payload, context=run_context)
+        json_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         md_path.write_text(dashboard.to_markdown(), encoding="utf-8")
 
         return json_path, md_path
@@ -1143,6 +1287,11 @@ def main() -> int:
     parser.add_argument("--auto-extract", action="store_true", default=True, help="Auto-extract from downloaded PDF if available")
     parser.add_argument("--benchmarks-dir", default="benchmarks/public_tenders", help="Path to public tender benchmarks directory")
     parser.add_argument("--output-dir", default="benchmark_results", help="Directory to save JSON/Markdown accuracy reports")
+    parser.add_argument(
+        "--require-local-sources",
+        action="store_true",
+        help="Fail closed if a required source PDF is missing instead of publishing an unscored snapshot",
+    )
     args = parser.parse_args()
 
     engine = BenchmarkAccuracyEngine(benchmarks_dir=args.benchmarks_dir, output_dir=args.output_dir)
@@ -1152,8 +1301,10 @@ def main() -> int:
             benchmarks_dir=args.benchmarks_dir,
             auto_extract=args.auto_extract,
             output_dir=args.output_dir,
+            require_source_documents=args.require_local_sources,
         )
-        j_path, m_path = engine.save_dashboard(dashboard, output_dir=args.output_dir)
+        j_path = Path(args.output_dir) / "headline_accuracy_dashboard.json"
+        m_path = Path(args.output_dir) / "headline_accuracy_dashboard.md"
         acc_s = (
             f"{dashboard.headline_overall_accuracy:.1f}%"
             if dashboard.headline_overall_accuracy is not None
