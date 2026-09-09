@@ -1190,9 +1190,19 @@ class GenericPlanReaderExtractor:
                 extract_opening_instance_evidence,
                 resolve_cross_page_opening_instances,
             )
+            from pb_raster_page_classifier import is_sparse_raster_ocr_candidate
 
             ocr_engine = DrawingOCREngine()
-            dwg_pages = [p for p in target_pages if 0 <= p < len(doc) and self.is_drawing_page(doc[p].get_text("text"))]
+            dwg_pages = []
+            for candidate_idx in target_pages:
+                if candidate_idx < 0 or candidate_idx >= len(doc):
+                    continue
+                candidate_page = doc[candidate_idx]
+                candidate_text = candidate_page.get_text("text") or ""
+                if self.is_drawing_page(candidate_text) or is_sparse_raster_ocr_candidate(
+                    candidate_page, candidate_text
+                ):
+                    dwg_pages.append(candidate_idx)
             raster_instance_evidence = []
 
             for p_num in dwg_pages:
