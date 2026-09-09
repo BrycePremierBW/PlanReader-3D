@@ -130,6 +130,21 @@ class TestCollinearMerge:
         edge = graph["edges"][0]
         assert {round(edge["x1"], 1), round(edge["x2"], 1)} == {0.0, 10.0}
 
+        # Regression test: BOTH intermediate (merged-away) nodes must resolve
+        # their "merged_into_edge" reference to this one FINAL surviving edge
+        # id, not to an intermediate merge product that was itself later
+        # superseded by the second merge round. A prior version of this
+        # function correctly produced the right final edge (the assertion
+        # above already passed) while silently leaving the FIRST
+        # merged-away node's own reference pointing at an edge id that no
+        # longer existed in the returned graph at all -- undetected because
+        # nothing previously checked this field for a 3+-segment chain.
+        merged_nodes = [n for n in graph["nodes"] if n.get("merged_into_edge")]
+        assert len(merged_nodes) == 2
+        surviving_edge_ids = {e["id"] for e in graph["edges"]}
+        for node in merged_nodes:
+            assert node["merged_into_edge"] in surviving_edge_ids
+
     def test_slightly_bent_degree_two_node_is_not_merged(self) -> None:
         # A node whose two incident edges differ by more than the collinear
         # tolerance is a real (slight) bend, not a drafting split artifact --
