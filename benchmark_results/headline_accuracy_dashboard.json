@@ -1,18 +1,18 @@
 {
-  "timestamp": "2026-09-09T05:36:47.910303+00:00",
+  "timestamp": "2026-09-09T05:47:14.114651+00:00",
   "headline_metrics": {
-    "overall_accuracy_percentage": 26.92,
-    "strict_exact_accuracy_percentage": 21.15,
+    "overall_accuracy_percentage": 32.69,
+    "strict_exact_accuracy_percentage": 26.92,
     "total_headline_benchmarks": 4,
-    "total_measurable_expected": 47,
+    "total_measurable_expected": 50,
     "total_items_compared": 52,
-    "exact_matches": 11,
+    "exact_matches": 14,
     "within_5_percent": 3,
     "within_10_percent": 0,
     "within_20_percent": 0,
     "gross_mismatches": 12,
     "missed_items": 21,
-    "hallucinated_items": 5
+    "hallucinated_items": 2
   },
   "non_penalized_exclusions": {
     "preliminaries_excluded": 0,
@@ -28,7 +28,7 @@
   "headline_reports": [
     {
       "benchmark_id": "tenders_ke_kstvet_cbc_classroom",
-      "timestamp": "2026-09-09T05:36:47.910320+00:00",
+      "timestamp": "2026-09-09T05:47:14.114668+00:00",
       "project_name": "Proposed Construction of CBC Classroom and Integrated Resource Center",
       "organization": "Kenya School of TVET / Ministry of Education",
       "tender_reference": "KSTVET/008/24",
@@ -254,7 +254,7 @@
     },
     {
       "benchmark_id": "tenders_ke_murera_science_lab",
-      "timestamp": "2026-09-09T05:36:56.806457+00:00",
+      "timestamp": "2026-09-09T05:47:25.006694+00:00",
       "project_name": "Proposed Construction of a Science Laboratory at Murera Senior School",
       "organization": "Ministry of Education / State Department for Basic Education / County Commissioner Meru",
       "tender_reference": "MOE/SEEQIP/C012/01/2026-2027",
@@ -450,7 +450,7 @@
     },
     {
       "benchmark_id": "tenders_ke_ghazi_science_lab",
-      "timestamp": "2026-09-09T05:36:59.325561+00:00",
+      "timestamp": "2026-09-09T05:47:27.917036+00:00",
       "project_name": "Proposed Construction of a Science Laboratory at Ghazi Primary School",
       "organization": "NG-CDF Voi Constituency / Ministry of Public Works",
       "tender_reference": "NG-CDF/VOI/GZ/34/2023-2024",
@@ -676,7 +676,7 @@
     },
     {
       "benchmark_id": "tenders_ke_umma_hostels",
-      "timestamp": "2026-09-09T05:36:59.884788+00:00",
+      "timestamp": "2026-09-09T05:47:28.544826+00:00",
       "project_name": "Proposed Student Hostels for Umma University in Kajiado",
       "organization": "Umma University",
       "tender_reference": "UUT/02/2026",
@@ -686,20 +686,20 @@
       "source_pdf": "C:\\Users\\bryce\\Documents\\PB-PlanReader-3D\\benchmarks\\sources\\umma-university-hostels-builders-work.pdf",
       "summary": {
         "total_boq_items": 60,
-        "total_measurable_expected": 12,
+        "total_measurable_expected": 15,
         "total_items_compared": 15,
-        "exact_matches": 9,
+        "exact_matches": 12,
         "within_5_percent": 0,
         "within_10_percent": 0,
         "within_20_percent": 0,
         "gross_mismatches": 0,
         "missed_items": 3,
-        "hallucinated_items": 3,
+        "hallucinated_items": 0,
         "preliminaries_excluded": 0,
         "provisional_sums_excluded": 0,
         "non_architectural_excluded": 0,
-        "overall_accuracy_percentage": 60.0,
-        "strict_exact_accuracy_percentage": 60.0
+        "overall_accuracy_percentage": 80.0,
+        "strict_exact_accuracy_percentage": 80.0
       },
       "item_results": [
         {
@@ -793,6 +793,21 @@
           "notes": "Comparison evaluated against 308.0 NO"
         },
         {
+          "item_id": "UUH-D4",
+          "description": "D-04 single leaf, single swing semi-solid flush mahogany door, 900x2500mm high (Toilets)",
+          "category": "schedule_extractable",
+          "expected_quantity": 308.0,
+          "extracted_quantity": 308.0,
+          "unit": "NO",
+          "delta": 0.0,
+          "pct_error": 0.0,
+          "status": "exact_match",
+          "tolerance_tier": "exact",
+          "drawing_sheet": "TI-UUH/25/11 rev.02 (Window and Door Schedule)",
+          "drawing_page": 161,
+          "notes": "Comparison evaluated against 308.0 NO"
+        },
+        {
           "item_id": "UUH-D5",
           "description": "D-05 double leaf, single swing mild steel door, 1400x2500mm high (Ground floor locker room)",
           "category": "schedule_extractable",
@@ -853,6 +868,21 @@
           "notes": "Comparison evaluated against 6.0 NO"
         },
         {
+          "item_id": "UUH-D9",
+          "description": "D-09 double leaf, single swing mild steel door, 1000x2100mm high (First floor locker room)",
+          "category": "schedule_extractable",
+          "expected_quantity": 1.0,
+          "extracted_quantity": 1.0,
+          "unit": "NO",
+          "delta": 0.0,
+          "pct_error": 0.0,
+          "status": "exact_match",
+          "tolerance_tier": "exact",
+          "drawing_sheet": "TI-UUH/25/11 rev.02 (Window and Door Schedule)",
+          "drawing_page": 161,
+          "notes": "Comparison evaluated against 1.0 NO"
+        },
+        {
           "item_id": "UUH-D10",
           "description": "D-10 double leaf, single swing mild steel door, 1800x2250mm high (2nd-4th floors Locker rooms)",
           "category": "schedule_extractable",
@@ -868,6 +898,21 @@
           "notes": "Comparison evaluated against 3.0 NO"
         },
         {
+          "item_id": "UUH-D11",
+          "description": "D-11 double leaf, single swing mild steel door, 1200x2250mm high (Laundromart)",
+          "category": "schedule_extractable",
+          "expected_quantity": 1.0,
+          "extracted_quantity": 1.0,
+          "unit": "NO",
+          "delta": 0.0,
+          "pct_error": 0.0,
+          "status": "exact_match",
+          "tolerance_tier": "exact",
+          "drawing_sheet": "TI-UUH/25/11 rev.02 (Window and Door Schedule)",
+          "drawing_page": 162,
+          "notes": "Comparison evaluated against 1.0 NO"
+        },
+        {
           "item_id": "UUH-D12",
           "description": "D-12 double leaf, double mild steel door, 2000x2250mm high (Roof terrace)",
           "category": "schedule_extractable",
@@ -881,51 +926,6 @@
           "drawing_sheet": "TI-UUH/25/11 rev.02 (Window and Door Schedule)",
           "drawing_page": 162,
           "notes": "Comparison evaluated against 2.0 NO"
-        },
-        {
-          "item_id": "D4",
-          "description": "D - 04 card schedule, explicit Overall Quantity",
-          "category": "hallucinated",
-          "expected_quantity": null,
-          "extracted_quantity": 308.0,
-          "unit": "NO",
-          "delta": null,
-          "pct_error": null,
-          "status": "hallucinated_item",
-          "tolerance_tier": "hallucinated",
-          "drawing_sheet": null,
-          "drawing_page": 161,
-          "notes": "Item present in extraction but absent from verified BOQ ground truth"
-        },
-        {
-          "item_id": "D9",
-          "description": "D - 09 card schedule, explicit Overall Quantity",
-          "category": "hallucinated",
-          "expected_quantity": null,
-          "extracted_quantity": 1.0,
-          "unit": "NO",
-          "delta": null,
-          "pct_error": null,
-          "status": "hallucinated_item",
-          "tolerance_tier": "hallucinated",
-          "drawing_sheet": null,
-          "drawing_page": 161,
-          "notes": "Item present in extraction but absent from verified BOQ ground truth"
-        },
-        {
-          "item_id": "D11",
-          "description": "D - 11 card schedule, explicit Overall Quantity",
-          "category": "hallucinated",
-          "expected_quantity": null,
-          "extracted_quantity": 1.0,
-          "unit": "NO",
-          "delta": null,
-          "pct_error": null,
-          "status": "hallucinated_item",
-          "tolerance_tier": "hallucinated",
-          "drawing_sheet": null,
-          "drawing_page": 162,
-          "notes": "Item present in extraction but absent from verified BOQ ground truth"
         }
       ],
       "errors": []
@@ -934,7 +934,7 @@
   "stress_test_reports": [
     {
       "benchmark_id": "tenders_ke_mbagha_maternity_dispensary",
-      "timestamp": "2026-09-09T05:36:59.319594+00:00",
+      "timestamp": "2026-09-09T05:47:27.912524+00:00",
       "project_name": "Proposed Construction of a Maternity Block at Mbagha Dispensary in Mwatate Sub-County",
       "organization": "County Government of Taita Taveta",
       "tender_reference": "2028763-2025/2026",
@@ -966,7 +966,7 @@
   "candidate_seed_reports": [
     {
       "benchmark_id": "ungm_unops_wecc_torit",
-      "timestamp": "2026-09-09T05:37:04.088090+00:00",
+      "timestamp": "2026-09-09T05:47:33.194518+00:00",
       "project_name": "UNOPS WECC Torit Vocational Training Centre",
       "organization": "UNOPS",
       "tender_reference": "ITB/2023/45890",
@@ -998,7 +998,7 @@
     },
     {
       "benchmark_id": "ungm_category_iv_housing_units",
-      "timestamp": "2026-09-09T05:37:04.089102+00:00",
+      "timestamp": "2026-09-09T05:47:33.195675+00:00",
       "project_name": "UNGM Category IV Housing Units",
       "organization": "UN-Habitat",
       "tender_reference": "ITB/2023/CAT4-H",
@@ -1030,7 +1030,7 @@
     },
     {
       "benchmark_id": "ungm_category_iv_shelters",
-      "timestamp": "2026-09-09T05:37:04.089834+00:00",
+      "timestamp": "2026-09-09T05:47:33.196349+00:00",
       "project_name": "UNGM Category IV Shelters / House Units",
       "organization": "IOM / UNGM",
       "tender_reference": "RFP/2024/CAT4-S",
@@ -1062,7 +1062,7 @@
     },
     {
       "benchmark_id": "ungm_fmns_faculty_building",
-      "timestamp": "2026-09-09T05:37:04.090451+00:00",
+      "timestamp": "2026-09-09T05:47:33.197032+00:00",
       "project_name": "UNGM FMNS Faculty of Mathematical and Natural Sciences Building",
       "organization": "UNDP / UNGM",
       "tender_reference": "ITB/2023/FMNS-08",
@@ -1094,7 +1094,7 @@
     },
     {
       "benchmark_id": "ungm_al_qayarah_hospital_renovation",
-      "timestamp": "2026-09-09T05:37:04.091018+00:00",
+      "timestamp": "2026-09-09T05:47:33.197676+00:00",
       "project_name": "UNGM Al Qayarah General Hospital Renovation",
       "organization": "UNDP / UNGM",
       "tender_reference": "RFP/2024/78912",
@@ -1126,7 +1126,7 @@
     },
     {
       "benchmark_id": "king_st_122_126",
-      "timestamp": "2026-09-09T05:37:04.091579+00:00",
+      "timestamp": "2026-09-09T05:47:33.198285+00:00",
       "project_name": "122-126 King St, Buderim - Construction Issue",
       "organization": "Public Tender / Commercial Client",
       "tender_reference": "23-060",

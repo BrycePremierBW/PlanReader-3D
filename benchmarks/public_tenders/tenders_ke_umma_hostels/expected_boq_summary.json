@@ -1,14 +1,14 @@
 {
   "benchmark_id": "tenders_ke_umma_hostels",
   "total_line_items": 60,
-  "measurable_items_count": 12,
+  "measurable_items_count": 15,
   "preliminaries_count": 0,
   "provisional_sums_count": 0,
   "rate_only_count": 0,
   "not_architectural_count": 0,
   "classified_breakdown": {
     "measurable_from_drawings": 0,
-    "schedule_extractable": 12,
+    "schedule_extractable": 15,
     "scope_allowance_only": 0,
     "provisional_sum": 0,
     "rate_only": 0,
@@ -73,6 +73,15 @@
       "drawing_page": 160
     },
     {
+      "item_id": "UUH-D4",
+      "description": "D-04 single leaf, single swing semi-solid flush mahogany door, 900x2500mm high (Toilets)",
+      "expected_quantity": 308.0,
+      "unit": "NO",
+      "category": "schedule_extractable",
+      "drawing_sheet": "TI-UUH/25/11 rev.02 (Window and Door Schedule)",
+      "drawing_page": 161
+    },
+    {
       "item_id": "UUH-D5",
       "description": "D-05 double leaf, single swing mild steel door, 1400x2500mm high (Ground floor locker room)",
       "expected_quantity": 1.0,
@@ -109,9 +118,27 @@
       "drawing_page": 161
     },
     {
+      "item_id": "UUH-D9",
+      "description": "D-09 double leaf, single swing mild steel door, 1000x2100mm high (First floor locker room)",
+      "expected_quantity": 1.0,
+      "unit": "NO",
+      "category": "schedule_extractable",
+      "drawing_sheet": "TI-UUH/25/11 rev.02 (Window and Door Schedule)",
+      "drawing_page": 161
+    },
+    {
       "item_id": "UUH-D10",
       "description": "D-10 double leaf, single swing mild steel door, 1800x2250mm high (2nd-4th floors Locker rooms)",
       "expected_quantity": 3.0,
+      "unit": "NO",
+      "category": "schedule_extractable",
+      "drawing_sheet": "TI-UUH/25/11 rev.02 (Window and Door Schedule)",
+      "drawing_page": 162
+    },
+    {
+      "item_id": "UUH-D11",
+      "description": "D-11 double leaf, single swing mild steel door, 1200x2250mm high (Laundromart)",
+      "expected_quantity": 1.0,
       "unit": "NO",
       "category": "schedule_extractable",
       "drawing_sheet": "TI-UUH/25/11 rev.02 (Window and Door Schedule)",
