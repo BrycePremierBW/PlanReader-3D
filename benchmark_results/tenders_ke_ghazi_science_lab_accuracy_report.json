@@ -1,6 +1,6 @@
 {
   "benchmark_id": "tenders_ke_ghazi_science_lab",
-  "timestamp": "2026-09-09T05:19:39.094072+00:00",
+  "timestamp": "2026-09-09T07:53:58.952460+00:00",
   "project_name": "Proposed Construction of a Science Laboratory at Ghazi Primary School",
   "organization": "NG-CDF Voi Constituency / Ministry of Public Works",
   "tender_reference": "NG-CDF/VOI/GZ/34/2023-2024",
@@ -12,18 +12,18 @@
     "total_boq_items": 70,
     "total_measurable_expected": 13,
     "total_items_compared": 13,
-    "exact_matches": 0,
+    "exact_matches": 1,
     "within_5_percent": 2,
     "within_10_percent": 0,
     "within_20_percent": 0,
     "gross_mismatches": 1,
-    "missed_items": 10,
+    "missed_items": 9,
     "hallucinated_items": 0,
     "preliminaries_excluded": 0,
     "provisional_sums_excluded": 0,
     "non_architectural_excluded": 0,
-    "overall_accuracy_percentage": 15.38,
-    "strict_exact_accuracy_percentage": 0.0
+    "overall_accuracy_percentage": 23.08,
+    "strict_exact_accuracy_percentage": 7.69
   },
   "item_results": [
     {
@@ -106,15 +106,15 @@
       "description": "75mm diameter G.I column not exceeding 3000mm long",
       "category": "measurable_from_drawings",
       "expected_quantity": 8.0,
-      "extracted_quantity": null,
+      "extracted_quantity": 8.0,
       "unit": "NO",
-      "delta": null,
-      "pct_error": null,
-      "status": "missed_in_extraction",
-      "tolerance_tier": "missed",
+      "delta": 0.0,
+      "pct_error": 0.0,
+      "status": "exact_match",
+      "tolerance_tier": "exact",
       "drawing_sheet": "Design Scheme (Plan) 1 of 3",
       "drawing_page": 167,
-      "notes": "Item present in BOQ but absent from extraction predictions"
+      "notes": "Comparison evaluated against 8.0 NO"
     },
     {
       "item_id": "GZ-E5-A",

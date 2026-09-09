@@ -1,0 +1,18 @@
+{
+  "benchmark_id": "tenders_ke_lamu_ishakani_ecd_classrooms",
+  "project_name": "Proposed Construction of 2No. ECD Classrooms and 2 Doors VIP Toilets at Ishakani Primary School",
+  "project_number": "N/A (no tender reference number printed on this document)",
+  "client": "Lamu County Government, Department of Public Works",
+  "drawing_issue": "Tender Issue",
+  "drawing_date": "August 2018",
+  "source_pdf": "lamu-ishakani-ecd-classrooms-boq.pdf",
+  "source_takeoff": "lamu-ishakani-ecd-classrooms-boq.pdf",
+  "allowed_comparison_sources": [
+    "lamu-ishakani-ecd-classrooms-boq.pdf"
+  ],
+  "rejected_comparison_sources": [],
+  "status": "verified_scored_benchmark",
+  "retrieval_date": "2026-09-09",
+  "verification_notes": "Verified authentic public procurement package retrieved directly from Lamu County Government's own procurement portal (lamu.go.ke), not the tenders.go.ke national aggregator -- a genuinely distinct official source category per this session's broadened acquisition search. Contains a real native-vector architectural/structural drawing set (PDF pages 41-45: ground floor plan with figured dimension chains, 3 elevations, veranda, chalkboards; a separate twin-VIP-toilet block plan with its own section S01-S01; structural general notes) for the same physical scope as a real priced Bill of Quantities (PDF pages 7-40, covering Substructures, Superstructure, Walling, Roofing, Doors, Windows, and Finishes for both the 2No. classroom block and the separate twin-toilet block). Architecturally distinct from every other registered benchmark: 200mm natural (local) stone walling rather than concrete block/coral block, and a genuine two-building compound scope (a separate twin-toilet block alongside the main classroom block) that no other registered benchmark has. This first registration pass curates only the main classroom block's items; the toilet block's own walling/finishes are real BOQ evidence but were not curated into scoring because they would collide with the same production output tag name as the classroom block's own walling (the pipeline currently has no concept of scoring two separate buildings from one PDF as independent quantities) -- see ACCURACY_GAP_LEDGER.md for this as a documented, not-yet-fixed multi-building scope gap.",
+  "sha256": "fa53c9b72fd35189f11848f9a26ccc3512c8c03b5316e78cad6a4d55c09330f2"
+}

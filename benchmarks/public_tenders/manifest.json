@@ -60,6 +60,17 @@
       "retrieval_date": "2026-09-09"
     },
     {
+      "benchmark_id": "tenders_ke_lamu_ishakani_ecd_classrooms",
+      "project_name": "Proposed Construction of 2No. ECD Classrooms and 2 Doors VIP Toilets at Ishakani Primary School",
+      "organization": "Lamu County Government",
+      "tender_reference": "N/A (no tender reference number printed on this document)",
+      "source_url": "https://lamu.go.ke/wp-content/uploads/2018/11/Bill-of-Quantities-ECD-2No-Classrooms-and-Twin-Toilets-Ishakani.pdf",
+      "country": "Kenya",
+      "facility_type": "ECD Classroom block (natural stone walling) + separate twin-VIP-toilet block",
+      "status": "verified_scored_benchmark",
+      "retrieval_date": "2026-09-09"
+    },
+    {
       "benchmark_id": "ungm_unops_wecc_torit",
       "project_name": "UNOPS WECC Torit Vocational Training Centre",
       "organization": "UNOPS",

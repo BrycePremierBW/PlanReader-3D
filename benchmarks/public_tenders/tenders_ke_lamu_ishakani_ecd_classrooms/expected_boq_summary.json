@@ -1,0 +1,103 @@
+{
+  "benchmark_id": "tenders_ke_lamu_ishakani_ecd_classrooms",
+  "total_line_items": 60,
+  "measurable_items_count": 9,
+  "preliminaries_count": 1,
+  "provisional_sums_count": 3,
+  "rate_only_count": 0,
+  "not_architectural_count": 0,
+  "classified_breakdown": {
+    "measurable_from_drawings": 7,
+    "schedule_extractable": 2,
+    "scope_allowance_only": 0,
+    "provisional_sum": 3,
+    "rate_only": 0,
+    "preliminaries": 1,
+    "not_architectural": 0,
+    "not_applicable_to_planreader": 0,
+    "unknown_requires_review": 0
+  },
+  "sample_measurable_items": [
+    {
+      "item_id": "LMU-E3-A",
+      "description": "200mm thick approved local; machine cut; natural stone walling; bedding, jointing and pointing in cement sand (1:3) mortar",
+      "expected_quantity": 136.0,
+      "unit": "SM",
+      "category": "measurable_from_drawings",
+      "drawing_sheet": "Ground Floor Plan / Elevations (unnumbered)",
+      "drawing_page": 41
+    },
+    {
+      "item_id": "LMU-E3-B",
+      "description": "Damp proofing: 200mm wide; B.S. 743 Type A bitumen hessian base, 150mm laps (no allowance made for laps); horizontal, 1No. layer, bedded in cement sand (1:3) mortar",
+      "expected_quantity": 75.0,
+      "unit": "LM",
+      "category": "measurable_from_drawings",
+      "drawing_sheet": "Ground Floor Plan / Elevations (unnumbered)",
+      "drawing_page": 41
+    },
+    {
+      "item_id": "LMU-E3-C",
+      "description": "Damp proofing: Polythene; 1000 gauge, 150mm laps (no allowance made to laps), horizontal; 1No. layer laid on murram blinding",
+      "expected_quantity": 132.0,
+      "unit": "SM",
+      "category": "measurable_from_drawings",
+      "drawing_sheet": "Ground Floor Plan / Elevations (unnumbered)",
+      "drawing_page": 41
+    },
+    {
+      "item_id": "LMU-E4-A",
+      "description": "Galvanized corrugated sheet roofing, 28 gauge, prepainted; G.C.I roof covering not exceeding 30 degrees from horizontal",
+      "expected_quantity": 172.0,
+      "unit": "SM",
+      "category": "measurable_from_drawings",
+      "drawing_sheet": "Ground Floor Plan / Elevations (unnumbered)",
+      "drawing_page": 41
+    },
+    {
+      "item_id": "LMU-E5-A",
+      "description": "50mm thick double panelled door faced and hardwood lipped all round, overall size 1200 x 2400mm high",
+      "expected_quantity": 2.0,
+      "unit": "NO",
+      "category": "schedule_extractable",
+      "drawing_sheet": "Ground Floor Plan / Elevations (unnumbered)",
+      "drawing_page": 41
+    },
+    {
+      "item_id": "LMU-E7-A",
+      "description": "Wall finishes: 20mm thick cement and sand (1:4) plaster steel trawled to walls",
+      "expected_quantity": 268.0,
+      "unit": "SM",
+      "category": "measurable_from_drawings",
+      "drawing_sheet": "Ground Floor Plan / Elevations (unnumbered)",
+      "drawing_page": 41
+    },
+    {
+      "item_id": "LMU-E7-C",
+      "description": "Painting and decorations to walls: prepare and apply three coats of first quality plastic emulsion paint to plastered walls and beams",
+      "expected_quantity": 268.0,
+      "unit": "SM",
+      "category": "measurable_from_drawings",
+      "drawing_sheet": "Ground Floor Plan / Elevations (unnumbered)",
+      "drawing_page": 41
+    },
+    {
+      "item_id": "LMU-E7-D",
+      "description": "Chalk Board: 3200 x 1500mm wide, 25mm thick blockboard plugged to concrete or blockwork, complete with 50 x 25mm thick chamfered frame all round, 3 coats black bituminous paint",
+      "expected_quantity": 2.0,
+      "unit": "NO",
+      "category": "measurable_from_drawings",
+      "drawing_sheet": "Ground Floor Plan / Elevations (unnumbered)",
+      "drawing_page": 41
+    },
+    {
+      "item_id": "LMU-E7-E",
+      "description": "Floor Finishes: 20mm thick cement and sand (1:4) plaster steel trowelled smooth (printed in the source BOQ as \"to walls\", under the \"Floor Finishes\" header; quantity 132 SM matches this project's own ground-slab/hardcore quantities exactly, confirming this is the floor finish item despite the printed wording)",
+      "expected_quantity": 132.0,
+      "unit": "SM",
+      "category": "measurable_from_drawings",
+      "drawing_sheet": "Ground Floor Plan / Elevations (unnumbered)",
+      "drawing_page": 41
+    }
+  ]
+}
