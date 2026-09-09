@@ -1,0 +1,2850 @@
+{
+  "source_sha256": "f30711f69944e66ef993341180e35b49ccfcb36d6f402743284823ab588183af",
+  "pages": [
+    {
+      "page": 160,
+      "native_text_chars": 4765,
+      "tag_cards": [
+        {
+          "tag_text": "D - 01",
+          "bbox": [
+            125.69,
+            1391.91,
+            173.7,
+            1408.92
+          ],
+          "nearby_blocks": [
+            {
+              "text": "Door panel Door frame",
+              "bbox": [
+                118.74,
+                1412.19,
+                159.66,
+                1431.26
+              ],
+              "dx": -10.5,
+              "dy": 21.31,
+              "distance": 23.75
+            },
+            {
+              "text": "Glass type",
+              "bbox": [
+                118.76,
+                1438.24,
+                157.45,
+                1446.74
+              ],
+              "dx": -11.59,
+              "dy": 42.08,
+              "distance": 43.64
+            },
+            {
+              "text": "Accessories",
+              "bbox": [
+                118.85,
+                1453.06,
+                163.46,
+                1461.56
+              ],
+              "dx": -8.54,
+              "dy": 56.89,
+              "distance": 57.53
+            },
+            {
+              "text": "Location",
+              "bbox": [
+                119.83,
+                1479.98,
+                151.45,
+                1488.48
+              ],
+              "dx": -14.06,
+              "dy": 83.82,
+              "distance": 84.99
+            },
+            {
+              "text": "Overall Quantity 10",
+              "bbox": [
+                118.55,
+                1494.95,
+                261.73,
+                1503.45
+              ],
+              "dx": 40.45,
+              "dy": 98.79,
+              "distance": 106.74
+            },
+            {
+              "text": "Double leaf, single swing fire door To manufacturer's specs",
+              "bbox": [
+                198.31,
+                1411.58,
+                316.17,
+                1431.52
+              ],
+              "dx": 107.55,
+              "dy": 21.13,
+              "distance": 109.6
+            },
+            {
+              "text": "Fire Escape stair",
+              "bbox": [
+                201.32,
+                1480.67,
+                261.16,
+                1489.17
+              ],
+              "dx": 81.55,
+              "dy": 84.51,
+              "distance": 117.43
+            },
+            {
+              "text": "3. No. heavy duty hinges to manufacturer's specs 1. No. panic bar to manufacurer's specs 1. No. stainless steel mortice door lock",
+              "bbox": [
+                198.94,
+                1448.65,
+                372.58,
+                1474.16
+              ],
+              "dx": 136.06,
+              "dy": 60.99,
+              "distance": 149.11
+            },
+            {
+              "text": "DESCRIPTION",
+              "bbox": [
+                310.94,
+                1398.2,
+                364.7,
+                1406.7
+              ],
+              "dx": 188.12,
+              "dy": 2.04,
+              "distance": 188.14
+            },
+            {
+              "text": "400 200",
+              "bbox": [
+                221.2,
+                1181.16,
+                236.7,
+                1242.95
+              ],
+              "dx": 79.25,
+              "dy": -188.36,
+              "distance": 204.35
+            }
+          ]
+        },
+        {
+          "tag_text": "D - 02",
+          "bbox": [
+            853.6,
+            1391.91,
+            901.61,
+            1408.92
+          ],
+          "nearby_blocks": [
+            {
+              "text": "Door panel Door frame",
+              "bbox": [
+                839.53,
+                1412.19,
+                880.46,
+                1431.26
+              ],
+              "dx": -17.61,
+              "dy": 21.31,
+              "distance": 27.64
+            },
+            {
+              "text": "Glass type",
+              "bbox": [
+                839.55,
+                1438.24,
+                878.24,
+                1446.74
+              ],
+              "dx": -18.71,
+              "dy": 42.08,
+              "distance": 46.05
+            },
+            {
+              "text": "Accessories",
+              "bbox": [
+                839.65,
+                1453.06,
+                884.25,
+                1461.56
+              ],
+              "dx": -15.65,
+              "dy": 56.89,
+              "distance": 59.01
+            },
+            {
+              "text": "Location",
+              "bbox": [
+                840.62,
+                1479.98,
+                872.24,
+                1488.48
+              ],
+              "dx": -21.17,
+              "dy": 83.82,
+              "distance": 86.45
+            },
+            {
+              "text": "Overall Quantity 160",
+              "bbox": [
+                839.34,
+                1494.95,
+                986.76,
+                1503.45
+              ],
+              "dx": 35.44,
+              "dy": 98.79,
+              "distance": 104.95
+            },
+            {
+              "text": "Single leaf, single swing semi-solid flush mahogany door",
+              "bbox": [
+                919.28,
+                1411.58,
+                1115.27,
+                1420.08
+              ],
+              "dx": 139.67,
+              "dy": 15.41,
+              "distance": 140.52
+            },
+            {
+              "text": "PWD rooms, 4-bed rooms, Custodian's office, Prayer room",
+              "bbox": [
+                922.11,
+                1480.67,
+                1131.13,
+                1489.17
+              ],
+              "dx": 149.02,
+              "dy": 84.51,
+              "distance": 171.31
+            },
+            {
+              "text": "DESCRIPTION",
+              "bbox": [
+                1031.73,
+                1398.2,
+                1085.49,
+                1406.7
+              ],
+              "dx": 181.01,
+              "dy": 2.04,
+              "distance": 181.02
+            },
+            {
+              "text": "150mm x 50mm thick mahogany frame with 75mm x 25mm thick architraves all round on both sides",
+              "bbox": [
+                919.11,
+                1423.87,
+                1233.23,
+                1431.53
+              ],
+              "dx": 198.57,
+              "dy": 27.28,
+              "distance": 200.43
+            },
+            {
+              "text": "6mm thick wire vision glass 3. No. heavy duty brass butt hinges 1. No. 3-lever mortise lock with tubular door handles 1. No. rubber door stopper in stainless steel mounting",
+              "bbox": [
+                198.31,
+                1436.76,
+                1108.39,
+                1474.16
+              ],
+              "dx": -224.25,
+              "dy": 55.05,
+              "distance": 230.91
+            }
+          ]
+        },
+        {
+          "tag_text": "D - 03",
+          "bbox": [
+            1554.8,
+            1391.91,
+            1602.82,
+            1408.92
+          ],
+          "nearby_blocks": [
+            {
+              "text": "Door panel Door frame",
+              "bbox": [
+                1540.73,
+                1412.19,
+                1581.66,
+                1431.26
+              ],
+              "dx": -17.61,
+              "dy": 21.31,
+              "distance": 27.65
+            },
+            {
+              "text": "Glass type",
+              "bbox": [
+                1540.75,
+                1438.24,
+                1579.45,
+                1446.74
+              ],
+              "dx": -18.71,
+              "dy": 42.08,
+              "distance": 46.05
+            },
+            {
+              "text": "Accessories",
+              "bbox": [
+                1540.85,
+                1453.06,
+                1585.46,
+                1461.56
+              ],
+              "dx": -15.65,
+              "dy": 56.89,
+              "distance": 59.01
+            },
+            {
+              "text": "Location",
+              "bbox": [
+                1541.82,
+                1479.98,
+                1573.45,
+                1488.48
+              ],
+              "dx": -21.17,
+              "dy": 83.82,
+              "distance": 86.45
+            },
+            {
+              "text": "Overall Quantity 308",
+              "bbox": [
+                1540.54,
+                1494.95,
+                1687.96,
+                1503.45
+              ],
+              "dx": 35.44,
+              "dy": 98.79,
+              "distance": 104.95
+            },
+            {
+              "text": "-",
+              "bbox": [
+                1676.72,
+                1436.76,
+                1680.98,
+                1445.26
+              ],
+              "dx": 100.04,
+              "dy": 40.6,
+              "distance": 107.96
+            },
+            {
+              "text": "Wet area entrances, bathrooms",
+              "bbox": [
+                1623.31,
+                1480.67,
+                1733.65,
+                1489.17
+              ],
+              "dx": 99.67,
+              "dy": 84.51,
+              "distance": 130.67
+            },
+            {
+              "text": "Single leaf, single swing semi-solid flush mahogany door",
+              "bbox": [
+                1620.48,
+                1411.58,
+                1816.47,
+                1420.08
+              ],
+              "dx": 139.66,
+              "dy": 15.41,
+              "distance": 140.51
+            },
+            {
+              "text": "DESCRIPTION",
+              "bbox": [
+                1732.93,
+                1398.2,
+                1786.7,
+                1406.7
+              ],
+              "dx": 181.01,
+              "dy": 2.04,
+              "distance": 181.02
+            },
+            {
+              "text": "150mm x 50mm thick mahogany frame with 75mm x25mm thick architraves all round on both sides",
+              "bbox": [
+                1620.31,
+                1423.87,
+                1932.12,
+                1431.53
+              ],
+              "dx": 197.4,
+              "dy": 27.28,
+              "distance": 199.28
+            },
+            {
+              "text": "4mm thick clear transorm glass 3. No. heavy duty brass butt hinges 1. No. 3-lever mortise lock with tubular door handles 1. No. rubber door stopper in stainless steel mounting",
+              "bbox": [
+                919.11,
+                1436.76,
+                1809.59,
+                1474.16
+              ],
+              "dx": -214.46,
+              "dy": 55.05,
+              "distance": 221.41
+            }
+          ]
+        }
+      ],
+      "relevant_blocks": [
+        {
+          "text": "Window panel :",
+          "bbox": [
+            110.75,
+            616.3,
+            160.43,
+            624.8
+          ]
+        },
+        {
+          "text": "Window frame :",
+          "bbox": [
+            110.75,
+            629.68,
+            161.31,
+            638.19
+          ]
+        },
+        {
+          "text": "Window leaf type :",
+          "bbox": [
+            110.75,
+            642.83,
+            170.18,
+            651.33
+          ]
+        },
+        {
+          "text": "Handle type : Finish : window fasterners",
+          "bbox": [
+            110.78,
+            696.53,
+            387.91,
+            705.26
+          ]
+        },
+        {
+          "text": "Overall Quantity: 172",
+          "bbox": [
+            197.49,
+            750.44,
+            270.81,
+            758.95
+          ]
+        },
+        {
+          "text": "50x50x3mm thick frame primed and painted to schedule As per Typical window",
+          "bbox": [
+            197.38,
+            617.3,
+            534.56,
+            638.16
+          ]
+        },
+        {
+          "text": "Horizontal sliding panels",
+          "bbox": [
+            197.42,
+            643.07,
+            282.96,
+            651.57
+          ]
+        },
+        {
+          "text": "Window stay type :",
+          "bbox": [
+            110.78,
+            709.62,
+            275.56,
+            718.12
+          ]
+        },
+        {
+          "text": "Window panel :",
+          "bbox": [
+            774.71,
+            616.3,
+            824.39,
+            624.8
+          ]
+        },
+        {
+          "text": "Window frame :",
+          "bbox": [
+            774.71,
+            629.68,
+            825.27,
+            638.19
+          ]
+        },
+        {
+          "text": "Window leaf type :",
+          "bbox": [
+            774.71,
+            642.83,
+            834.14,
+            651.33
+          ]
+        },
+        {
+          "text": "Handle type : Finish : window fasterners",
+          "bbox": [
+            774.73,
+            696.53,
+            1051.87,
+            705.26
+          ]
+        },
+        {
+          "text": "Overall Quantity: 184",
+          "bbox": [
+            861.44,
+            750.44,
+            934.76,
+            758.95
+          ]
+        },
+        {
+          "text": "50x50x3mm thick frame primed and painted to schedule As per Typical window",
+          "bbox": [
+            861.34,
+            617.3,
+            1198.51,
+            638.16
+          ]
+        },
+        {
+          "text": "Horizontal sliding panels",
+          "bbox": [
+            861.38,
+            643.07,
+            946.92,
+            651.57
+          ]
+        },
+        {
+          "text": "Window stay type :",
+          "bbox": [
+            774.73,
+            709.62,
+            939.51,
+            718.12
+          ]
+        },
+        {
+          "text": "Window panel :",
+          "bbox": [
+            1475.52,
+            616.3,
+            1525.19,
+            624.8
+          ]
+        },
+        {
+          "text": "Window frame :",
+          "bbox": [
+            1475.52,
+            629.68,
+            1526.08,
+            638.19
+          ]
+        },
+        {
+          "text": "Window leaf type :",
+          "bbox": [
+            1475.52,
+            642.83,
+            1534.95,
+            651.33
+          ]
+        },
+        {
+          "text": "Handle type : Finish : window fasterners",
+          "bbox": [
+            1475.54,
+            696.53,
+            1752.68,
+            705.26
+          ]
+        },
+        {
+          "text": "Overall Quantity: 4",
+          "bbox": [
+            1562.25,
+            750.44,
+            1628.9,
+            758.95
+          ]
+        },
+        {
+          "text": "50x50x3mm thick frame primed and painted to schedule As per Typical window",
+          "bbox": [
+            1562.15,
+            617.3,
+            1899.32,
+            638.16
+          ]
+        },
+        {
+          "text": "Horizontal sliding panels",
+          "bbox": [
+            1562.18,
+            643.07,
+            1647.73,
+            651.57
+          ]
+        },
+        {
+          "text": "Window stay type :",
+          "bbox": [
+            1475.54,
+            709.62,
+            1640.33,
+            718.12
+          ]
+        },
+        {
+          "text": "Door panel Door frame",
+          "bbox": [
+            118.74,
+            1412.19,
+            159.66,
+            1431.26
+          ]
+        },
+        {
+          "text": "Overall Quantity 10",
+          "bbox": [
+            118.55,
+            1494.95,
+            261.73,
+            1503.45
+          ]
+        },
+        {
+          "text": "D - 01",
+          "bbox": [
+            125.69,
+            1391.91,
+            173.7,
+            1408.92
+          ]
+        },
+        {
+          "text": "Door panel Door frame",
+          "bbox": [
+            839.53,
+            1412.19,
+            880.46,
+            1431.26
+          ]
+        },
+        {
+          "text": "Overall Quantity 160",
+          "bbox": [
+            839.34,
+            1494.95,
+            986.76,
+            1503.45
+          ]
+        },
+        {
+          "text": "D - 02",
+          "bbox": [
+            853.6,
+            1391.91,
+            901.61,
+            1408.92
+          ]
+        },
+        {
+          "text": "Door panel Door frame",
+          "bbox": [
+            1540.73,
+            1412.19,
+            1581.66,
+            1431.26
+          ]
+        },
+        {
+          "text": "Overall Quantity 308",
+          "bbox": [
+            1540.54,
+            1494.95,
+            1687.96,
+            1503.45
+          ]
+        },
+        {
+          "text": "D - 03",
+          "bbox": [
+            1554.8,
+            1391.91,
+            1602.82,
+            1408.92
+          ]
+        },
+        {
+          "text": "3. No. heavy duty hinges to manufacturer's specs 1. No. panic bar to manufacurer's specs 1. No. stainless steel mortice door lock",
+          "bbox": [
+            198.94,
+            1448.65,
+            372.58,
+            1474.16
+          ]
+        },
+        {
+          "text": "Double leaf, single swing fire door To manufacturer's specs",
+          "bbox": [
+            198.31,
+            1411.58,
+            316.17,
+            1431.52
+          ]
+        },
+        {
+          "text": "6mm thick wire vision glass 3. No. heavy duty brass butt hinges 1. No. 3-lever mortise lock with tubular door handles 1. No. rubber door stopper in stainless steel mounting",
+          "bbox": [
+            198.31,
+            1436.76,
+            1108.39,
+            1474.16
+          ]
+        },
+        {
+          "text": "Single leaf, single swing semi-solid flush mahogany door",
+          "bbox": [
+            919.28,
+            1411.58,
+            1115.27,
+            1420.08
+          ]
+        },
+        {
+          "text": "4mm thick clear transorm glass 3. No. heavy duty brass butt hinges 1. No. 3-lever mortise lock with tubular door handles 1. No. rubber door stopper in stainless steel mounting",
+          "bbox": [
+            919.11,
+            1436.76,
+            1809.59,
+            1474.16
+          ]
+        },
+        {
+          "text": "Single leaf, single swing semi-solid flush mahogany door",
+          "bbox": [
+            1620.48,
+            1411.58,
+            1816.47,
+            1420.08
+          ]
+        },
+        {
+          "text": "UMMA UNIVERSITY - WINDOW AND DOOR",
+          "bbox": [
+            626.57,
+            46.06,
+            1449.24,
+            88.58
+          ]
+        }
+      ],
+      "current_extractor_rows": [
+        {
+          "tag": "D1",
+          "trade_type": "doors",
+          "description": "D - 01 card schedule, explicit Overall Quantity",
+          "quantity": 10.0,
+          "unit": "NO",
+          "dimensions": null,
+          "source_page": 160,
+          "bbox": [
+            118.54824829101562,
+            1494.950927734375,
+            261.73052978515625,
+            1503.4549560546875
+          ],
+          "sheet_number": null,
+          "confidence": 0.9,
+          "is_provisional": false,
+          "evidence_text": "Overall Quantity: 10"
+        },
+        {
+          "tag": "D2",
+          "trade_type": "doors",
+          "description": "D - 02 card schedule, explicit Overall Quantity",
+          "quantity": 160.0,
+          "unit": "NO",
+          "dimensions": null,
+          "source_page": 160,
+          "bbox": [
+            839.3418579101562,
+            1494.950927734375,
+            986.7556762695312,
+            1503.4549560546875
+          ],
+          "sheet_number": null,
+          "confidence": 0.9,
+          "is_provisional": false,
+          "evidence_text": "Overall Quantity: 160"
+        },
+        {
+          "tag": "D3",
+          "trade_type": "doors",
+          "description": "D - 03 card schedule, explicit Overall Quantity",
+          "quantity": 308.0,
+          "unit": "NO",
+          "dimensions": null,
+          "source_page": 160,
+          "bbox": [
+            1540.5433349609375,
+            1494.950927734375,
+            1687.958740234375,
+            1503.4549560546875
+          ],
+          "sheet_number": null,
+          "confidence": 0.9,
+          "is_provisional": false,
+          "evidence_text": "Overall Quantity: 308"
+        }
+      ]
+    },
+    {
+      "page": 161,
+      "native_text_chars": 4012,
+      "tag_cards": [
+        {
+          "tag_text": "D - 04",
+          "bbox": [
+            155.39,
+            617.99,
+            203.41,
+            634.99
+          ],
+          "nearby_blocks": [
+            {
+              "text": "Door panel Door frame",
+              "bbox": [
+                141.33,
+                638.27,
+                182.26,
+                657.35
+              ],
+              "dx": -17.6,
+              "dy": 21.32,
+              "distance": 27.65
+            },
+            {
+              "text": "Glass type",
+              "bbox": [
+                141.35,
+                664.32,
+                180.04,
+                672.82
+              ],
+              "dx": -18.7,
+              "dy": 42.08,
+              "distance": 46.05
+            },
+            {
+              "text": "Accessories",
+              "bbox": [
+                141.44,
+                679.14,
+                186.05,
+                687.64
+              ],
+              "dx": -15.65,
+              "dy": 56.9,
+              "distance": 59.01
+            },
+            {
+              "text": "Location",
+              "bbox": [
+                142.42,
+                706.05,
+                174.04,
+                714.56
+              ],
+              "dx": -21.17,
+              "dy": 83.81,
+              "distance": 86.45
+            },
+            {
+              "text": "Toilets",
+              "bbox": [
+                223.91,
+                706.75,
+                247.9,
+                715.26
+              ],
+              "dx": 56.51,
+              "dy": 84.51,
+              "distance": 101.66
+            },
+            {
+              "text": "Overall Quantity 308",
+              "bbox": [
+                141.14,
+                721.03,
+                288.55,
+                729.53
+              ],
+              "dx": 35.45,
+              "dy": 98.79,
+              "distance": 104.96
+            },
+            {
+              "text": "-",
+              "bbox": [
+                277.32,
+                662.84,
+                281.57,
+                671.34
+              ],
+              "dx": 100.05,
+              "dy": 40.6,
+              "distance": 107.97
+            },
+            {
+              "text": "Single leaf, single swing semi-solid flush mahogany door",
+              "bbox": [
+                221.07,
+                637.66,
+                417.06,
+                646.16
+              ],
+              "dx": 139.67,
+              "dy": 15.42,
+              "distance": 140.51
+            },
+            {
+              "text": "3. No. heavy duty brass butt hinges 1. No. 3-lever mortise lock with tubular door handles 1. No. rubber door stopper in stainless steel mounting",
+              "bbox": [
+                221.53,
+                674.73,
+                410.19,
+                700.24
+              ],
+              "dx": 136.46,
+              "dy": 61.0,
+              "distance": 149.47
+            },
+            {
+              "text": "DESCRIPTION",
+              "bbox": [
+                333.53,
+                624.28,
+                387.3,
+                632.78
+              ],
+              "dx": 181.01,
+              "dy": 2.04,
+              "distance": 181.03
+            },
+            {
+              "text": "150mm x 50mm thick mahogany frame with 75mm x 25mm thick architraves all round on both sides",
+              "bbox": [
+                220.91,
+                649.95,
+                535.02,
+                657.6
+              ],
+              "dx": 198.56,
+              "dy": 27.29,
+              "distance": 200.43
+            }
+          ]
+        },
+        {
+          "tag_text": "D - 05",
+          "bbox": [
+            858.34,
+            617.99,
+            906.35,
+            634.99
+          ],
+          "nearby_blocks": [
+            {
+              "text": "Door panel Door frame",
+              "bbox": [
+                844.28,
+                638.27,
+                885.2,
+                657.35
+              ],
+              "dx": -17.61,
+              "dy": 21.32,
+              "distance": 27.65
+            },
+            {
+              "text": "Glass type",
+              "bbox": [
+                844.29,
+                664.32,
+                882.99,
+                672.82
+              ],
+              "dx": -18.71,
+              "dy": 42.08,
+              "distance": 46.05
+            },
+            {
+              "text": "Accessories",
+              "bbox": [
+                844.39,
+                679.14,
+                888.99,
+                687.64
+              ],
+              "dx": -15.65,
+              "dy": 56.9,
+              "distance": 59.01
+            },
+            {
+              "text": "Mild steel frame",
+              "bbox": [
+                923.85,
+                649.95,
+                976.79,
+                657.6
+              ],
+              "dx": 67.97,
+              "dy": 27.29,
+              "distance": 73.25
+            },
+            {
+              "text": "Location",
+              "bbox": [
+                845.36,
+                706.05,
+                876.99,
+                714.56
+              ],
+              "dx": -21.17,
+              "dy": 83.81,
+              "distance": 86.45
+            },
+            {
+              "text": "Overall Quantity 1",
+              "bbox": [
+                844.08,
+                721.03,
+                983.04,
+                729.53
+              ],
+              "dx": 31.21,
+              "dy": 98.79,
+              "distance": 103.6
+            },
+            {
+              "text": "-",
+              "bbox": [
+                980.26,
+                662.84,
+                984.51,
+                671.34
+              ],
+              "dx": 100.04,
+              "dy": 40.6,
+              "distance": 107.96
+            },
+            {
+              "text": "Double leaf, single swing mild steel door",
+              "bbox": [
+                924.02,
+                637.66,
+                1063.81,
+                646.16
+              ],
+              "dx": 111.57,
+              "dy": 15.42,
+              "distance": 112.63
+            },
+            {
+              "text": "Ground floor locker room",
+              "bbox": [
+                926.86,
+                706.75,
+                1015.33,
+                715.26
+              ],
+              "dx": 88.75,
+              "dy": 84.51,
+              "distance": 122.55
+            },
+            {
+              "text": "3. No. heavy duty brass butt hinges 2. No. 3-lever mortise lock with tubular door handles 2. No. rubber door stopper in stainless steel mounting",
+              "bbox": [
+                924.47,
+                674.73,
+                1113.13,
+                700.24
+              ],
+              "dx": 136.46,
+              "dy": 61.0,
+              "distance": 149.47
+            },
+            {
+              "text": "DESCRIPTION",
+              "bbox": [
+                1036.48,
+                624.28,
+                1090.24,
+                632.78
+              ],
+              "dx": 181.02,
+              "dy": 2.04,
+              "distance": 181.03
+            }
+          ]
+        },
+        {
+          "tag_text": "D - 06",
+          "bbox": [
+            1555.0,
+            617.99,
+            1603.02,
+            634.99
+          ],
+          "nearby_blocks": [
+            {
+              "text": "Door panel Door frame",
+              "bbox": [
+                1540.93,
+                638.27,
+                1581.87,
+                657.35
+              ],
+              "dx": -17.61,
+              "dy": 21.32,
+              "distance": 27.65
+            },
+            {
+              "text": "Glass type",
+              "bbox": [
+                1540.95,
+                664.32,
+                1579.65,
+                672.82
+              ],
+              "dx": -18.71,
+              "dy": 42.08,
+              "distance": 46.05
+            },
+            {
+              "text": "Accessories",
+              "bbox": [
+                1541.05,
+                679.14,
+                1585.66,
+                687.64
+              ],
+              "dx": -15.65,
+              "dy": 56.9,
+              "distance": 59.01
+            },
+            {
+              "text": "-",
+              "bbox": [
+                1620.48,
+                662.21,
+                1624.74,
+                670.71
+              ],
+              "dx": 43.6,
+              "dy": 39.97,
+              "distance": 59.15
+            },
+            {
+              "text": "Mild steel frame",
+              "bbox": [
+                1620.51,
+                649.95,
+                1673.46,
+                657.6
+              ],
+              "dx": 67.98,
+              "dy": 27.29,
+              "distance": 73.25
+            },
+            {
+              "text": "Location",
+              "bbox": [
+                1542.02,
+                706.05,
+                1573.65,
+                714.56
+              ],
+              "dx": -21.17,
+              "dy": 83.81,
+              "distance": 86.45
+            },
+            {
+              "text": "Overall Quantity 1",
+              "bbox": [
+                1540.74,
+                721.03,
+                1679.7,
+                729.53
+              ],
+              "dx": 31.21,
+              "dy": 98.79,
+              "distance": 103.6
+            },
+            {
+              "text": "Double leaf, double Mild steel door",
+              "bbox": [
+                1621.63,
+                637.66,
+                1742.75,
+                646.16
+              ],
+              "dx": 103.18,
+              "dy": 15.42,
+              "distance": 104.33
+            },
+            {
+              "text": "Main entrance",
+              "bbox": [
+                1623.51,
+                706.75,
+                1673.57,
+                715.26
+              ],
+              "dx": 69.53,
+              "dy": 84.51,
+              "distance": 109.44
+            },
+            {
+              "text": "3. No. heavy duty butt hinges 2. No. 3-lever mortise lock with long tubular door handles 2. No. double swing door closers",
+              "bbox": [
+                1621.13,
+                674.73,
+                1823.06,
+                700.24
+              ],
+              "dx": 143.09,
+              "dy": 61.0,
+              "distance": 155.54
+            },
+            {
+              "text": "DESCRIPTION",
+              "bbox": [
+                1733.14,
+                624.28,
+                1786.91,
+                632.78
+              ],
+              "dx": 181.02,
+              "dy": 2.04,
+              "distance": 181.03
+            }
+          ]
+        },
+        {
+          "tag_text": "D - 07",
+          "bbox": [
+            155.39,
+            1275.07,
+            203.41,
+            1292.08
+          ],
+          "nearby_blocks": [
+            {
+              "text": "Door panel Door frame",
+              "bbox": [
+                141.33,
+                1295.35,
+                182.26,
+                1314.42
+              ],
+              "dx": -17.6,
+              "dy": 21.31,
+              "distance": 27.64
+            },
+            {
+              "text": "Glass type",
+              "bbox": [
+                141.35,
+                1321.4,
+                180.04,
+                1329.9
+              ],
+              "dx": -18.7,
+              "dy": 42.08,
+              "distance": 46.05
+            },
+            {
+              "text": "Accessories",
+              "bbox": [
+                141.44,
+                1336.22,
+                186.05,
+                1344.72
+              ],
+              "dx": -15.65,
+              "dy": 56.9,
+              "distance": 59.01
+            },
+            {
+              "text": "Location",
+              "bbox": [
+                142.42,
+                1363.13,
+                174.04,
+                1371.63
+              ],
+              "dx": -21.17,
+              "dy": 83.81,
+              "distance": 86.44
+            },
+            {
+              "text": "Overall Quantity 12",
+              "bbox": [
+                141.14,
+                1378.11,
+                284.32,
+                1386.61
+              ],
+              "dx": 33.33,
+              "dy": 98.79,
+              "distance": 104.26
+            },
+            {
+              "text": "Duct doors",
+              "bbox": [
+                223.91,
+                1363.83,
+                263.09,
+                1372.33
+              ],
+              "dx": 64.1,
+              "dy": 84.51,
+              "distance": 106.07
+            },
+            {
+              "text": "-",
+              "bbox": [
+                277.32,
+                1319.92,
+                281.57,
+                1328.42
+              ],
+              "dx": 100.05,
+              "dy": 40.6,
+              "distance": 107.97
+            },
+            {
+              "text": "Single leaf, single swing semi-solid flush mahogany door",
+              "bbox": [
+                221.07,
+                1294.73,
+                417.06,
+                1303.23
+              ],
+              "dx": 139.67,
+              "dy": 15.41,
+              "distance": 140.51
+            },
+            {
+              "text": "3. No. heavy duty brass butt hinges 1. No. 3-lever mortice dead lock with tubular door handles 1. No. rubber door stopper in stainless steel mounting",
+              "bbox": [
+                221.53,
+                1331.81,
+                426.22,
+                1357.32
+              ],
+              "dx": 144.48,
+              "dy": 60.99,
+              "distance": 156.82
+            },
+            {
+              "text": "DESCRIPTION",
+              "bbox": [
+                333.53,
+                1281.35,
+                387.3,
+                1289.85
+              ],
+              "dx": 181.01,
+              "dy": 2.03,
+              "distance": 181.03
+            },
+            {
+              "text": "150mm x 50mm thick mahogany frame with 75mm x 25mm thick architraves all round on both sides",
+              "bbox": [
+                220.91,
+                1307.02,
+                535.02,
+                1314.68
+              ],
+              "dx": 198.56,
+              "dy": 27.28,
+              "distance": 200.43
+            }
+          ]
+        },
+        {
+          "tag_text": "D - 08",
+          "bbox": [
+            869.13,
+            1275.07,
+            917.14,
+            1292.08
+          ],
+          "nearby_blocks": [
+            {
+              "text": "Door panel Door frame",
+              "bbox": [
+                855.07,
+                1295.35,
+                895.99,
+                1314.42
+              ],
+              "dx": -17.61,
+              "dy": 21.31,
+              "distance": 27.64
+            },
+            {
+              "text": "Glass type",
+              "bbox": [
+                855.08,
+                1321.4,
+                893.78,
+                1329.9
+              ],
+              "dx": -18.7,
+              "dy": 42.08,
+              "distance": 46.05
+            },
+            {
+              "text": "Accessories",
+              "bbox": [
+                855.18,
+                1336.22,
+                899.78,
+                1344.72
+              ],
+              "dx": -15.65,
+              "dy": 56.9,
+              "distance": 59.01
+            },
+            {
+              "text": "Location",
+              "bbox": [
+                856.15,
+                1363.13,
+                887.77,
+                1371.63
+              ],
+              "dx": -21.17,
+              "dy": 83.81,
+              "distance": 86.44
+            },
+            {
+              "text": "Overall Quantity 6",
+              "bbox": [
+                854.87,
+                1378.11,
+                993.82,
+                1386.61
+              ],
+              "dx": 31.21,
+              "dy": 98.79,
+              "distance": 103.6
+            },
+            {
+              "text": "-",
+              "bbox": [
+                991.05,
+                1319.92,
+                995.3,
+                1328.42
+              ],
+              "dx": 100.04,
+              "dy": 40.6,
+              "distance": 107.96
+            },
+            {
+              "text": "Single leaf, single swing semi-solid flush mahogany door",
+              "bbox": [
+                934.81,
+                1294.73,
+                1130.8,
+                1303.23
+              ],
+              "dx": 139.67,
+              "dy": 15.41,
+              "distance": 140.52
+            },
+            {
+              "text": "PWD Wet area entrances, PWD Toilets",
+              "bbox": [
+                937.64,
+                1363.83,
+                1074.01,
+                1372.33
+              ],
+              "dx": 112.69,
+              "dy": 84.51,
+              "distance": 140.86
+            },
+            {
+              "text": "3. No. heavy duty brass butt hinges 1. No. 3-lever mortise lock with tubular door handles 1. No. rubber door stopper in stainless steel mounting",
+              "bbox": [
+                935.26,
+                1331.81,
+                1123.92,
+                1357.32
+              ],
+              "dx": 136.46,
+              "dy": 60.99,
+              "distance": 149.46
+            },
+            {
+              "text": "DESCRIPTION",
+              "bbox": [
+                1047.26,
+                1281.35,
+                1101.02,
+                1289.85
+              ],
+              "dx": 181.0,
+              "dy": 2.03,
+              "distance": 181.02
+            },
+            {
+              "text": "150mm x 50mm thick mahogany frame with 75mm x25mm thick architraves all round on both sides",
+              "bbox": [
+                934.64,
+                1307.02,
+                1246.45,
+                1314.68
+              ],
+              "dx": 197.41,
+              "dy": 27.28,
+              "distance": 199.29
+            }
+          ]
+        },
+        {
+          "tag_text": "D - 09",
+          "bbox": [
+            1592.98,
+            1275.07,
+            1641.0,
+            1292.08
+          ],
+          "nearby_blocks": [
+            {
+              "text": "Door panel Door frame",
+              "bbox": [
+                1578.92,
+                1295.35,
+                1619.85,
+                1314.42
+              ],
+              "dx": -17.61,
+              "dy": 21.31,
+              "distance": 27.64
+            },
+            {
+              "text": "Glass type",
+              "bbox": [
+                1578.93,
+                1321.4,
+                1617.63,
+                1329.9
+              ],
+              "dx": -18.71,
+              "dy": 42.08,
+              "distance": 46.05
+            },
+            {
+              "text": "Accessories",
+              "bbox": [
+                1579.03,
+                1336.22,
+                1623.64,
+                1344.72
+              ],
+              "dx": -15.65,
+              "dy": 56.9,
+              "distance": 59.01
+            },
+            {
+              "text": "Mild steel frame",
+              "bbox": [
+                1658.49,
+                1307.02,
+                1711.44,
+                1314.68
+              ],
+              "dx": 67.98,
+              "dy": 27.28,
+              "distance": 73.24
+            },
+            {
+              "text": "Location",
+              "bbox": [
+                1580.0,
+                1363.13,
+                1611.63,
+                1371.63
+              ],
+              "dx": -21.17,
+              "dy": 83.81,
+              "distance": 86.44
+            },
+            {
+              "text": "Overall Quantity 1",
+              "bbox": [
+                1578.72,
+                1378.11,
+                1717.68,
+                1386.61
+              ],
+              "dx": 31.21,
+              "dy": 98.79,
+              "distance": 103.6
+            },
+            {
+              "text": "-",
+              "bbox": [
+                1714.9,
+                1319.92,
+                1719.16,
+                1328.42
+              ],
+              "dx": 100.04,
+              "dy": 40.6,
+              "distance": 107.96
+            },
+            {
+              "text": "Double leaf, single swing mild steel door",
+              "bbox": [
+                1658.66,
+                1294.73,
+                1798.46,
+                1303.23
+              ],
+              "dx": 111.57,
+              "dy": 15.41,
+              "distance": 112.63
+            },
+            {
+              "text": "First floor locker room",
+              "bbox": [
+                1663.22,
+                1363.83,
+                1742.31,
+                1372.33
+              ],
+              "dx": 85.77,
+              "dy": 84.51,
+              "distance": 120.41
+            },
+            {
+              "text": "3. No. heavy duty brass butt hinges 2. No. 3-lever mortise lock with tubular door handles 2. No. rubber door stopper in stainless steel mounting",
+              "bbox": [
+                1659.11,
+                1331.81,
+                1847.77,
+                1357.32
+              ],
+              "dx": 136.45,
+              "dy": 60.99,
+              "distance": 149.46
+            },
+            {
+              "text": "DESCRIPTION",
+              "bbox": [
+                1771.12,
+                1281.35,
+                1824.89,
+                1289.85
+              ],
+              "dx": 181.02,
+              "dy": 2.03,
+              "distance": 181.03
+            },
+            {
+              "text": "2,250",
+              "bbox": [
+                1646.5,
+                1057.98,
+                1662.0,
+                1086.23
+              ],
+              "dx": 37.26,
+              "dy": -211.47,
+              "distance": 214.73
+            }
+          ]
+        }
+      ],
+      "relevant_blocks": [
+        {
+          "text": "Door panel Door frame",
+          "bbox": [
+            141.33,
+            638.27,
+            182.26,
+            657.35
+          ]
+        },
+        {
+          "text": "Overall Quantity 308",
+          "bbox": [
+            141.14,
+            721.03,
+            288.55,
+            729.53
+          ]
+        },
+        {
+          "text": "D - 04",
+          "bbox": [
+            155.39,
+            617.99,
+            203.41,
+            634.99
+          ]
+        },
+        {
+          "text": "Door panel Door frame",
+          "bbox": [
+            844.28,
+            638.27,
+            885.2,
+            657.35
+          ]
+        },
+        {
+          "text": "Overall Quantity 1",
+          "bbox": [
+            844.08,
+            721.03,
+            983.04,
+            729.53
+          ]
+        },
+        {
+          "text": "D - 05",
+          "bbox": [
+            858.34,
+            617.99,
+            906.35,
+            634.99
+          ]
+        },
+        {
+          "text": "Door panel Door frame",
+          "bbox": [
+            1540.93,
+            638.27,
+            1581.87,
+            657.35
+          ]
+        },
+        {
+          "text": "Overall Quantity 1",
+          "bbox": [
+            1540.74,
+            721.03,
+            1679.7,
+            729.53
+          ]
+        },
+        {
+          "text": "D - 06",
+          "bbox": [
+            1555.0,
+            617.99,
+            1603.02,
+            634.99
+          ]
+        },
+        {
+          "text": "Door panel Door frame",
+          "bbox": [
+            141.33,
+            1295.35,
+            182.26,
+            1314.42
+          ]
+        },
+        {
+          "text": "Overall Quantity 12",
+          "bbox": [
+            141.14,
+            1378.11,
+            284.32,
+            1386.61
+          ]
+        },
+        {
+          "text": "Duct doors",
+          "bbox": [
+            223.91,
+            1363.83,
+            263.09,
+            1372.33
+          ]
+        },
+        {
+          "text": "D - 07",
+          "bbox": [
+            155.39,
+            1275.07,
+            203.41,
+            1292.08
+          ]
+        },
+        {
+          "text": "Door panel Door frame",
+          "bbox": [
+            855.07,
+            1295.35,
+            895.99,
+            1314.42
+          ]
+        },
+        {
+          "text": "Overall Quantity 6",
+          "bbox": [
+            854.87,
+            1378.11,
+            993.82,
+            1386.61
+          ]
+        },
+        {
+          "text": "D - 08",
+          "bbox": [
+            869.13,
+            1275.07,
+            917.14,
+            1292.08
+          ]
+        },
+        {
+          "text": "Door panel Door frame",
+          "bbox": [
+            1578.92,
+            1295.35,
+            1619.85,
+            1314.42
+          ]
+        },
+        {
+          "text": "Overall Quantity 1",
+          "bbox": [
+            1578.72,
+            1378.11,
+            1717.68,
+            1386.61
+          ]
+        },
+        {
+          "text": "D - 09",
+          "bbox": [
+            1592.98,
+            1275.07,
+            1641.0,
+            1292.08
+          ]
+        },
+        {
+          "text": "3. No. heavy duty brass butt hinges 1. No. 3-lever mortise lock with tubular door handles 1. No. rubber door stopper in stainless steel mounting",
+          "bbox": [
+            221.53,
+            674.73,
+            410.19,
+            700.24
+          ]
+        },
+        {
+          "text": "Single leaf, single swing semi-solid flush mahogany door",
+          "bbox": [
+            221.07,
+            637.66,
+            417.06,
+            646.16
+          ]
+        },
+        {
+          "text": "3. No. heavy duty brass butt hinges 2. No. 3-lever mortise lock with tubular door handles 2. No. rubber door stopper in stainless steel mounting",
+          "bbox": [
+            924.47,
+            674.73,
+            1113.13,
+            700.24
+          ]
+        },
+        {
+          "text": "Double leaf, single swing mild steel door",
+          "bbox": [
+            924.02,
+            637.66,
+            1063.81,
+            646.16
+          ]
+        },
+        {
+          "text": "Mild steel frame",
+          "bbox": [
+            923.85,
+            649.95,
+            976.79,
+            657.6
+          ]
+        },
+        {
+          "text": "3. No. heavy duty butt hinges 2. No. 3-lever mortise lock with long tubular door handles 2. No. double swing door closers",
+          "bbox": [
+            1621.13,
+            674.73,
+            1823.06,
+            700.24
+          ]
+        },
+        {
+          "text": "Double leaf, double Mild steel door",
+          "bbox": [
+            1621.63,
+            637.66,
+            1742.75,
+            646.16
+          ]
+        },
+        {
+          "text": "Mild steel frame",
+          "bbox": [
+            1620.51,
+            649.95,
+            1673.46,
+            657.6
+          ]
+        },
+        {
+          "text": "3. No. heavy duty brass butt hinges 1. No. 3-lever mortice dead lock with tubular door handles 1. No. rubber door stopper in stainless steel mounting",
+          "bbox": [
+            221.53,
+            1331.81,
+            426.22,
+            1357.32
+          ]
+        },
+        {
+          "text": "Single leaf, single swing semi-solid flush mahogany door",
+          "bbox": [
+            221.07,
+            1294.73,
+            417.06,
+            1303.23
+          ]
+        },
+        {
+          "text": "3. No. heavy duty brass butt hinges 1. No. 3-lever mortise lock with tubular door handles 1. No. rubber door stopper in stainless steel mounting",
+          "bbox": [
+            935.26,
+            1331.81,
+            1123.92,
+            1357.32
+          ]
+        },
+        {
+          "text": "Single leaf, single swing semi-solid flush mahogany door",
+          "bbox": [
+            934.81,
+            1294.73,
+            1130.8,
+            1303.23
+          ]
+        },
+        {
+          "text": "3. No. heavy duty brass butt hinges 2. No. 3-lever mortise lock with tubular door handles 2. No. rubber door stopper in stainless steel mounting",
+          "bbox": [
+            1659.11,
+            1331.81,
+            1847.77,
+            1357.32
+          ]
+        },
+        {
+          "text": "Double leaf, single swing mild steel door",
+          "bbox": [
+            1658.66,
+            1294.73,
+            1798.46,
+            1303.23
+          ]
+        },
+        {
+          "text": "Mild steel frame",
+          "bbox": [
+            1658.49,
+            1307.02,
+            1711.44,
+            1314.68
+          ]
+        }
+      ],
+      "current_extractor_rows": [
+        {
+          "tag": "D4",
+          "trade_type": "doors",
+          "description": "Column schedule item D4 (unresolved identity/count)",
+          "quantity": null,
+          "unit": "NO",
+          "dimensions": null,
+          "source_page": 161,
+          "bbox": [
+            141.1403045654297,
+            191.6776123046875,
+            535.0245361328125,
+            1386.61474609375
+          ],
+          "sheet_number": null,
+          "confidence": 0.4,
+          "is_provisional": true,
+          "evidence_text": "Column 1 missing count evidence: 750 50 230 50 2,400 2,100 D - 04 DESCRIPTION Single leaf, si..."
+        },
+        {
+          "tag": "D4",
+          "trade_type": "doors",
+          "description": "D - 04 card schedule, explicit Overall Quantity",
+          "quantity": 308.0,
+          "unit": "NO",
+          "dimensions": null,
+          "source_page": 161,
+          "bbox": [
+            141.1403045654297,
+            721.0294189453125,
+            288.5537414550781,
+            729.5333862304688
+          ],
+          "sheet_number": null,
+          "confidence": 0.9,
+          "is_provisional": false,
+          "evidence_text": "Overall Quantity: 308"
+        },
+        {
+          "tag": "D5",
+          "trade_type": "doors",
+          "description": "D - 05 card schedule, explicit Overall Quantity",
+          "quantity": 1.0,
+          "unit": "NO",
+          "dimensions": null,
+          "source_page": 161,
+          "bbox": [
+            844.0838012695312,
+            721.0294189453125,
+            983.0350341796875,
+            729.5333862304688
+          ],
+          "sheet_number": null,
+          "confidence": 0.9,
+          "is_provisional": false,
+          "evidence_text": "Overall Quantity: 1"
+        },
+        {
+          "tag": "D6",
+          "trade_type": "doors",
+          "description": "D - 06 card schedule, explicit Overall Quantity",
+          "quantity": 1.0,
+          "unit": "NO",
+          "dimensions": null,
+          "source_page": 161,
+          "bbox": [
+            1540.7432861328125,
+            721.0294189453125,
+            1679.6954345703125,
+            729.5333862304688
+          ],
+          "sheet_number": null,
+          "confidence": 0.9,
+          "is_provisional": false,
+          "evidence_text": "Overall Quantity: 1"
+        },
+        {
+          "tag": "D7",
+          "trade_type": "doors",
+          "description": "D - 07 card schedule, explicit Overall Quantity",
+          "quantity": 12.0,
+          "unit": "NO",
+          "dimensions": null,
+          "source_page": 161,
+          "bbox": [
+            141.1403045654297,
+            1378.1107177734375,
+            284.3221740722656,
+            1386.61474609375
+          ],
+          "sheet_number": null,
+          "confidence": 0.9,
+          "is_provisional": false,
+          "evidence_text": "Overall Quantity: 12"
+        },
+        {
+          "tag": "D8",
+          "trade_type": "doors",
+          "description": "D - 08 card schedule, explicit Overall Quantity",
+          "quantity": 6.0,
+          "unit": "NO",
+          "dimensions": null,
+          "source_page": 161,
+          "bbox": [
+            854.8738403320312,
+            1378.1107177734375,
+            993.8240966796875,
+            1386.61474609375
+          ],
+          "sheet_number": null,
+          "confidence": 0.9,
+          "is_provisional": false,
+          "evidence_text": "Overall Quantity: 6"
+        },
+        {
+          "tag": "D9",
+          "trade_type": "doors",
+          "description": "D - 09 card schedule, explicit Overall Quantity",
+          "quantity": 1.0,
+          "unit": "NO",
+          "dimensions": null,
+          "source_page": 161,
+          "bbox": [
+            1578.723388671875,
+            1378.1107177734375,
+            1717.6756591796875,
+            1386.61474609375
+          ],
+          "sheet_number": null,
+          "confidence": 0.9,
+          "is_provisional": false,
+          "evidence_text": "Overall Quantity: 1"
+        }
+      ]
+    },
+    {
+      "page": 162,
+      "native_text_chars": 2709,
+      "tag_cards": [
+        {
+          "tag_text": "D - 10",
+          "bbox": [
+            100.3,
+            878.84,
+            148.32,
+            895.85
+          ],
+          "nearby_blocks": [
+            {
+              "text": "Door panel Door frame",
+              "bbox": [
+                86.24,
+                899.12,
+                127.17,
+                918.2
+              ],
+              "dx": -17.61,
+              "dy": 21.32,
+              "distance": 27.65
+            },
+            {
+              "text": "Glass type",
+              "bbox": [
+                86.26,
+                925.17,
+                124.95,
+                933.68
+              ],
+              "dx": -18.7,
+              "dy": 42.08,
+              "distance": 46.05
+            },
+            {
+              "text": "Accessories",
+              "bbox": [
+                86.35,
+                939.99,
+                130.96,
+                948.5
+              ],
+              "dx": -15.66,
+              "dy": 56.9,
+              "distance": 59.01
+            },
+            {
+              "text": "Mild steel frame",
+              "bbox": [
+                165.82,
+                910.8,
+                218.76,
+                918.46
+              ],
+              "dx": 67.98,
+              "dy": 27.28,
+              "distance": 73.25
+            },
+            {
+              "text": "Location",
+              "bbox": [
+                87.33,
+                966.91,
+                118.95,
+                975.41
+              ],
+              "dx": -21.17,
+              "dy": 83.81,
+              "distance": 86.45
+            },
+            {
+              "text": "Overall Quantity 3",
+              "bbox": [
+                86.05,
+                981.88,
+                225.0,
+                990.39
+              ],
+              "dx": 31.22,
+              "dy": 98.79,
+              "distance": 103.6
+            },
+            {
+              "text": "-",
+              "bbox": [
+                222.23,
+                923.69,
+                226.48,
+                932.2
+              ],
+              "dx": 100.04,
+              "dy": 40.6,
+              "distance": 107.97
+            },
+            {
+              "text": "Double leaf, single swing mild steel door",
+              "bbox": [
+                165.98,
+                898.51,
+                305.78,
+                907.02
+              ],
+              "dx": 111.57,
+              "dy": 15.42,
+              "distance": 112.63
+            },
+            {
+              "text": "2nd - 4th floors locker rooms",
+              "bbox": [
+                168.82,
+                967.6,
+                272.94,
+                976.11
+              ],
+              "dx": 96.57,
+              "dy": 84.51,
+              "distance": 128.33
+            },
+            {
+              "text": "3. No. heavy duty brass butt hinges 2. No. 3-lever mortise lock with tubular door handles 2. No. rubber door stopper in stainless steel mounting",
+              "bbox": [
+                166.44,
+                935.58,
+                355.1,
+                961.1
+              ],
+              "dx": 136.46,
+              "dy": 61.0,
+              "distance": 149.47
+            },
+            {
+              "text": "DESCRIPTION",
+              "bbox": [
+                278.44,
+                885.13,
+                332.21,
+                893.63
+              ],
+              "dx": 181.01,
+              "dy": 2.03,
+              "distance": 181.03
+            },
+            {
+              "text": "2,250",
+              "bbox": [
+                155.9,
+                675.74,
+                171.4,
+                703.99
+              ],
+              "dx": 39.34,
+              "dy": -197.48,
+              "distance": 201.36
+            }
+          ]
+        },
+        {
+          "tag_text": "D - 11",
+          "bbox": [
+            853.12,
+            878.84,
+            901.13,
+            895.85
+          ],
+          "nearby_blocks": [
+            {
+              "text": "Door panel Door frame",
+              "bbox": [
+                839.05,
+                899.12,
+                879.98,
+                918.2
+              ],
+              "dx": -17.61,
+              "dy": 21.32,
+              "distance": 27.65
+            },
+            {
+              "text": "Glass type",
+              "bbox": [
+                839.07,
+                925.17,
+                877.77,
+                933.68
+              ],
+              "dx": -18.7,
+              "dy": 42.08,
+              "distance": 46.05
+            },
+            {
+              "text": "Accessories",
+              "bbox": [
+                839.17,
+                939.99,
+                883.77,
+                948.5
+              ],
+              "dx": -15.65,
+              "dy": 56.9,
+              "distance": 59.01
+            },
+            {
+              "text": "Mild steel frame",
+              "bbox": [
+                918.63,
+                910.8,
+                971.57,
+                918.46
+              ],
+              "dx": 67.98,
+              "dy": 27.28,
+              "distance": 73.25
+            },
+            {
+              "text": "Location",
+              "bbox": [
+                840.14,
+                966.91,
+                871.76,
+                975.41
+              ],
+              "dx": -21.17,
+              "dy": 83.81,
+              "distance": 86.45
+            },
+            {
+              "text": "Overall Quantity 1",
+              "bbox": [
+                838.86,
+                981.88,
+                977.81,
+                990.39
+              ],
+              "dx": 31.21,
+              "dy": 98.79,
+              "distance": 103.6
+            },
+            {
+              "text": "-",
+              "bbox": [
+                975.04,
+                923.69,
+                979.29,
+                932.2
+              ],
+              "dx": 100.04,
+              "dy": 40.6,
+              "distance": 107.96
+            },
+            {
+              "text": "Laundromart",
+              "bbox": [
+                921.63,
+                967.6,
+                968.91,
+                976.11
+              ],
+              "dx": 68.14,
+              "dy": 84.51,
+              "distance": 108.56
+            },
+            {
+              "text": "Double leaf, single swing mild steel door",
+              "bbox": [
+                918.8,
+                898.51,
+                1058.59,
+                907.02
+              ],
+              "dx": 111.57,
+              "dy": 15.42,
+              "distance": 112.63
+            },
+            {
+              "text": "3. No. heavy duty brass butt hinges 2. No. 3-lever mortise lock with tubular door handles 2. No. rubber door stopper in stainless steel mounting",
+              "bbox": [
+                919.25,
+                935.58,
+                1107.91,
+                961.1
+              ],
+              "dx": 136.46,
+              "dy": 61.0,
+              "distance": 149.47
+            },
+            {
+              "text": "DESCRIPTION",
+              "bbox": [
+                1031.25,
+                885.13,
+                1085.01,
+                893.63
+              ],
+              "dx": 181.01,
+              "dy": 2.03,
+              "distance": 181.02
+            },
+            {
+              "text": "2,250",
+              "bbox": [
+                906.64,
+                661.76,
+                922.14,
+                690.01
+              ],
+              "dx": 37.26,
+              "dy": -211.46,
+              "distance": 214.72
+            }
+          ]
+        },
+        {
+          "tag_text": "D - 12",
+          "bbox": [
+            1556.71,
+            878.84,
+            1604.73,
+            895.85
+          ],
+          "nearby_blocks": [
+            {
+              "text": "Door panel Door frame",
+              "bbox": [
+                1542.65,
+                899.12,
+                1583.58,
+                918.2
+              ],
+              "dx": -17.61,
+              "dy": 21.32,
+              "distance": 27.65
+            },
+            {
+              "text": "Glass type",
+              "bbox": [
+                1542.66,
+                925.17,
+                1581.36,
+                933.68
+              ],
+              "dx": -18.71,
+              "dy": 42.08,
+              "distance": 46.05
+            },
+            {
+              "text": "Accessories",
+              "bbox": [
+                1542.76,
+                939.99,
+                1587.37,
+                948.5
+              ],
+              "dx": -15.65,
+              "dy": 56.9,
+              "distance": 59.01
+            },
+            {
+              "text": "-",
+              "bbox": [
+                1622.2,
+                923.06,
+                1626.46,
+                931.56
+              ],
+              "dx": 43.61,
+              "dy": 39.96,
+              "distance": 59.15
+            },
+            {
+              "text": "Mild steel frame",
+              "bbox": [
+                1622.22,
+                910.8,
+                1675.17,
+                918.46
+              ],
+              "dx": 67.98,
+              "dy": 27.28,
+              "distance": 73.25
+            },
+            {
+              "text": "Location",
+              "bbox": [
+                1543.73,
+                966.91,
+                1575.36,
+                975.41
+              ],
+              "dx": -21.17,
+              "dy": 83.81,
+              "distance": 86.45
+            },
+            {
+              "text": "Overall Quantity 2",
+              "bbox": [
+                1542.46,
+                981.88,
+                1681.41,
+                990.39
+              ],
+              "dx": 31.21,
+              "dy": 98.79,
+              "distance": 103.6
+            },
+            {
+              "text": "Double leaf, double Mild steel door",
+              "bbox": [
+                1623.34,
+                898.51,
+                1744.46,
+                907.02
+              ],
+              "dx": 103.18,
+              "dy": 15.42,
+              "distance": 104.33
+            },
+            {
+              "text": "Roof terrace",
+              "bbox": [
+                1625.23,
+                967.6,
+                1669.9,
+                976.11
+              ],
+              "dx": 66.85,
+              "dy": 84.51,
+              "distance": 107.75
+            },
+            {
+              "text": "3. No. heavy duty butt hinges 2. No. 3-lever mortise lock with long tubular door handles 2. No. double swing door closers",
+              "bbox": [
+                1622.84,
+                935.58,
+                1824.77,
+                961.1
+              ],
+              "dx": 143.08,
+              "dy": 61.0,
+              "distance": 155.54
+            },
+            {
+              "text": "DESCRIPTION",
+              "bbox": [
+                1734.85,
+                885.13,
+                1788.62,
+                893.63
+              ],
+              "dx": 181.01,
+              "dy": 2.03,
+              "distance": 181.03
+            },
+            {
+              "text": "2,250",
+              "bbox": [
+                1540.79,
+                661.76,
+                1556.29,
+                690.01
+              ],
+              "dx": -32.18,
+              "dy": -211.46,
+              "distance": 213.89
+            }
+          ]
+        }
+      ],
+      "relevant_blocks": [
+        {
+          "text": "Door panel Door frame",
+          "bbox": [
+            86.24,
+            899.12,
+            127.17,
+            918.2
+          ]
+        },
+        {
+          "text": "Overall Quantity 3",
+          "bbox": [
+            86.05,
+            981.88,
+            225.0,
+            990.39
+          ]
+        },
+        {
+          "text": "D - 10",
+          "bbox": [
+            100.3,
+            878.84,
+            148.32,
+            895.85
+          ]
+        },
+        {
+          "text": "Door panel Door frame",
+          "bbox": [
+            839.05,
+            899.12,
+            879.98,
+            918.2
+          ]
+        },
+        {
+          "text": "Overall Quantity 1",
+          "bbox": [
+            838.86,
+            981.88,
+            977.81,
+            990.39
+          ]
+        },
+        {
+          "text": "D - 11",
+          "bbox": [
+            853.12,
+            878.84,
+            901.13,
+            895.85
+          ]
+        },
+        {
+          "text": "Door panel Door frame",
+          "bbox": [
+            1542.65,
+            899.12,
+            1583.58,
+            918.2
+          ]
+        },
+        {
+          "text": "Overall Quantity 2",
+          "bbox": [
+            1542.46,
+            981.88,
+            1681.41,
+            990.39
+          ]
+        },
+        {
+          "text": "D - 12",
+          "bbox": [
+            1556.71,
+            878.84,
+            1604.73,
+            895.85
+          ]
+        },
+        {
+          "text": "3. No. heavy duty brass butt hinges 2. No. 3-lever mortise lock with tubular door handles 2. No. rubber door stopper in stainless steel mounting",
+          "bbox": [
+            166.44,
+            935.58,
+            355.1,
+            961.1
+          ]
+        },
+        {
+          "text": "Double leaf, single swing mild steel door",
+          "bbox": [
+            165.98,
+            898.51,
+            305.78,
+            907.02
+          ]
+        },
+        {
+          "text": "Mild steel frame",
+          "bbox": [
+            165.82,
+            910.8,
+            218.76,
+            918.46
+          ]
+        },
+        {
+          "text": "3. No. heavy duty brass butt hinges 2. No. 3-lever mortise lock with tubular door handles 2. No. rubber door stopper in stainless steel mounting",
+          "bbox": [
+            919.25,
+            935.58,
+            1107.91,
+            961.1
+          ]
+        },
+        {
+          "text": "Double leaf, single swing mild steel door",
+          "bbox": [
+            918.8,
+            898.51,
+            1058.59,
+            907.02
+          ]
+        },
+        {
+          "text": "Mild steel frame",
+          "bbox": [
+            918.63,
+            910.8,
+            971.57,
+            918.46
+          ]
+        },
+        {
+          "text": "3. No. heavy duty butt hinges 2. No. 3-lever mortise lock with long tubular door handles 2. No. double swing door closers",
+          "bbox": [
+            1622.84,
+            935.58,
+            1824.77,
+            961.1
+          ]
+        },
+        {
+          "text": "Double leaf, double Mild steel door",
+          "bbox": [
+            1623.34,
+            898.51,
+            1744.46,
+            907.02
+          ]
+        },
+        {
+          "text": "Mild steel frame",
+          "bbox": [
+            1622.22,
+            910.8,
+            1675.17,
+            918.46
+          ]
+        }
+      ],
+      "current_extractor_rows": [
+        {
+          "tag": "D10",
+          "trade_type": "doors",
+          "description": "D - 10 card schedule, explicit Overall Quantity",
+          "quantity": 3.0,
+          "unit": "NO",
+          "dimensions": null,
+          "source_page": 162,
+          "bbox": [
+            86.04988098144531,
+            981.8829345703125,
+            225.00045776367188,
+            990.3869018554688
+          ],
+          "sheet_number": null,
+          "confidence": 0.9,
+          "is_provisional": false,
+          "evidence_text": "Overall Quantity: 3"
+        },
+        {
+          "tag": "D11",
+          "trade_type": "doors",
+          "description": "D - 11 card schedule, explicit Overall Quantity",
+          "quantity": 1.0,
+          "unit": "NO",
+          "dimensions": null,
+          "source_page": 162,
+          "bbox": [
+            838.86376953125,
+            981.8829345703125,
+            977.8140258789062,
+            990.3869018554688
+          ],
+          "sheet_number": null,
+          "confidence": 0.9,
+          "is_provisional": false,
+          "evidence_text": "Overall Quantity: 1"
+        },
+        {
+          "tag": "D12",
+          "trade_type": "doors",
+          "description": "D - 12 card schedule, explicit Overall Quantity",
+          "quantity": 2.0,
+          "unit": "NO",
+          "dimensions": null,
+          "source_page": 162,
+          "bbox": [
+            1542.4632568359375,
+            981.8829345703125,
+            1681.405517578125,
+            990.3869018554688
+          ],
+          "sheet_number": null,
+          "confidence": 0.9,
+          "is_provisional": false,
+          "evidence_text": "Overall Quantity: 2"
+        }
+      ]
+    }
+  ]
+}
