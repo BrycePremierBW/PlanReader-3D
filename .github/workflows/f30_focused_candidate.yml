@@ -1,0 +1,27 @@
+name: F30 Focused Candidate
+
+on:
+  push:
+    branches: [feat/f30-orthogonal-envelope-evidence]
+
+permissions:
+  contents: read
+
+jobs:
+  focused:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pip install pytest PyMuPDF==1.28.0
+      - name: Focused F30 tests
+        env:
+          PYTHONPATH: .
+        run: pytest -q tests/benchmarks/test_mutation_orthogonal_envelope_evidence.py
+      - name: Compile and undefined names
+        run: |
+          python -m compileall -q pb_orthogonal_envelope_evidence.py
+          pip install ruff
+          ruff check --select F821,F823 pb_orthogonal_envelope_evidence.py tests/benchmarks/test_mutation_orthogonal_envelope_evidence.py
