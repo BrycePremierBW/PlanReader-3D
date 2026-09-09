@@ -1,7 +1,7 @@
 """Generic opening tag normalization and explicit-tag parsing.
 
 This module normalizes only identities that are explicitly documented in drawing
-text or schedule cells.  It deliberately does *not* infer W/D identities from
+text or schedule cells. It deliberately does *not* infer W/D identities from
 opening dimensions, expected quantities, benchmark IDs, project names, or BOQ
 content.
 """
@@ -19,14 +19,18 @@ class NormalizedOpeningTag:
     raw_text: str
 
 
-# Explicit documented identities accepted generically.  Examples:
+# Explicit documented identities accepted generically. Examples:
 # W7, W-07, W 07, WINDOW 07, WIN-07, D12, D-12, DOOR 12, DR-12.
+# A second numeric segment (for example D8-03-200 reinforcement notation)
+# disqualifies the token instead of allowing the leading D8 to masquerade as
+# a door identity.
 _TAG_RE = re.compile(
     r"(?<![A-Za-z0-9])"
     r"(?P<prefix>WINDOW|WIN|W|DOOR|DR|D)"
     r"\s*[-_]?\s*"
     r"(?P<number>\d{1,3})"
-    r"(?![A-Za-z0-9])",
+    r"(?![A-Za-z0-9])"
+    r"(?!\s*[-_]\s*\d)",
     re.IGNORECASE,
 )
 
@@ -34,7 +38,7 @@ _TAG_RE = re.compile(
 def normalize_opening_tag(text: str) -> Optional[NormalizedOpeningTag]:
     """Normalize one explicit window/door identity from *text*.
 
-    Returns ``None`` when no explicit opening identity is present.  Dimension
+    Returns ``None`` when no explicit opening identity is present. Dimension
     strings alone never create a tag.
     """
     if not text:
