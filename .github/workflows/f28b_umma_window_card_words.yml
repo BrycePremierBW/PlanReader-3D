@@ -1,0 +1,59 @@
+name: F28B Umma Window Card Words
+
+on:
+  push:
+    branches:
+      - diag/f28b-umma-window-card-words
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: diag/f28b-umma-window-card-words
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pip install PyMuPDF==1.28.0
+      - name: Download and verify Umma source
+        run: |
+          curl -fL --retry 3 --retry-delay 2 'https://umma.ac.ke/wp-content/uploads/2026/06/Builders-work.pdf' -o /tmp/umma.pdf
+          echo 'f30711f69944e66ef993341180e35b49ccfcb36d6f402743284823ab588183af  /tmp/umma.pdf' | sha256sum -c -
+      - name: Persist page 160 window-card words
+        run: |
+          mkdir -p diagnostics
+          python - <<'PY'
+          import json,re,fitz
+          doc=fitz.open('/tmp/umma.pdf'); page=doc[159]
+          words=[]
+          for w in page.get_text('words') or []:
+              x0,y0,x1,y1,text,*rest=w
+              if 500 <= float(y0) <= 820:
+                  words.append({'text':str(text),'bbox':[round(float(x0),2),round(float(y0),2),round(float(x1),2),round(float(y1),2)],'block':int(w[5]),'line':int(w[6]),'word':int(w[7])})
+          all_hits=[]
+          for w in page.get_text('words') or []:
+              text=str(w[4])
+              if re.search(r'WD|window|Overall|Quantity',text,re.I):
+                  all_hits.append({'text':text,'bbox':[round(float(v),2) for v in w[:4]],'block':int(w[5]),'line':int(w[6]),'word':int(w[7])})
+          blocks=[]
+          for b in page.get_text('blocks') or []:
+              txt=' '.join(str(b[4]).split()).strip()
+              if txt and (500 <= float(b[1]) <= 820 or re.search(r'WD|window|Overall\s*Quantity',txt,re.I)):
+                  blocks.append({'text':txt,'bbox':[round(float(v),2) for v in b[:4]],'block_no':int(b[5]) if len(b)>5 else None})
+          report={'source_sha256':'f30711f69944e66ef993341180e35b49ccfcb36d6f402743284823ab588183af','page':160,'words_y500_820':words,'keyword_words':all_hits,'blocks':blocks}
+          with open('diagnostics/f28b_umma_window_card_words.json','w',encoding='utf-8') as f:
+              json.dump(report,f,indent=2,ensure_ascii=False); f.write('\n')
+          doc.close()
+          PY
+      - name: Commit result
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add diagnostics/f28b_umma_window_card_words.json
+          git commit -m 'diag(F28B): persist Umma window-card native words'
+          git push origin HEAD:diag/f28b-umma-window-card-words
