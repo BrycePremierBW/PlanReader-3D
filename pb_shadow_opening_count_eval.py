@@ -178,8 +178,14 @@ def score_frozen_quantities(
     recall = (exact_n / eligible_n) if eligible_n else 0.0
     coverage = (answered_n / eligible_n) if eligible_n else 0.0
 
-    agree = sum(1 for row in comparisons if row.get("status") == "agree")
-    compared = len(comparisons)
+    opening_comparisons = [
+        row
+        for row in comparisons
+        if _is_opening_identity(str(row.get("semantic_key") or ""))
+        or str(row.get("family") or "") in OPENING_COUNT_FAMILIES
+    ]
+    agree = sum(1 for row in opening_comparisons if row.get("status") == "agree")
+    compared = len(opening_comparisons)
     by_authority: dict[str, int] = {}
     by_formula: dict[str, int] = {}
     for item in answered:

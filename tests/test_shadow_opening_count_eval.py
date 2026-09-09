@@ -48,6 +48,23 @@ def test_evaluator_scores_frozen_outputs_without_reextracting() -> None:
     assert "W99" in metrics["hallucinated_keys"]
 
 
+def test_legacy_new_agreement_ignores_non_opening_legacy_keys() -> None:
+    eligible = (
+        EligibleOpeningItem("demo", "I1", "W1", 6.0, "NO", "Window W1", "schedule_extractable"),
+    )
+    metrics = score_frozen_quantities(
+        benchmark_id="demo",
+        frozen_quantities=(),
+        eligible=eligible,
+        comparisons=(
+            {"semantic_key": "perimeter_walling", "family": "walls", "status": "legacy_only"},
+            {"semantic_key": "W1", "family": "window_count", "status": "legacy_only"},
+        ),
+    )
+    assert metrics["legacy_new_agreement"]["compared"] == 1
+    assert metrics["legacy_new_agreement"]["agree"] == 0
+
+
 def test_gate_is_applied_to_aggregated_metrics_without_changing_thresholds() -> None:
     rows = [
         {
