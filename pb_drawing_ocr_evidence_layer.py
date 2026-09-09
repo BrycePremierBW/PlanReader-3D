@@ -182,6 +182,29 @@ class DrawingOCREngine:
             except Exception:
                 pass
 
+        # 3. Portable RapidOCR fallback for non-Windows/server environments.
+        # The dependency is optional and initialized lazily; absence or backend
+        # failure emits no evidence rather than guessing.
+        try:
+            from pb_portable_raster_ocr import recognize_pil_with_rapidocr
+
+            raw_lines = recognize_pil_with_rapidocr(image)
+            if raw_lines:
+                out = []
+                for r in raw_lines:
+                    r_conf = float(r.get("confidence", 0.0)) * quality
+                    out.append({
+                        "text": r.get("text", ""),
+                        "bounding_box": r.get(
+                            "bounding_box",
+                            [0.0, 0.0, float(image.width), float(image.height)],
+                        ),
+                        "confidence": round(r_conf, 4),
+                    })
+                return out
+        except Exception:
+            pass
+
         return []
 
     def recognize_page_rect(
@@ -210,6 +233,45 @@ class DrawingOCREngine:
                     round(offset_y + by1 * scale, 2),
                 ]
             return ocr_lines
+        except Exception:
+            return []
+
+    def recognize_page_tiled(
+        self,
+        page: fitz.Page,
+        *,
+        dpi: int = 220,
+        columns: int = 3,
+        rows: int = 3,
+        overlap_fraction: float = 0.06,
+    ) -> List[Dict[str, Any]]:
+        """OCR a large raster drawing in overlapping tiles.
+
+        Large-format plans routinely make opening tags too small for a single
+        whole-page OCR pass. Tile overlap protects edge text; duplicate OCR
+        detections are removed spatially afterwards. All geometry is mapped
+        back into PDF point coordinates by ``recognize_page_rect``.
+        """
+        if columns <= 0 or rows <= 0 or dpi <= 0:
+            return []
+        try:
+            from pb_portable_raster_ocr import deduplicate_tiled_ocr_lines
+
+            rect = page.rect
+            tile_w = rect.width / columns
+            tile_h = rect.height / rows
+            overlap = max(0.0, min(0.25, float(overlap_fraction)))
+            lines: List[Dict[str, Any]] = []
+            for row_idx in range(rows):
+                for col_idx in range(columns):
+                    clip = fitz.Rect(
+                        max(rect.x0, rect.x0 + col_idx * tile_w - tile_w * overlap),
+                        max(rect.y0, rect.y0 + row_idx * tile_h - tile_h * overlap),
+                        min(rect.x1, rect.x0 + (col_idx + 1) * tile_w + tile_w * overlap),
+                        min(rect.y1, rect.y0 + (row_idx + 1) * tile_h + tile_h * overlap),
+                    )
+                    lines.extend(self.recognize_page_rect(page, clip_rect=clip, dpi=dpi))
+            return deduplicate_tiled_ocr_lines(lines)
         except Exception:
             return []
 
