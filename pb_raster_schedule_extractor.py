@@ -21,6 +21,8 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 import fitz
 
+from pb_opening_tag_normalization import normalize_opening_tag
+
 
 @dataclass
 class ScheduleCell:
@@ -159,22 +161,23 @@ class GenericScheduleTableExtractor:
                     qty_val = self._parse_quantity_string(raw_qty)
                     dims = self._parse_dimensions_string(raw_dim)
 
-                    # Determine trade type
+                    # Normalize only an explicitly documented opening identity.
+                    # Dimensions never imply W/D tags.
+                    normalized_opening = normalize_opening_tag(raw_tag)
                     combined_text = f"{raw_tag} {raw_desc} {raw_dim}".lower()
-                    trade = "other"
-                    if any(k in combined_text for k in ("window", "casement", "glaz", "w1", "w2", "w3", "w4")):
+                    trade = normalized_opening.trade_type if normalized_opening else "other"
+                    if trade == "other" and any(k in combined_text for k in ("window", "casement", "glaz")):
                         trade = "windows"
-                    elif any(k in combined_text for k in ("door", "flush", "panelled", "d1", "d2")):
+                    elif trade == "other" and any(k in combined_text for k in ("door", "flush", "panelled")):
                         trade = "doors"
-                    elif any(k in combined_text for k in ("vent", "pv")):
+                    elif trade == "other" and any(k in combined_text for k in ("vent", "pv")):
                         trade = "walls"
-                    elif any(k in combined_text for k in ("pillar", "column", "pier", "truss")):
+                    elif trade == "other" and any(k in combined_text for k in ("pillar", "column", "pier", "truss")):
                         trade = "structure"
 
-                    # Only accept recognized architectural trade tags, skip generic non-schedule items
                     if trade == "other" or not raw_tag or raw_tag.startswith("ITEM_") or raw_tag.isdigit():
                         continue
-                    tag_name = raw_tag
+                    tag_name = normalized_opening.tag if normalized_opening else raw_tag
 
                     if qty_val is not None and qty_val > 0:
                         rows.append(
@@ -250,15 +253,18 @@ class GenericScheduleTableExtractor:
                 col_w = [w for w in sched_words if x_min <= w[0] <= x_max]
                 col_text = " ".join(w[4] for w in sorted(col_w, key=lambda w: (w[1], w[0])))
                 
+                normalized_opening = normalize_opening_tag(col_text)
                 is_window = any(k in col_text.lower() for k in ("casement", "window", "glass", "fixed glass"))
                 is_door = any(k in col_text.lower() for k in ("door", "flush door", "panelled door"))
 
-                if not (is_window or is_door):
+                if normalized_opening is not None:
+                    trade = normalized_opening.trade_type
+                elif is_window != is_door:
+                    trade = "windows" if is_window else "doors"
+                else:
                     continue
 
-                trade = "windows" if is_window else "doors"
                 dims = self._parse_dimensions_string(col_text)
-
                 qty_match = re.search(r"\b(\d+)\s*(?:no\.?s?|nos?)\b", col_text, re.I)
                 qty = float(qty_match.group(1)) if qty_match else None
 
@@ -267,10 +273,11 @@ class GenericScheduleTableExtractor:
                 c_x1 = max(w[2] for w in col_w)
                 c_y1 = max(w[3] for w in col_w)
 
-                tag_match = re.search(r"\b(W\d+|D\d+)\b", col_text, re.I)
-                tag_name = tag_match.group(1).upper() if tag_match else f"{trade[0].upper()}_COL_{col_idx}"
+                tag_name = normalized_opening.tag if normalized_opening else f"{trade[0].upper()}_COL_{col_idx}"
 
-                if qty is not None:
+                # Untagged visual columns remain provisional even when a count
+                # is visible: type existence is not schedule identity.
+                if qty is not None and normalized_opening is not None:
                     rows.append(
                         ScheduleRow(
                             tag=tag_name,
@@ -290,7 +297,7 @@ class GenericScheduleTableExtractor:
                         ScheduleRow(
                             tag=tag_name,
                             trade_type=trade,
-                            description=f"Column schedule item {tag_name} (unquantified)",
+                            description=f"Column schedule item {tag_name} (unresolved identity/count)",
                             quantity=None,
                             unit="NO",
                             dimensions=dims,
@@ -481,9 +488,41 @@ class GenericScheduleTableExtractor:
         deduped: Dict[str, ScheduleRow] = {}
         vent_pages: Dict[int, float] = {}
 
+        # Canonical aliases for one documented opening identity must agree.
+        # Conflicting counts or dimensions fail closed instead of allowing
+        # source order / confidence to pick a winner.
+        opening_groups: Dict[str, List[ScheduleRow]] = {}
+        for candidate in rows:
+            if candidate.is_provisional:
+                continue
+            norm = normalize_opening_tag(candidate.tag)
+            if norm is None:
+                continue
+            candidate.tag = norm.tag
+            candidate.trade_type = norm.trade_type
+            opening_groups.setdefault(norm.tag, []).append(candidate)
+
+        conflicting_opening_tags = set()
+        for tag, group in opening_groups.items():
+            quantities = {float(r.quantity) for r in group if r.quantity is not None}
+            dimensions = {
+                tuple(float(v) for v in r.dimensions[:2])
+                for r in group
+                if r.dimensions is not None and len(r.dimensions) >= 2
+            }
+            if len(quantities) > 1 or len(dimensions) > 1:
+                conflicting_opening_tags.add(tag)
+
         for r in rows:
             if r.is_provisional:
                 continue
+
+            norm = normalize_opening_tag(r.tag)
+            if norm is not None:
+                r.tag = norm.tag
+                r.trade_type = norm.trade_type
+                if r.tag in conflicting_opening_tags:
+                    continue
 
             if r.tag == "brick_vents":
                 if r.source_page not in vent_pages and r.quantity:
