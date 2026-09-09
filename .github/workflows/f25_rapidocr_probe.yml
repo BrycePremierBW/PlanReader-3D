@@ -1,0 +1,97 @@
+name: F25 Portable OCR Probe
+
+on:
+  push:
+    branches:
+      - codex/f25-portable-raster-ocr
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install OCR probe dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install PyMuPDF==1.28.0 Pillow==12.3.0 numpy==2.3.5 rapidocr==3.9.2 onnxruntime==1.29.0
+      - name: Download hash-verified development drawing sources
+        run: |
+          mkdir -p /tmp/f25-sources
+          curl -fL --retry 3 --retry-delay 2 'https://tenders.go.ke/storage/Documents/1727358888238-bq-nd-drawing.pdf' -o /tmp/f25-sources/source_a.pdf
+          echo '6856bfa739aa136dd8e0bf17cb25fd43d0d31c9c3dfe3252525454f09d8fa4dc  /tmp/f25-sources/source_a.pdf' | sha256sum -c -
+          curl -fL --retry 3 --retry-delay 2 'https://tenders.go.ke/storage/Documents/1785347143869-bqs-drawings.pdf' -o /tmp/f25-sources/source_b.pdf
+          echo '84dec737ede7adfa32b02c6732d4289a6a2d25f7ae50cf07209428f1b4e0c94b  /tmp/f25-sources/source_b.pdf' | sha256sum -c -
+      - name: Probe raster-heavy pages with tiled RapidOCR
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: |
+          python - <<'PY'
+          import re
+          from pathlib import Path
+          import fitz
+          import numpy as np
+          from PIL import Image
+          from rapidocr import RapidOCR
+
+          engine = RapidOCR()
+          candidate_re = re.compile(
+              r"(?:\bW\s*[-.]?\s*\d{1,3}\b|\bD\s*[-.]?\s*\d{1,3}\b|"
+              r"window|door|casement|glaz|verand|vent|pier|pillar|truss|"
+              r"\b\d{3,4}\s*(?:mm)?\s*[xX×*]\s*\d{3,4}\b|"
+              r"\b\d{2,4}\s*mm\s+wide\b)", re.I)
+
+          def tile_rects(page):
+              r = page.rect
+              cols, rows = 3, 3
+              overlap = 0.06
+              tw, th = r.width / cols, r.height / rows
+              for iy in range(rows):
+                  for ix in range(cols):
+                      x0 = max(r.x0, r.x0 + ix * tw - tw * overlap)
+                      y0 = max(r.y0, r.y0 + iy * th - th * overlap)
+                      x1 = min(r.x1, r.x0 + (ix + 1) * tw + tw * overlap)
+                      y1 = min(r.y1, r.y0 + (iy + 1) * th + th * overlap)
+                      yield fitz.Rect(x0, y0, x1, y1)
+
+          for pdf_path in sorted(Path('/tmp/f25-sources').glob('*.pdf')):
+              doc = fitz.open(pdf_path)
+              print(f'PDF {pdf_path.name} pages={len(doc)}')
+              page_stats = []
+              for pno, page in enumerate(doc):
+                  text = page.get_text('text') or ''
+                  images = page.get_images(full=True)
+                  page_stats.append((pno, len(text.strip()), len(images)))
+                  print(f'PAGE_STATS {pdf_path.name} page={pno+1} native_chars={len(text.strip())} images={len(images)}')
+
+              # OCR raster-heavy / native-sparse pages only. This selection is
+              # source-structure based and independent of benchmark answers.
+              targets = [pno for pno, chars, imgs in page_stats if chars < 350 and imgs > 0]
+              print(f'OCR_TARGETS {pdf_path.name} {[p+1 for p in targets]}')
+              for pno in targets:
+                  page = doc[pno]
+                  seen = set()
+                  candidate_count = 0
+                  for tile_idx, clip in enumerate(tile_rects(page), start=1):
+                      pix = page.get_pixmap(clip=clip, dpi=220, alpha=False)
+                      img = Image.frombytes('RGB', [pix.width, pix.height], pix.samples)
+                      result = engine(np.asarray(img))
+                      txts = getattr(result, 'txts', None) or []
+                      scores = getattr(result, 'scores', None) or []
+                      for i, raw in enumerate(txts):
+                          text = ' '.join(str(raw).split()).strip()
+                          if not text or text in seen:
+                              continue
+                          seen.add(text)
+                          if candidate_re.search(text):
+                              score = float(scores[i]) if i < len(scores) else 0.0
+                              candidate_count += 1
+                              print(f'OCR_CANDIDATE {pdf_path.name} page={pno+1} tile={tile_idx} conf={score:.3f} text={text}')
+                  print(f'OCR_PAGE_SUMMARY {pdf_path.name} page={pno+1} candidates={candidate_count} unique_lines={len(seen)}')
+              doc.close()
+          PY
