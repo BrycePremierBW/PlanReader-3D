@@ -1,0 +1,47 @@
+name: F07 Benchmark Candidate
+
+on:
+  push:
+    branches: [work/f07-viewport-segmentation]
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-24.04
+    env:
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-ci-v1228.txt
+      - name: Download and verify headline benchmark PDFs
+        run: |
+          mkdir -p benchmarks/sources
+          curl -fL --retry 3 --retry-delay 2 \
+            'https://tenders.go.ke/storage/Documents/1727358888238-bq-nd-drawing.pdf' \
+            -o benchmarks/sources/1727358888238-bq-nd-drawing.pdf
+          echo '6856bfa739aa136dd8e0bf17cb25fd43d0d31c9c3dfe3252525454f09d8fa4dc  benchmarks/sources/1727358888238-bq-nd-drawing.pdf' | sha256sum -c -
+          curl -fL --retry 3 --retry-delay 2 \
+            'https://tenders.go.ke/storage/Documents/1785347143869-bqs-drawings.pdf' \
+            -o benchmarks/sources/1785347143869-bqs-drawings.pdf
+          echo '84dec737ede7adfa32b02c6732d4289a6a2d25f7ae50cf07209428f1b4e0c94b  benchmarks/sources/1785347143869-bqs-drawings.pdf' | sha256sum -c -
+      - name: Run canonical headline benchmark suite
+        run: |
+          rm -rf /tmp/f07-benchmark
+          python pb_benchmark_accuracy_engine.py --all --output-dir /tmp/f07-benchmark
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('/tmp/f07-benchmark/headline_accuracy_dashboard.json')
+          data = json.loads(p.read_text(encoding='utf-8'))
+          print('F07_CANONICAL_DASHBOARD_JSON_START')
+          print(json.dumps(data, indent=2))
+          print('F07_CANONICAL_DASHBOARD_JSON_END')
+          PY
