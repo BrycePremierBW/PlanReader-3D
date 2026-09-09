@@ -1,4 +1,4 @@
-name: F24 Murera Verandah Geometry Diagnostic
+name: F24 Murera Floor Plan Geometry Diagnostic
 
 on:
   push:
@@ -22,44 +22,39 @@ jobs:
             'https://tenders.go.ke/storage/Documents/1785347143869-bqs-drawings.pdf' \
             -o /tmp/murera.pdf
           echo '84dec737ede7adfa32b02c6732d4289a6a2d25f7ae50cf07209428f1b4e0c94b  /tmp/murera.pdf' | sha256sum -c -
-      - name: Inspect architectural floor-plan and section dimension evidence
+      - name: Inspect plan-scale evidence and CAD linework
         run: |
           python - <<'PY'
-          import fitz, re
+          import fitz, re, math
           doc = fitz.open('/tmp/murera.pdf')
-          title_pat = re.compile(r'floor plan|ground floor|section|elevation|roof plan|veranda', re.I)
-          num_pat = re.compile(r'^(?:\d{2,5}|\d{1,2}[,.]\d{3})$')
-
-          for pno in range(217, 225):
+          num_pat = re.compile(r'^[0-9][0-9,.]{2,8}$')
+          for pno in range(217, 221):
               page = doc[pno]
+              print('\n=== PAGE', pno + 1, 'SIZE', page.rect, '===')
               text = page.get_text('text') or ''
-              words = list(page.get_text('words'))
-              blocks = list(page.get_text('blocks'))
-              interesting = []
-              for i, b in enumerate(blocks):
-                  s = ' '.join(str(b[4]).split())
-                  if title_pat.search(s):
-                      interesting.append((i, [round(float(x),2) for x in b[:4]], s[:500]))
-              if interesting:
-                  print('\n=== PAGE', pno + 1, '===')
-                  for row in interesting:
-                      print('CONTEXT', *row)
-                  print('NUMERIC_WORDS')
-                  for w in words:
-                      token = str(w[4]).strip().replace(' ', '')
-                      if num_pat.match(token):
-                          print('NUM', [round(float(x),2) for x in w[:4]], repr(token))
-
-          # Page-level typed figured-dimension chains from the production F.13/F.15 parser,
-          # printed only as raw drawing evidence / chain structure.
-          from pb_dimension_chain_evidence_extractor import extract_dimension_chains_from_page
-          for pno in range(217, 225):
-              page = doc[pno]
-              chains = extract_dimension_chains_from_page(page, page_num=pno + 1, view_id='')
-              if chains:
-                  print('\n=== CHAINS PAGE', pno + 1, '===')
-                  for chain in chains:
-                      vals = [round(o.value_m,4) for o in chain.observations]
-                      texts = [o.raw_text for o in chain.observations]
-                      print('CHAIN', chain.chain_id, vals, texts)
+              print('TEXT', repr(text[:4000]))
+              raw = page.get_text('dict')
+              print('FIGURED_LINES')
+              for block in raw.get('blocks', []):
+                  if block.get('type') != 0:
+                      continue
+                  for line in block.get('lines', []):
+                      line_text = ''.join(span.get('text','') for span in line.get('spans', [])).strip()
+                      compact = line_text.replace(' ', '')
+                      if num_pat.match(compact) or 'VERANDA' in line_text.upper() or 'PLAN' in line_text.upper():
+                          print('LINE', 'dir', line.get('dir'), 'bbox', [round(float(x),2) for x in line.get('bbox',())], repr(line_text))
+              # Axis-aligned native line segments, grouped by long spans.
+              segs=[]
+              for pi, path in enumerate(page.get_drawings()):
+                  for item in path.get('items',[]):
+                      if not item or item[0] != 'l':
+                          continue
+                      a,b=item[1],item[2]
+                      x0,y0,x1,y1=map(float,(a.x,a.y,b.x,b.y))
+                      length=math.hypot(x1-x0,y1-y0)
+                      if length >= 20 and (abs(y1-y0) <= 0.5 or abs(x1-x0) <= 0.5):
+                          segs.append((length,x0,y0,x1,y1,pi))
+              print('LONG_AXIS_SEGMENTS', len(segs))
+              for row in sorted(segs, reverse=True)[:80]:
+                  print('SEG', round(row[0],2), [round(v,2) for v in row[1:5]], 'path', row[5])
           PY
