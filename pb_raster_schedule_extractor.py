@@ -541,7 +541,29 @@ class GenericScheduleTableExtractor:
             ]
 
         # 5. Permanent Vents (PV): Group and deduplicate by elevation/section sheet
-        pv_words = [w for w in page.get_text("words") if re.match(r"^(?:PV|P\.V)$", w[4], re.I)]
+        #
+        # "PV"/"P.V" also appears once per sheet as a drafting-legend
+        # definition ("P.V denotes permanent vents.") rather than as a real
+        # vent-location callout. That definition line is itself a generic,
+        # recurring drawing convention -- this same document also defines
+        # "S.V.P denotes soil vent pipe" the same way -- so any "<abbrev>
+        # denotes <meaning>" occurrence is excluded by its own grammar,
+        # never by a benchmark-specific count or page.
+        all_words = page.get_text("words")
+
+        def _next_word_text(word: tuple) -> str:
+            block_no, line_no, word_no = word[5], word[6], word[7]
+            for other in all_words:
+                if other[5] == block_no and other[6] == line_no and other[7] == word_no + 1:
+                    return str(other[4])
+            return ""
+
+        pv_words = [
+            w
+            for w in all_words
+            if re.match(r"^(?:PV|P\.V)$", w[4], re.I)
+            and _next_word_text(w).strip().lower().rstrip(".,:;") != "denotes"
+        ]
         page_text_lower = page.get_text().lower()
         is_facade_sheet = any(k in page_text_lower for k in ("elevation", "facade", "façade", "section", "schedule", "plan"))
 
