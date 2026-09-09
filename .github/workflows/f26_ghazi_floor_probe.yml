@@ -1,0 +1,50 @@
+name: F26 Ghazi Clear Floor Probe
+
+on:
+  push:
+    branches:
+      - codex/f26-geometry-accuracy
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install PDF dependency
+        run: pip install PyMuPDF==1.28.0
+      - name: Download hash-verified Ghazi source
+        run: |
+          curl -fL --retry 3 --retry-delay 2 'https://tenders.go.ke/storage/Documents/1739211305954-tender-document-for-construction-of-science-laboratory-at-ghazi-primary-school.pdf' -o /tmp/ghazi.pdf
+          echo 'c8c001c9dadb791e7cb18b7bea19ce795eebba2f9b9eb7dec4844212da4d8f4f  /tmp/ghazi.pdf' | sha256sum -c -
+      - name: Print drawing-only wall and dimension evidence
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: |
+          python - <<'PY'
+          import re
+          import fitz
+          doc=fitz.open('/tmp/ghazi.pdf')
+          p=doc[166]
+          text=p.get_text('text') or ''
+          print('PAGE_TEXT')
+          for ln in text.splitlines():
+              s=' '.join(ln.split())
+              if s: print(s)
+          print('\nWALL_EVIDENCE')
+          for ln in text.splitlines():
+              s=' '.join(ln.split())
+              if re.search(r'wall|block|coral|thick|masonry|partition|plaster|floor|area|DPC|DPM|polythene',s,re.I):
+                  print(s)
+          print('\nFIGURED_DIM_WORDS')
+          for w in p.get_text('words') or []:
+              token=str(w[4]).strip()
+              if re.fullmatch(r'\d{2,5}(?:[,.]\d+)?',token) or re.search(r'\d+\s*mm',token,re.I):
+                  print(tuple(round(float(v),1) for v in w[:4]), token)
+          doc.close()
+          PY
