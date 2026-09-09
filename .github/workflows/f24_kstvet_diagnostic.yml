@@ -1,4 +1,4 @@
-name: F24 Murera Native Opening Diagnostic
+name: F24 Murera Verandah Geometry Diagnostic
 
 on:
   push:
@@ -22,42 +22,44 @@ jobs:
             'https://tenders.go.ke/storage/Documents/1785347143869-bqs-drawings.pdf' \
             -o /tmp/murera.pdf
           echo '84dec737ede7adfa32b02c6732d4289a6a2d25f7ae50cf07209428f1b4e0c94b  /tmp/murera.pdf' | sha256sum -c -
-      - name: Trace opening tags, dimensions and drawing titles
+      - name: Inspect architectural floor-plan and section dimension evidence
         run: |
           python - <<'PY'
           import fitz, re
           doc = fitz.open('/tmp/murera.pdf')
-          tag_pat = re.compile(r'\b(?:W|D)\s*[-_]?\s*\d{1,2}\b', re.I)
-          dim_pat = re.compile(r'\b\d{3,4}\s*(?:mm)?\s*[xX]\s*\d{3,4}\s*(?:mm)?\b', re.I)
-          keyword_pat = re.compile(r'window|door|casement|fixed glass|opening', re.I)
-          title_pat = re.compile(r'floor plan|roof plan|elevation|section|detail|drawing title|schedule', re.I)
+          title_pat = re.compile(r'floor plan|ground floor|section|elevation|roof plan|veranda', re.I)
+          num_pat = re.compile(r'^(?:\d{2,5}|\d{1,2}[,.]\d{3})$')
 
-          # Restrict diagnostics to the architectural drawing tail, not tender/BOQ pages.
-          for pno in range(217, len(doc)):
+          for pno in range(217, 225):
               page = doc[pno]
+              text = page.get_text('text') or ''
+              words = list(page.get_text('words'))
               blocks = list(page.get_text('blocks'))
-              matches = []
-              titles = []
+              interesting = []
               for i, b in enumerate(blocks):
                   s = ' '.join(str(b[4]).split())
-                  bbox = [round(float(x),2) for x in b[:4]]
                   if title_pat.search(s):
-                      titles.append((i, bbox, s[:300]))
-                  if tag_pat.search(s) or dim_pat.search(s) or keyword_pat.search(s):
-                      matches.append((i, bbox, s[:500]))
-              if matches or titles:
+                      interesting.append((i, [round(float(x),2) for x in b[:4]], s[:500]))
+              if interesting:
                   print('\n=== PAGE', pno + 1, '===')
-                  for row in titles:
-                      print('TITLE', *row)
-                  for row in matches:
-                      print('OPENING', *row)
+                  for row in interesting:
+                      print('CONTEXT', *row)
+                  print('NUMERIC_WORDS')
+                  for w in words:
+                      token = str(w[4]).strip().replace(' ', '')
+                      if num_pat.match(token):
+                          print('NUM', [round(float(x),2) for x in w[:4]], repr(token))
 
-          # Detailed word-level evidence on the steel-casement sheet.
-          page = doc[222]
-          print('\n=== PAGE 223 WORDS AROUND OPENING ZONES ===')
-          words = page.get_text('words')
-          for w in words:
-              text = str(w[4])
-              if tag_pat.search(text) or any(k in text.lower() for k in ('steel','casement','glass','window','door')) or re.fullmatch(r'[0-9,]{3,5}', text):
-                  print('WORD', [round(float(x),2) for x in w[:4]], repr(text))
+          # Page-level typed figured-dimension chains from the production F.13/F.15 parser,
+          # printed only as raw drawing evidence / chain structure.
+          from pb_dimension_chain_evidence_extractor import extract_dimension_chains_from_page
+          for pno in range(217, 225):
+              page = doc[pno]
+              chains = extract_dimension_chains_from_page(page, page_num=pno + 1, view_id='')
+              if chains:
+                  print('\n=== CHAINS PAGE', pno + 1, '===')
+                  for chain in chains:
+                      vals = [round(o.value_m,4) for o in chain.observations]
+                      texts = [o.raw_text for o in chain.observations]
+                      print('CHAIN', chain.chain_id, vals, texts)
           PY
