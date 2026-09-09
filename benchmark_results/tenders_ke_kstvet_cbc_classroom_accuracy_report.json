@@ -1,6 +1,6 @@
 {
   "benchmark_id": "tenders_ke_kstvet_cbc_classroom",
-  "timestamp": "2026-09-09T05:19:25.770654+00:00",
+  "timestamp": "2026-09-09T06:01:55.403572+00:00",
   "project_name": "Proposed Construction of CBC Classroom and Integrated Resource Center",
   "organization": "Kenya School of TVET / Ministry of Education",
   "tender_reference": "KSTVET/008/24",
@@ -10,19 +10,19 @@
   "source_pdf": "C:\\Users\\bryce\\Documents\\PB-PlanReader-3D\\benchmarks\\sources\\1727358888238-bq-nd-drawing.pdf",
   "summary": {
     "total_boq_items": 58,
-    "total_measurable_expected": 12,
+    "total_measurable_expected": 13,
     "total_items_compared": 13,
     "exact_matches": 1,
-    "within_5_percent": 1,
+    "within_5_percent": 2,
     "within_10_percent": 0,
     "within_20_percent": 0,
     "gross_mismatches": 5,
     "missed_items": 5,
-    "hallucinated_items": 1,
+    "hallucinated_items": 0,
     "preliminaries_excluded": 0,
     "provisional_sums_excluded": 0,
     "non_architectural_excluded": 0,
-    "overall_accuracy_percentage": 15.38,
+    "overall_accuracy_percentage": 23.08,
     "strict_exact_accuracy_percentage": 7.69
   },
   "item_results": [
@@ -162,6 +162,21 @@
       "notes": "Comparison evaluated against 69.0 SM"
     },
     {
+      "item_id": "BOQ-C31-C",
+      "description": "75 mm Thick horizontal floor bed",
+      "category": "measurable_from_drawings",
+      "expected_quantity": 102.0,
+      "extracted_quantity": 103.02,
+      "unit": "SM",
+      "delta": 1.02,
+      "pct_error": 1.0,
+      "status": "within_5_percent",
+      "tolerance_tier": "5%",
+      "drawing_sheet": "KSTVET/08/2024-AD01",
+      "drawing_page": 54,
+      "notes": "Comparison evaluated against 102.0 SM"
+    },
+    {
       "item_id": "BOQ-C47-A",
       "description": "Extra over walling for key pointing externally",
       "category": "measurable_from_drawings",
@@ -205,21 +220,6 @@
       "drawing_sheet": "KSTVET/08/2024-AD01",
       "drawing_page": 54,
       "notes": "Item present in BOQ but absent from extraction predictions"
-    },
-    {
-      "item_id": "substructure_surface_bed",
-      "description": "Reinforced concrete ground-bearing surface bed (103.02 m2)",
-      "category": "hallucinated",
-      "expected_quantity": null,
-      "extracted_quantity": 103.02,
-      "unit": "SM",
-      "delta": null,
-      "pct_error": null,
-      "status": "hallucinated_item",
-      "tolerance_tier": "hallucinated",
-      "drawing_sheet": "Drawing",
-      "drawing_page": 54,
-      "notes": "Item present in extraction but absent from verified BOQ ground truth"
     }
   ],
   "errors": []

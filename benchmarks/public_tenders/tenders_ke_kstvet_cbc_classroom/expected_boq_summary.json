@@ -1,13 +1,13 @@
 {
   "benchmark_id": "tenders_ke_kstvet_cbc_classroom",
   "total_line_items": 58,
-  "measurable_items_count": 12,
+  "measurable_items_count": 13,
   "preliminaries_count": 2,
   "provisional_sums_count": 1,
   "rate_only_count": 0,
   "not_architectural_count": 1,
   "classified_breakdown": {
-    "measurable_from_drawings": 9,
+    "measurable_from_drawings": 10,
     "schedule_extractable": 3,
     "scope_allowance_only": 0,
     "provisional_sum": 1,
@@ -94,6 +94,15 @@
       "item_id": "BOQ-C46-C",
       "description": "Three coats of premium quality silk vinyl paint to plastered internal walls",
       "expected_quantity": 69.0,
+      "unit": "SM",
+      "category": "measurable_from_drawings",
+      "drawing_sheet": "KSTVET/08/2024-AD01",
+      "drawing_page": 54
+    },
+    {
+      "item_id": "BOQ-C31-C",
+      "description": "75 mm Thick horizontal floor bed",
+      "expected_quantity": 102.0,
       "unit": "SM",
       "category": "measurable_from_drawings",
       "drawing_sheet": "KSTVET/08/2024-AD01",
