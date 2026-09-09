@@ -40,7 +40,7 @@ def test_evaluate_suite_discovers_all_benchmarks(tmp_path: Path):
     engine = BenchmarkAccuracyEngine(benchmarks_dir=BENCHMARKS_DIR, output_dir=tmp_path)
     dashboard = engine.evaluate_suite(auto_extract=False)
 
-    assert dashboard.total_headline_benchmarks == 3
+    assert dashboard.total_headline_benchmarks == 4
     assert dashboard.total_stress_test_benchmarks == 1
     assert dashboard.total_candidate_seeds >= 6
 
@@ -49,6 +49,7 @@ def test_evaluate_suite_discovers_all_benchmarks(tmp_path: Path):
     assert "tenders_ke_kstvet_cbc_classroom" in headline_ids
     assert "tenders_ke_murera_science_lab" in headline_ids
     assert "tenders_ke_ghazi_science_lab" in headline_ids
+    assert "tenders_ke_umma_hostels" in headline_ids
 
     # Verify stress test benchmark IDs
     stress_ids = [r.benchmark_id for r in dashboard.stress_test_reports]
@@ -142,7 +143,7 @@ def test_dashboard_serialization_round_trip(tmp_path: Path):
 
     d_json = dashboard.to_json(indent=2)
     parsed = json.loads(d_json)
-    assert parsed["summary_counts"]["headline_benchmarks"] == 3
+    assert parsed["summary_counts"]["headline_benchmarks"] == 4
     assert parsed["summary_counts"]["stress_test_benchmarks"] == 1
     assert parsed["summary_counts"]["candidate_seeds"] >= 6
 
@@ -162,6 +163,7 @@ def test_dashboard_markdown_rendering(tmp_path: Path):
     assert "tenders_ke_kstvet_cbc_classroom" in md
     assert "tenders_ke_murera_science_lab" in md
     assert "tenders_ke_ghazi_science_lab" in md
+    assert "tenders_ke_umma_hostels" in md
     assert "tenders_ke_mbagha_maternity_dispensary" in md
 
 
@@ -190,4 +192,4 @@ def test_cli_all_execution():
     assert res.returncode == 0
     assert "PLANREADER PUBLIC TENDER BENCHMARK" in res.stdout
     assert "Official Headline Accuracy" in res.stdout
-    assert "Scored Headline Benchmarks:            3" in res.stdout
+    assert "Scored Headline Benchmarks:            4" in res.stdout

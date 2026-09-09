@@ -1,0 +1,22 @@
+{
+  "benchmark_id": "tenders_ke_umma_hostels",
+  "project_name": "Proposed Student Hostels for Umma University in Kajiado",
+  "project_number": "UUT/02/2026",
+  "client": "Umma University",
+  "drawing_issue": "Approval Drawings",
+  "drawing_date": "4th March 2025",
+  "source_pdf": "umma-university-hostels-builders-work.pdf",
+  "source_takeoff": "umma-university-hostels-builders-work.pdf",
+  "allowed_comparison_sources": [
+    "umma-university-hostels-builders-work.pdf"
+  ],
+  "rejected_comparison_sources": [
+    "1727358888238-bq-nd-drawing.pdf",
+    "1785347143869-bqs-drawings.pdf",
+    "1739211305954-tender-document-for-construction-of-science-laboratory-at-ghazi-primary-school.pdf",
+    "1770804188619-bill-of-quntities.pdf"
+  ],
+  "status": "verified_scored_benchmark",
+  "retrieval_date": "2026-09-09",
+  "verification_notes": "Verified authentic tender package published directly by Umma University's own procurement page (umma.ac.ke), naming a real consultant team (Architect: Tectura International Ltd; Quantity Surveyor: Makon Consultants; Structural: Professional Consultants Ltd; M&E: Norkun Intakes Ltd). SHA-256 of the downloaded file matches download_manifest.json. Contains native-vector 'Working Drawings / Approval Drawings' Window and Door Schedule sheets (drawing no. TI-UUH/25/11, revision 02) with explicit per-type 'Overall Quantity' fields directly in the title block -- a stronger, less ambiguous evidence source than counting tag occurrences on a plan. This is a multi-storey building (locker rooms referenced from ground floor through 2nd-4th floors, plus a roof terrace) -- a genuinely different scale/typology from every other registered project (all single-storey). No architectural floor-plan/elevation sheet was found within this specific downloaded file; only the schedule sheets are present, so wall/floor-area items are not includable in this benchmark's measurable set."
+}
