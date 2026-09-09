@@ -7,6 +7,8 @@ on:
 jobs:
   inspect:
     runs-on: ubuntu-24.04
+    env:
+      PYTHONPATH: .
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -20,34 +22,38 @@ jobs:
             'https://tenders.go.ke/storage/Documents/1727358888238-bq-nd-drawing.pdf' \
             -o /tmp/drawing.pdf
           echo '6856bfa739aa136dd8e0bf17cb25fd43d0d31c9c3dfe3252525454f09d8fa4dc  /tmp/drawing.pdf' | sha256sum -c -
-      - name: Inspect opening evidence
+      - name: Inspect spatial ownership on drawing page
         run: |
           python - <<'PY'
-          import fitz, re
+          import fitz, math, re
+          from pb_drawing_evidence_binding import DrawingViewClassifier, DrawingViewType
+          from pb_viewport_segmentation import segment_page_viewports
+
           doc = fitz.open('/tmp/drawing.pdf')
-          print('PAGE_COUNT', len(doc))
-          pat = re.compile(r'W\s*1|3[,\.]?000|window|casement', re.I)
-          for pno, page in enumerate(doc):
-              text = page.get_text('text')
-              if not pat.search(text):
-                  continue
-              print(f'=== PAGE {pno+1} TEXT ===')
-              for line in text.splitlines():
-                  if pat.search(line):
-                      print('LINE', repr(line))
-              print(f'=== PAGE {pno+1} BLOCKS ===')
-              for i, b in enumerate(page.get_text('blocks')):
-                  s = str(b[4]).replace('\n', ' | ')
-                  if pat.search(s):
-                      print('BLOCK', i, [round(float(x),2) for x in b[:4]], repr(s))
-              print(f'=== PAGE {pno+1} WORD ROWS ===')
-              words = page.get_text('words')
-              rows = {}
-              for w in words:
-                  y = round(float(w[1]) / 4.0) * 4.0
-                  rows.setdefault(y, []).append(w)
-              for y, ws in sorted(rows.items()):
-                  s = ' '.join(str(w[4]) for w in sorted(ws, key=lambda z: z[0]))
-                  if pat.search(s):
-                      print('ROW', y, repr(s))
+          page = doc[53]
+          blocks = page.get_text('blocks')
+          headers = []
+          print('PAGE_SIZE', page.rect.width, page.rect.height)
+          for i, b in enumerate(blocks):
+              text = str(b[4]).strip().replace('\n', ' | ')
+              vt = DrawingViewClassifier.classify_text(text)
+              if vt != DrawingViewType.UNKNOWN:
+                  cx = (float(b[0]) + float(b[2])) / 2
+                  cy = (float(b[1]) + float(b[3])) / 2
+                  headers.append((cx, cy, vt.value, i, text))
+                  print('CLASSIFIED_BLOCK', i, vt.value, [round(float(x),2) for x in b[:4]], repr(text[:180]))
+
+          pat = re.compile(r'3[,.]?000\s*mm\s*[xX]\s*(\d{3,4})\s*mm\s*(?:steel\s*)?casement', re.I)
+          print('=== MATCH OWNERSHIP ===')
+          for i, b in enumerate(blocks):
+              text = str(b[4]).strip().replace('\n', ' ')
+              for m in pat.finditer(text):
+                  cx = (float(b[0]) + float(b[2])) / 2
+                  cy = (float(b[1]) + float(b[3])) / 2
+                  nearest = min(headers, key=lambda h: math.hypot(h[0]-cx, h[1]-cy)) if headers else None
+                  print('MATCH', i, [round(float(x),2) for x in b[:4]], repr(m.group(0)), 'NEAREST', nearest[2:4] if nearest else None)
+
+          print('=== F07 VIEWPORTS ===')
+          for v in segment_page_viewports(page, page_number=54):
+              print('VIEWPORT', v.view_id, v.view_type, v.status, v.boundary_source, v.bounding_box, repr(v.label))
           PY
