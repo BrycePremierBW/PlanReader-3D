@@ -215,8 +215,11 @@ def score_frozen_quantities(
     opening_comparisons = [
         row
         for row in comparisons
-        if _is_opening_identity(str(row.get("semantic_key") or ""))
-        or str(row.get("family") or "") in OPENING_COUNT_FAMILIES
+        if str(row.get("semantic_key") or "") not in FAMILY_TOTAL_KEYS
+        and (
+            _is_opening_identity(str(row.get("semantic_key") or ""))
+            or str(row.get("family") or "") in OPENING_COUNT_FAMILIES
+        )
     ]
     agree = sum(1 for row in opening_comparisons if row.get("status") == "agree")
     compared = len(opening_comparisons)
