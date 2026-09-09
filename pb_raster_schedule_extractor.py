@@ -128,6 +128,32 @@ class GenericScheduleTableExtractor:
         card_rows = self._extract_card_style_schedules(page, page_num)
         page_rows.extend(card_rows)
 
+        # F.28: a combined WD identity remains ambiguous globally.
+        # Resolve it only when same-card spatial evidence independently
+        # proves window semantics and the explicit card total.
+        from pb_contextual_wd_card_evidence import (
+            extract_contextual_wd_card_evidence,
+        )
+        for wd_evidence in extract_contextual_wd_card_evidence(
+            page, source_page=page_num
+        ):
+            page_rows.append(
+                ScheduleRow(
+                    tag=wd_evidence.tag,
+                    trade_type="windows",
+                    description=(
+                        f"{wd_evidence.raw_tag} card schedule, "
+                        "explicit Overall Quantity"
+                    ),
+                    quantity=wd_evidence.quantity,
+                    unit="NO",
+                    source_page=page_num,
+                    bbox=wd_evidence.bbox,
+                    confidence=0.90,
+                    evidence_text=wd_evidence.evidence_text,
+                )
+            )
+
         return page_rows
 
     def _extract_card_style_schedules(self, page: fitz.Page, page_num: int) -> List[ScheduleRow]:
