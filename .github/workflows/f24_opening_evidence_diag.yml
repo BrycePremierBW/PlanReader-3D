@@ -1,0 +1,53 @@
+name: F24 Opening Evidence Diagnostic
+
+on:
+  push:
+    branches: [codex/f24-generic-opening-binding]
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install focused dependencies
+        run: pip install 'PyMuPDF==1.28.0' 'Pillow==12.3.0'
+      - name: Download verified KSTVET drawing
+        run: |
+          curl -fL --retry 3 --retry-delay 2 \
+            'https://tenders.go.ke/storage/Documents/1727358888238-bq-nd-drawing.pdf' \
+            -o /tmp/kstvet.pdf
+          echo '6856bfa739aa136dd8e0bf17cb25fd43d0d31c9c3dfe3252525454f09d8fa4dc  /tmp/kstvet.pdf' | sha256sum -c -
+      - name: Inspect generic opening evidence only
+        run: |
+          python - <<'PY'
+          import fitz, re
+          from pb_raster_schedule_extractor import GenericScheduleTableExtractor
+          from pb_planreader_pdf_extractor import GenericPlanReaderExtractor
+
+          doc = fitz.open('/tmp/kstvet.pdf')
+          ext = GenericScheduleTableExtractor()
+          rows = ext.extract_from_document(doc, pages=[53,54])
+          print('GENERIC_SCHEDULE_ROWS')
+          for r in rows:
+              if r.trade_type in ('windows','doors'):
+                  print(r.tag, r.trade_type, r.quantity, r.dimensions, r.source_page, r.is_provisional, repr(r.evidence_text[:180]))
+
+          tag_pat = re.compile(r'\b(?:W(?:INDOW)?|D(?:OOR)?)\s*[-_]?\s*\d{1,3}\b', re.I)
+          dim_pat = re.compile(r'\b\d{3,4}\s*(?:mm)?\s*[xX×]\s*\d{3,4}\s*(?:mm)?\b', re.I)
+          for pno in (53,54):
+              page = doc[pno]
+              print('PAGE', pno+1)
+              for i,b in enumerate(page.get_text('blocks')):
+                  s = ' '.join(str(b[4]).split())
+                  if tag_pat.search(s) or dim_pat.search(s) or 'casement' in s.lower() or 'door' in s.lower():
+                      print('BLOCK', i, [round(float(x),2) for x in b[:4]], repr(s[:300]))
+
+          preds = GenericPlanReaderExtractor().extract_from_pdf('/tmp/kstvet.pdf', pages=[53,54])
+          print('CURRENT_OPENING_PREDS')
+          for p in preds:
+              if p.trade_type in ('windows','doors'):
+                  print(p.tag, p.quantity, p.dimensions, p.source_page, p.metadata.get('derivation') if p.metadata else None)
+          PY
