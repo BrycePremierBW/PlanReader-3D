@@ -24,7 +24,7 @@ jobs:
         run: |
           curl -fL --retry 3 --retry-delay 2 'https://tenders.go.ke/storage/Documents/1785347143869-bqs-drawings.pdf' -o /tmp/source_b.pdf
           echo '84dec737ede7adfa32b02c6732d4289a6a2d25f7ae50cf07209428f1b4e0c94b  /tmp/source_b.pdf' | sha256sum -c -
-      - name: Sweep image-heavy sheets for explicit opening evidence
+      - name: Compare explicit tag detections across raster resolutions
         env:
           PYTHONUNBUFFERED: '1'
         run: |
@@ -32,67 +32,48 @@ jobs:
           import re
           import fitz
           import numpy as np
-          from PIL import Image, ImageEnhance, ImageFilter
+          from PIL import Image, ImageEnhance
           from rapidocr import RapidOCR
 
-          engine = RapidOCR()
-          tag_re = re.compile(r'(?<![A-Za-z0-9])(?:W|D)\s*[-_.]?\s*\d{1,3}(?!\d)', re.I)
-          interesting = re.compile(r'window|door|casement|glaz|schedule|type|mark|\bno\.?s?\b|\d{3,4}\s*[xX×*]\s*\d{3,4}', re.I)
-
-          def tile_rects(page, cols=3, rows=3, overlap=.06):
-              r=page.rect; tw=r.width/cols; th=r.height/rows
+          engine=RapidOCR()
+          tag_re=re.compile(r'^\s*(?:W|D)\s*[-_.]?\s*\d{1,3}\s*$',re.I)
+          doc=fitz.open('/tmp/source_b.pdf'); page=doc[227]
+          r=page.rect
+          def clips():
+              cols=3; rows=3; ov=.06; tw=r.width/cols; th=r.height/rows
               for iy in range(rows):
                   for ix in range(cols):
-                      yield fitz.Rect(max(r.x0,r.x0+ix*tw-tw*overlap), max(r.y0,r.y0+iy*th-th*overlap), min(r.x1,r.x0+(ix+1)*tw+tw*overlap), min(r.y1,r.y0+(iy+1)*th+th*overlap))
-
-          def ocr_page(page, dpi=240):
-              scale=72.0/dpi; found=[]
-              for clip in tile_rects(page):
+                      yield fitz.Rect(max(r.x0,r.x0+ix*tw-tw*ov),max(r.y0,r.y0+iy*th-th*ov),min(r.x1,r.x0+(ix+1)*tw+tw*ov),min(r.y1,r.y0+(iy+1)*th+th*ov))
+          for dpi in (180,220,260,300,340):
+              detections=[]
+              scale=72.0/dpi
+              for clip in clips():
                   pix=page.get_pixmap(clip=clip,dpi=dpi,alpha=False)
                   img=Image.frombytes('RGB',[pix.width,pix.height],pix.samples)
-                  result=engine(np.asarray(img))
-                  txts=getattr(result,'txts',None) or []; scores=getattr(result,'scores',None) or []; boxes=getattr(result,'boxes',None)
-                  if boxes is None: continue
-                  for i,raw in enumerate(txts):
-                      text=' '.join(str(raw).split()).strip()
-                      if not text: continue
-                      pts=boxes[i].tolist() if hasattr(boxes[i],'tolist') else boxes[i]
-                      xs=[float(p[0]) for p in pts]; ys=[float(p[1]) for p in pts]
-                      x0=clip.x0+min(xs)*scale; y0=clip.y0+min(ys)*scale; x1=clip.x0+max(xs)*scale; y1=clip.y0+max(ys)*scale
-                      found.append((text,float(scores[i]) if i<len(scores) else 0.0,(x0,y0,x1,y1)))
+                  for variant_name,variant in (
+                      ('raw',img),
+                      ('contrast',ImageEnhance.Contrast(img).enhance(1.35)),
+                  ):
+                      result=engine(np.asarray(variant)); txts=getattr(result,'txts',None) or []; scores=getattr(result,'scores',None) or []; boxes=getattr(result,'boxes',None)
+                      if boxes is None: continue
+                      for i,text in enumerate(txts):
+                          text=' '.join(str(text).split()).strip()
+                          if not tag_re.fullmatch(text): continue
+                          pts=boxes[i].tolist() if hasattr(boxes[i],'tolist') else boxes[i]
+                          xs=[float(p[0]) for p in pts]; ys=[float(p[1]) for p in pts]
+                          bbox=(clip.x0+min(xs)*scale,clip.y0+min(ys)*scale,clip.x0+max(xs)*scale,clip.y0+max(ys)*scale)
+                          detections.append((text,float(scores[i]) if i<len(scores) else 0.0,bbox,variant_name))
+              # spatially collapse exact-text duplicates produced by tile/variant overlap
               kept=[]
-              for text,conf,bbox in sorted(found,key=lambda x:-x[1]):
-                  cx=(bbox[0]+bbox[2])/2; cy=(bbox[1]+bbox[3])/2
-                  dup=False
-                  for pt,pc,pb in kept:
+              for text,conf,bbox,variant in sorted(detections,key=lambda v:-v[1]):
+                  cx=(bbox[0]+bbox[2])/2;cy=(bbox[1]+bbox[3])/2;dup=False
+                  for pt,pc,pb,pv in kept:
                       if text.lower()!=pt.lower(): continue
-                      pcx=(pb[0]+pb[2])/2; pcy=(pb[1]+pb[3])/2
-                      # duplicate only when same OCR text substantially overlaps
-                      ix=max(0,min(bbox[2],pb[2])-max(bbox[0],pb[0])); iy=max(0,min(bbox[3],pb[3])-max(bbox[1],pb[1])); inter=ix*iy
-                      a=max(1,(bbox[2]-bbox[0])*(bbox[3]-bbox[1])); b=max(1,(pb[2]-pb[0])*(pb[3]-pb[1])); iou=inter/(a+b-inter) if a+b-inter>0 else 0
-                      if iou>=0.35 or (abs(cx-pcx)<=5 and abs(cy-pcy)<=5): dup=True; break
-                  if not dup: kept.append((text,conf,bbox))
-              return kept
-
-          doc=fitz.open('/tmp/source_b.pdf')
-          candidates=[]
-          for pno,page in enumerate(doc):
-              imgs=len(page.get_images(full=True)); chars=len((page.get_text('text') or '').strip())
-              # Broad source-structure sweep: image-heavy sheets only.
-              if imgs>=5:
-                  candidates.append((pno,imgs,chars))
-          print('IMAGE_HEAVY_PAGES',[(p+1,i,c) for p,i,c in candidates])
-          for pno,imgs,chars in candidates:
-              rows=ocr_page(doc[pno])
-              tags=[]; contexts=[]
-              for text,conf,bbox in rows:
-                  m=tag_re.search(text)
-                  if m and conf>=0.70:
-                      tags.append((m.group(0),round(conf,3),tuple(round(v,1) for v in bbox),text))
-                  elif interesting.search(text) and conf>=0.70 and len(text)<=100:
-                      contexts.append((round(conf,3),tuple(round(v,1) for v in bbox),text))
-              print(f'PAGE {pno+1} images={imgs} native_chars={chars} tag_hits={len(tags)} context_hits={len(contexts)}')
-              for row in tags: print(' TAG',row)
-              for row in contexts[:30]: print(' CTX',row)
+                      pcx=(pb[0]+pb[2])/2;pcy=(pb[1]+pb[3])/2
+                      ix=max(0,min(bbox[2],pb[2])-max(bbox[0],pb[0]));iy=max(0,min(bbox[3],pb[3])-max(bbox[1],pb[1]));inter=ix*iy
+                      a=max(1,(bbox[2]-bbox[0])*(bbox[3]-bbox[1]));b=max(1,(pb[2]-pb[0])*(pb[3]-pb[1]));iou=inter/(a+b-inter) if a+b-inter else 0
+                      if iou>=.25 or (abs(cx-pcx)<=6 and abs(cy-pcy)<=6):dup=True;break
+                  if not dup:kept.append((text,conf,bbox,variant))
+              print('DPI',dpi,'TAGS',[(t,round(c,3),round((b[0]+b[2])/2,1),round((b[1]+b[3])/2,1),v) for t,c,b,v in sorted(kept,key=lambda x:((x[2][1]+x[2][3])/2,(x[2][0]+x[2][2])/2))])
           doc.close()
           PY
