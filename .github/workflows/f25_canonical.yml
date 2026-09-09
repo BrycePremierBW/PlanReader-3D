@@ -1,0 +1,63 @@
+name: F25 Canonical Benchmark
+
+on:
+  push:
+    branches:
+      - diag/f25-canonical-20260909
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 8c657969e3b654810a98ea8d657bf66fa41c8abc
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install application and portable OCR dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-ci-v1228.txt
+          pip install rapidocr==3.9.2 onnxruntime==1.29.0
+      - name: Download hash-verified development sources
+        run: |
+          mkdir -p benchmarks/sources
+          curl -fL --retry 3 --retry-delay 2 'https://tenders.go.ke/storage/Documents/1727358888238-bq-nd-drawing.pdf' -o benchmarks/sources/1727358888238-bq-nd-drawing.pdf
+          echo '6856bfa739aa136dd8e0bf17cb25fd43d0d31c9c3dfe3252525454f09d8fa4dc  benchmarks/sources/1727358888238-bq-nd-drawing.pdf' | sha256sum -c -
+          curl -fL --retry 3 --retry-delay 2 'https://tenders.go.ke/storage/Documents/1785347143869-bqs-drawings.pdf' -o benchmarks/sources/1785347143869-bqs-drawings.pdf
+          echo '84dec737ede7adfa32b02c6732d4289a6a2d25f7ae50cf07209428f1b4e0c94b  benchmarks/sources/1785347143869-bqs-drawings.pdf' | sha256sum -c -
+      - name: Run canonical development benchmark
+        env:
+          PYTHONPATH: .
+        run: |
+          rm -rf /tmp/f25-canonical
+          python pb_benchmark_accuracy_engine.py --all --output-dir /tmp/f25-canonical >/tmp/f25-engine.log
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.loads(Path('/tmp/f25-canonical/headline_accuracy_dashboard.json').read_text())
+          h=d['headline_metrics']
+          print('BENCHMARKED_SHA','8c657969e3b654810a98ea8d657bf66fa41c8abc')
+          for key in ('overall_accuracy_percentage','total_items_compared','exact_matches','within_5_percent','within_10_percent','within_20_percent','gross_mismatches','missed_items','hallucinated_items'):
+              print(key.upper(),h[key])
+          for report in d.get('headline_reports',[]):
+              s=report['summary']
+              print('PROJECT',report['benchmark_id'],s['overall_accuracy_percentage'],s['total_items_compared'],s['exact_matches'],s['within_5_percent'],s['missed_items'],s['hallucinated_items'])
+          PY
+      - name: Report raster-derived predictions without benchmark gold
+        env:
+          PYTHONPATH: .
+        run: |
+          python - <<'PY'
+          from pb_planreader_pdf_extractor import GenericPlanReaderExtractor
+          p='benchmarks/sources/1785347143869-bqs-drawings.pdf'
+          preds=GenericPlanReaderExtractor().extract_from_pdf(p)
+          print('RASTER_DERIVED_PREDICTIONS')
+          for pred in sorted(preds,key=lambda p:p.tag):
+              if (pred.metadata or {}).get('derivation')=='raster_explicit_opening_instance_count':
+                  print(pred.tag,pred.trade_type,pred.quantity,pred.source_page,pred.confidence)
+          PY
