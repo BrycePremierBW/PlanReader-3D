@@ -1,0 +1,150 @@
+name: F29 Ghazi Source Evidence
+
+on:
+  push:
+    branches:
+      - diag/f29-ghazi-source-evidence
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    env:
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: diag/f29-ghazi-source-evidence
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install focused dependencies
+        run: python -m pip install PyMuPDF==1.28.0
+      - name: Download and verify Ghazi source
+        run: |
+          curl -fL --retry 3 --retry-delay 2 'https://tenders.go.ke/storage/Documents/1739211305954-tender-document-for-construction-of-science-laboratory-at-ghazi-primary-school.pdf' -o /tmp/ghazi.pdf
+          echo 'c8c001c9dadb791e7cb18b7bea19ce795eebba2f9b9eb7dec4844212da4d8f4f  /tmp/ghazi.pdf' | sha256sum -c -
+      - name: Persist page 167 semantic and spatial evidence
+        run: |
+          mkdir -p diagnostics
+          python - <<'PY'
+          import json
+          import re
+          from pathlib import Path
+          import fitz
+          from pb_dimension_chain_evidence_extractor import extract_dimension_chains_from_page
+          from pb_structural_bay_pillar_count import derive_support_count_from_bay_chain, find_uniform_bay_runs
+          from pb_raster_schedule_extractor import GenericScheduleTableExtractor
+
+          doc = fitz.open('/tmp/ghazi.pdf')
+          page = doc[166]
+          text = page.get_text('text') or ''
+          words = page.get_text('words') or []
+          blocks = page.get_text('blocks') or []
+
+          keyword_re = re.compile(
+              r'd\.?p\.?c|damp\s*proof|200\s*mm|coral|block\s*wall|walling|'
+              r'verand|column|pillar|pole|g\.?i\.?|rhs|shs|door|window|casement|'
+              r'plaster|paint|ceiling|chip\s*board|brandering|floor|screed|roof|pitch|area',
+              re.I,
+          )
+          keyword_lines = []
+          for line in text.splitlines():
+              s = ' '.join(line.split())
+              if s and keyword_re.search(s):
+                  keyword_lines.append(s)
+
+          keyword_blocks = []
+          for b in blocks:
+              s = ' '.join(str(b[4]).split())
+              if s and keyword_re.search(s):
+                  keyword_blocks.append({
+                      'text': s,
+                      'bbox': [round(float(v), 2) for v in b[:4]],
+                      'block_no': int(b[5]) if len(b) > 5 else None,
+                  })
+
+          key_words = []
+          for w in words:
+              token = str(w[4]).strip()
+              if re.search(r'^(?:W|D|PV|GI|G\.I\.?|RHS|SHS)$|verand|column|pillar|pole|ceiling|chip|brand|plaster|paint', token, re.I):
+                  key_words.append({
+                      'text': token,
+                      'bbox': [round(float(v), 2) for v in w[:4]],
+                      'block': int(w[5]),
+                      'line': int(w[6]),
+                      'word': int(w[7]),
+                  })
+
+          chains_out = []
+          chains = extract_dimension_chains_from_page(page, page_num=167, view_id='page_167')
+          for c in chains:
+              vals = [round(float(o.value_m), 4) for o in c.observations]
+              support = derive_support_count_from_bay_chain(vals) if len(vals) >= 2 else None
+              boxes = [o.bbox for o in c.observations if o.bbox]
+              chain_bbox = None
+              if boxes:
+                  chain_bbox = [
+                      round(min(b[0] for b in boxes), 2),
+                      round(min(b[1] for b in boxes), 2),
+                      round(max(b[2] for b in boxes), 2),
+                      round(max(b[3] for b in boxes), 2),
+                  ]
+              chains_out.append({
+                  'chain_id': c.chain_id,
+                  'orientation': c.orientation,
+                  'values_m': vals,
+                  'bbox': chain_bbox,
+                  'support_status': getattr(support, 'status', None),
+                  'support_count': getattr(support, 'support_count', None),
+                  'observations': [
+                      {
+                          'raw_text': o.raw_text,
+                          'value_m': round(float(o.value_m), 4),
+                          'bbox': [round(float(v), 2) for v in o.bbox] if o.bbox else None,
+                      }
+                      for o in c.observations
+                  ],
+              })
+
+          parsed = []
+          for major, minor in re.findall(r'\b(\d{1,2})[,.]?(\d{3})\b', text):
+              val = float(major) + float(minor) / 1000.0
+              if 2.0 <= val <= 35.0:
+                  parsed.append(round(val, 3))
+          flat_runs = [
+              {
+                  'bay_spans_m': list(run.bay_spans_m),
+                  'bay_count': run.bay_count,
+                  'support_count': run.support_count,
+              }
+              for run in find_uniform_bay_runs(parsed)
+          ]
+
+          schedule_rows = [r.to_dict() for r in GenericScheduleTableExtractor().extract_from_page(page, 167)]
+
+          out = {
+              'source_sha256': 'c8c001c9dadb791e7cb18b7bea19ce795eebba2f9b9eb7dec4844212da4d8f4f',
+              'source_page': 167,
+              'page_rect': [round(float(v), 2) for v in page.rect],
+              'keyword_lines': keyword_lines,
+              'keyword_blocks': keyword_blocks,
+              'key_words': key_words,
+              'dimension_chains': chains_out,
+              'flat_parsed_dimensions_m': parsed,
+              'flat_uniform_bay_runs': flat_runs,
+              'schedule_rows': schedule_rows,
+          }
+          Path('diagnostics/f29_ghazi_source_evidence.json').write_text(json.dumps(out, indent=2) + '\n', encoding='utf-8')
+          doc.close()
+          PY
+      - name: Persist evidence
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add diagnostics/f29_ghazi_source_evidence.json
+          git commit -m 'diag(F29): persist Ghazi source evidence'
+          git push origin HEAD:diag/f29-ghazi-source-evidence
