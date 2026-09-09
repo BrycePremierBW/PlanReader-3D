@@ -1,4 +1,4 @@
-name: F24 Murera Drawing Diagnostic
+name: F24 Murera Native Opening Diagnostic
 
 on:
   push:
@@ -15,38 +15,49 @@ jobs:
         with:
           python-version: '3.13'
       - name: Install focused dependencies
-        run: pip install 'PyMuPDF==1.28.0' 'Pillow==12.3.0'
+        run: pip install 'PyMuPDF==1.28.0'
       - name: Download verified public Murera drawing
         run: |
           curl -fL --retry 3 --retry-delay 2 \
             'https://tenders.go.ke/storage/Documents/1785347143869-bqs-drawings.pdf' \
             -o /tmp/murera.pdf
           echo '84dec737ede7adfa32b02c6732d4289a6a2d25f7ae50cf07209428f1b4e0c94b  /tmp/murera.pdf' | sha256sum -c -
-      - name: Inspect candidate drawing pages 220 through 226
+      - name: Trace opening tags, dimensions and drawing titles
         run: |
           python - <<'PY'
           import fitz, re
           doc = fitz.open('/tmp/murera.pdf')
-          pat = re.compile(r'window|door|casement|schedule|elevation|floor plan|section|drawing|\bW\s*\d+\b|\bD\s*\d+\b', re.I)
-          for pno in range(219, 226):
+          tag_pat = re.compile(r'\b(?:W|D)\s*[-_]?\s*\d{1,2}\b', re.I)
+          dim_pat = re.compile(r'\b\d{3,4}\s*(?:mm)?\s*[xX]\s*\d{3,4}\s*(?:mm)?\b', re.I)
+          keyword_pat = re.compile(r'window|door|casement|fixed glass|opening', re.I)
+          title_pat = re.compile(r'floor plan|roof plan|elevation|section|detail|drawing title|schedule', re.I)
+
+          # Restrict diagnostics to the architectural drawing tail, not tender/BOQ pages.
+          for pno in range(217, len(doc)):
               page = doc[pno]
-              print('\n=== PDF_PAGE', pno + 1, 'SIZE', round(page.rect.width,2), round(page.rect.height,2), '===')
-              text = page.get_text('text') or ''
-              print('TEXT_CHARS', len(text.strip()), 'IMAGES', len(page.get_images(full=True)), 'DRAWINGS', len(page.get_drawings()))
-              print('TEXT_START', repr(text[:1200]))
-              for i, b in enumerate(page.get_text('blocks')):
+              blocks = list(page.get_text('blocks'))
+              matches = []
+              titles = []
+              for i, b in enumerate(blocks):
                   s = ' '.join(str(b[4]).split())
-                  if pat.search(s):
-                      print('TEXT_BLOCK', i, [round(float(x),2) for x in b[:4]], repr(s[:500]))
-              for i, image in enumerate(page.get_images(full=True)):
-                  xref = image[0]
-                  rects = page.get_image_rects(xref)
-                  info = doc.extract_image(xref)
-                  print(
-                      'IMAGE', i,
-                      'xref', xref,
-                      'pixel_size', (info.get('width'), info.get('height')),
-                      'ext', info.get('ext'),
-                      'rects', [[round(r.x0,2), round(r.y0,2), round(r.x1,2), round(r.y1,2)] for r in rects],
-                  )
+                  bbox = [round(float(x),2) for x in b[:4]]
+                  if title_pat.search(s):
+                      titles.append((i, bbox, s[:300]))
+                  if tag_pat.search(s) or dim_pat.search(s) or keyword_pat.search(s):
+                      matches.append((i, bbox, s[:500]))
+              if matches or titles:
+                  print('\n=== PAGE', pno + 1, '===')
+                  for row in titles:
+                      print('TITLE', *row)
+                  for row in matches:
+                      print('OPENING', *row)
+
+          # Detailed word-level evidence on the steel-casement sheet.
+          page = doc[222]
+          print('\n=== PAGE 223 WORDS AROUND OPENING ZONES ===')
+          words = page.get_text('words')
+          for w in words:
+              text = str(w[4])
+              if tag_pat.search(text) or any(k in text.lower() for k in ('steel','casement','glass','window','door')) or re.fullmatch(r'[0-9,]{3,5}', text):
+                  print('WORD', [round(float(x),2) for x in w[:4]], repr(text))
           PY
