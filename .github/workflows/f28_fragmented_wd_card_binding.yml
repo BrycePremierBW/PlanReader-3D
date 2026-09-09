@@ -1,0 +1,480 @@
+name: F28 Fragmented WD Card Binding
+
+on:
+  push:
+    branches:
+      - feat/f28-fragmented-wd-card-binding
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-measure:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/f28-fragmented-wd-card-binding
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Apply generic fragmented-WD card resolver and synthetic tests
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('pb_raster_schedule_extractor.py')
+          source = path.read_text(encoding='utf-8')
+          start = source.index('    def _extract_card_style_schedules(self, page: fitz.Page, page_num: int) -> List[ScheduleRow]:')
+          end = source.index('    def _extract_tables_from_page(self, page: fitz.Page, page_num: int) -> List[ScheduleRow]:', start)
+          replacement = r'''    def _extract_card_style_schedules(self, page: fitz.Page, page_num: int) -> List[ScheduleRow]:
+        """Detect opening schedules laid out as independent vertical cards.
+
+        Ordinary ``W``/``D`` tags retain the original strict association rule:
+        the standalone tag block must sit above, and horizontally overlap, its
+        labelled ``Overall Quantity`` field.
+
+        Some CAD exports fragment a *documented* combined ``WD`` identity into
+        adjacent text runs (for example ``W`` + ``D`` + ``01``) even though the
+        visible drawing shows one header.  ``WD`` is intentionally *not*
+        globally normalized to either window or door.  This method preserves a
+        literal ``WD#`` identity only when spatial evidence in the same card
+        independently proves window semantics: at least two distinct
+        window-specific field labels (panel/frame/leaf/stay) and no conflicting
+        door-field label.  Ambiguity still fails closed.
+        """
+        words = page.get_text("words") or []
+        blocks: Dict[int, List[tuple]] = {}
+        for w in words:
+            blocks.setdefault(int(w[5]), []).append(w)
+
+        block_records: List[Tuple[str, Tuple[float, float, float, float]]] = []
+        tag_candidates: List[Tuple[Any, Tuple[float, float, float, float]]] = []
+        quantity_candidates: List[Tuple[float, Tuple[float, float, float, float]]] = []
+        direct_wd_candidates: List[Tuple[str, Tuple[float, float, float, float], str]] = []
+
+        for block_words in blocks.values():
+            if not block_words:
+                continue
+            ordered = sorted(block_words, key=lambda w: (w[6], w[7]))
+            text = " ".join(str(w[4]) for w in ordered).strip()
+            bbox = (
+                min(float(w[0]) for w in block_words),
+                min(float(w[1]) for w in block_words),
+                max(float(w[2]) for w in block_words),
+                max(float(w[3]) for w in block_words),
+            )
+            block_records.append((text, bbox))
+
+            if len(block_words) <= 3 and len(text) <= 12:
+                norm = normalize_opening_tag(text)
+                if norm is not None:
+                    tag_candidates.append((norm, bbox))
+                    continue
+
+                wd_match = re.fullmatch(
+                    r"\s*W\s*D\s*[-_. ]?\s*0*(\d{1,3})\s*",
+                    text,
+                    re.IGNORECASE,
+                )
+                if wd_match and int(wd_match.group(1)) > 0:
+                    direct_wd_candidates.append(
+                        (f"WD{int(wd_match.group(1))}", bbox, text)
+                    )
+                    continue
+
+            lower = text.lower()
+            if "overall" in lower and "quantity" in lower:
+                m = re.search(r"(\d+(?:\.\d+)?)\s*$", text)
+                if m:
+                    quantity_candidates.append((float(m.group(1)), bbox))
+
+        def _center(bb: Tuple[float, float, float, float]) -> Tuple[float, float]:
+            return ((bb[0] + bb[2]) / 2.0, (bb[1] + bb[3]) / 2.0)
+
+        def _height(bb: Tuple[float, float, float, float]) -> float:
+            return max(1.0, bb[3] - bb[1])
+
+        def _union(*bbs: Tuple[float, float, float, float]) -> Tuple[float, float, float, float]:
+            return (
+                min(bb[0] for bb in bbs),
+                min(bb[1] for bb in bbs),
+                max(bb[2] for bb in bbs),
+                max(bb[3] for bb in bbs),
+            )
+
+        # Reconstruct a visibly contiguous W + D + number header when the CAD
+        # text layer split those glyph groups into separate blocks.  This step
+        # establishes only the literal documented identity; it does not decide
+        # whether that identity is a window or a door.
+        token_words: List[Tuple[str, Tuple[float, float, float, float]]] = [
+            (
+                str(w[4]).strip(),
+                (float(w[0]), float(w[1]), float(w[2]), float(w[3])),
+            )
+            for w in words
+        ]
+        fragmented_wd_candidates: List[
+            Tuple[str, Tuple[float, float, float, float], str]
+        ] = []
+        for w_text, w_bbox in token_words:
+            if w_text.upper() != "W":
+                continue
+            w_cy = _center(w_bbox)[1]
+            for d_text, d_bbox in token_words:
+                if d_text.upper() != "D":
+                    continue
+                scale = max(_height(w_bbox), _height(d_bbox))
+                if abs(_center(d_bbox)[1] - w_cy) > max(2.0, 0.35 * scale):
+                    continue
+                gap_wd = d_bbox[0] - w_bbox[2]
+                if gap_wd < -0.20 * scale or gap_wd > 1.20 * scale:
+                    continue
+                for n_text, n_bbox in token_words:
+                    if not re.fullmatch(r"0*\d{1,3}", n_text):
+                        continue
+                    number = int(n_text)
+                    if number <= 0:
+                        continue
+                    scale_all = max(scale, _height(n_bbox))
+                    if abs(_center(n_bbox)[1] - w_cy) > max(2.0, 0.35 * scale_all):
+                        continue
+                    gap_dn = n_bbox[0] - d_bbox[2]
+                    if gap_dn < -0.20 * scale_all or gap_dn > 1.60 * scale_all:
+                        continue
+                    fragmented_wd_candidates.append(
+                        (
+                            f"WD{number}",
+                            _union(w_bbox, d_bbox, n_bbox),
+                            f"W D {n_text}",
+                        )
+                    )
+
+        wd_candidates: List[Tuple[str, Tuple[float, float, float, float], str]] = []
+        seen_wd: set = set()
+        for tag, bbox, raw in direct_wd_candidates + fragmented_wd_candidates:
+            cx, cy = _center(bbox)
+            key = (tag, round(cx, 1), round(cy, 1))
+            if key in seen_wd:
+                continue
+            seen_wd.add(key)
+            wd_candidates.append((tag, bbox, raw))
+
+        window_witness_patterns = {
+            "panel": re.compile(r"\bwindow\s+panel\b", re.IGNORECASE),
+            "frame": re.compile(r"\bwindow\s+frame\b", re.IGNORECASE),
+            "leaf": re.compile(r"\bwindow\s+leaf\s+type\b", re.IGNORECASE),
+            "stay": re.compile(r"\bwindow\s+stay\s+type\b", re.IGNORECASE),
+        }
+        door_conflict_re = re.compile(
+            r"\bdoor\s+(?:panel|frame|leaf\s+type)\b",
+            re.IGNORECASE,
+        )
+
+        def _intersects(
+            a: Tuple[float, float, float, float],
+            b: Tuple[float, float, float, float],
+        ) -> bool:
+            return min(a[2], b[2]) > max(a[0], b[0]) and min(a[3], b[3]) > max(a[1], b[1])
+
+        def _wd_window_witnesses(
+            tag_bbox: Tuple[float, float, float, float],
+            qty_bbox: Tuple[float, float, float, float],
+        ) -> Optional[Tuple[str, ...]]:
+            tag_h = _height(tag_bbox)
+            tag_w = max(1.0, tag_bbox[2] - tag_bbox[0])
+            region = (
+                min(tag_bbox[0], qty_bbox[0]) - max(2.0 * tag_h, 0.5 * tag_w),
+                tag_bbox[1] - max(1.5 * tag_h, 4.0),
+                max(tag_bbox[2], qty_bbox[2]) + max(2.0 * tag_h, 0.5 * tag_w),
+                qty_bbox[3] + max(tag_h, 4.0),
+            )
+            witnesses = set()
+            has_door_conflict = False
+            for text, bbox in block_records:
+                if not _intersects(bbox, region):
+                    continue
+                if door_conflict_re.search(text):
+                    has_door_conflict = True
+                for name, pattern in window_witness_patterns.items():
+                    if pattern.search(text):
+                        witnesses.add(name)
+            if has_door_conflict or len(witnesses) < 2:
+                return None
+            return tuple(sorted(witnesses))
+
+        def _wd_score(
+            tag_bbox: Tuple[float, float, float, float],
+            qty_bbox: Tuple[float, float, float, float],
+        ) -> Optional[float]:
+            tx0, ty0, tx1, ty1 = tag_bbox
+            qx0, qy0, qx1, qy1 = qty_bbox
+            if ty1 > qy0:
+                return None
+            tag_h = _height(tag_bbox)
+            tag_w = max(1.0, tx1 - tx0)
+            vertical_gap = qy0 - ty1
+            if vertical_gap > max(12.0 * tag_h, 4.0 * tag_w):
+                return None
+            tcx, _ = _center(tag_bbox)
+            qcx, _ = _center(qty_bbox)
+            horizontal_delta = abs(qcx - tcx)
+            if horizontal_delta > max(12.0 * tag_h, 8.0 * tag_w):
+                return None
+            if _wd_window_witnesses(tag_bbox, qty_bbox) is None:
+                return None
+            return vertical_gap + 0.25 * horizontal_delta
+
+        rows: List[ScheduleRow] = []
+        for value, qbbox in quantity_candidates:
+            if value <= 0:
+                continue
+
+            # Prefer a fully evidenced literal WD identity over a partial W
+            # fragment from the same visible header.  This is intentionally
+            # scoped to card semantics and never changes normalize_opening_tag.
+            wd_matches = []
+            for tag, tbbox, raw in wd_candidates:
+                score = _wd_score(tbbox, qbbox)
+                if score is None:
+                    continue
+                witnesses = _wd_window_witnesses(tbbox, qbbox)
+                if witnesses is not None:
+                    wd_matches.append((score, tag, tbbox, raw, witnesses))
+            wd_matches.sort(key=lambda item: item[0])
+            if wd_matches:
+                if len(wd_matches) > 1:
+                    first, second = wd_matches[0], wd_matches[1]
+                    if abs(second[0] - first[0]) <= max(2.0, 0.15 * max(first[0], 1.0)):
+                        continue  # competing plausible headers: fail closed
+                _score, tag, _tbbox, raw, witnesses = wd_matches[0]
+                rows.append(
+                    ScheduleRow(
+                        tag=tag,
+                        trade_type="windows",
+                        description=f"{raw} card schedule, explicit Overall Quantity",
+                        quantity=value,
+                        unit="NO",
+                        source_page=page_num,
+                        bbox=qbbox,
+                        confidence=0.90,
+                        evidence_text=(
+                            f"{raw}; Overall Quantity: {value:g}; "
+                            f"window fields: {', '.join(witnesses)}"
+                        ),
+                    )
+                )
+                continue
+
+            # Existing W/D behavior is preserved exactly: nearest normalized
+            # tag above the quantity with direct horizontal overlap.
+            qx0, qy0, qx1, qy1 = qbbox
+            best_norm = None
+            best_dist: Optional[float] = None
+            for norm, tbbox in tag_candidates:
+                tx0, ty0, tx1, ty1 = tbbox
+                if ty1 > qy0:
+                    continue
+                overlap = min(tx1, qx1) - max(tx0, qx0)
+                if overlap <= 0:
+                    continue
+                dist = qy0 - ty1
+                if best_dist is None or dist < best_dist:
+                    best_dist = dist
+                    best_norm = norm
+            if best_norm is None:
+                continue
+            rows.append(
+                ScheduleRow(
+                    tag=best_norm.tag,
+                    trade_type=best_norm.trade_type,
+                    description=f"{best_norm.raw_text} card schedule, explicit Overall Quantity",
+                    quantity=value,
+                    unit="NO",
+                    source_page=page_num,
+                    bbox=(qx0, qy0, qx1, qy1),
+                    confidence=0.90,
+                    evidence_text=f"Overall Quantity: {value:g}",
+                )
+            )
+        return rows
+
+'''
+          patched = source[:start] + replacement + source[end:]
+          path.write_text(patched, encoding='utf-8')
+
+          tests = r'''"""Synthetic mutation coverage for spatially reconstructed WD card headers."""
+          from __future__ import annotations
+
+          import fitz
+          import pytest
+
+          from pb_raster_schedule_extractor import GenericScheduleTableExtractor
+
+
+          def _reopen(doc: fitz.Document) -> fitz.Document:
+              data = doc.tobytes()
+              doc.close()
+              return fitz.open(stream=data, filetype="pdf")
+
+
+          def _fragmented_wd_card(
+              *,
+              number: int = 7,
+              quantity: int = 23,
+              x: float = 100.0,
+              y: float = 180.0,
+              scale: float = 1.0,
+              witness_count: int = 3,
+              add_d: bool = True,
+              door_conflict: bool = False,
+          ) -> fitz.Document:
+              doc = fitz.open()
+              page = doc.new_page(width=1200 * scale, height=1000 * scale)
+              fs = 10 * scale
+              page.insert_text((x, y), "W", fontsize=fs)
+              if add_d:
+                  page.insert_text((x + 16 * scale, y), "D", fontsize=fs)
+              page.insert_text((x + 35 * scale, y), f"{number:02d}", fontsize=fs)
+              labels = ["Window panel :", "Window frame :", "Window leaf type :", "Window stay type :"]
+              for idx, label in enumerate(labels[:witness_count]):
+                  page.insert_text((x, y + (24 + idx * 16) * scale), label, fontsize=8 * scale)
+              if door_conflict:
+                  page.insert_text((x, y + 88 * scale), "Door frame :", fontsize=8 * scale)
+              # Deliberately offset right so it does NOT overlap the tag bbox;
+              # the new path must rely on same-card semantic/spatial evidence.
+              page.insert_text(
+                  (x + 85 * scale, y + 130 * scale),
+                  f"Overall Quantity: {quantity}",
+                  fontsize=8 * scale,
+              )
+              return _reopen(doc)
+
+
+          def _rows(doc: fitz.Document):
+              rows = GenericScheduleTableExtractor()._extract_card_style_schedules(doc[0], 1)
+              doc.close()
+              return {row.tag: row for row in rows}
+
+
+          def test_fragmented_documented_wd_header_resolves_with_multiple_window_fields():
+              rows = _rows(_fragmented_wd_card())
+              assert set(rows) == {"WD7"}
+              assert rows["WD7"].quantity == 23.0
+              assert rows["WD7"].trade_type == "windows"
+              assert "window fields" in rows["WD7"].evidence_text
+
+
+          def test_tag_and_quantity_mutations_propagate_without_lookup():
+              a = _rows(_fragmented_wd_card(number=4, quantity=19))
+              b = _rows(_fragmented_wd_card(number=9, quantity=31))
+              assert set(a) == {"WD4"}
+              assert a["WD4"].quantity == 19.0
+              assert set(b) == {"WD9"}
+              assert b["WD9"].quantity == 31.0
+
+
+          @pytest.mark.parametrize("x,y,scale", [(70.0, 160.0, 1.0), (360.0, 330.0, 1.0), (140.0, 260.0, 1.7)])
+          def test_translation_and_scale_invariance(x: float, y: float, scale: float):
+              rows = _rows(_fragmented_wd_card(x=x, y=y, scale=scale, number=12, quantity=6))
+              assert set(rows) == {"WD12"}
+              assert rows["WD12"].quantity == 6.0
+
+
+          def test_wd_without_window_semantics_remains_ambiguous_and_fails_closed():
+              rows = _rows(_fragmented_wd_card(witness_count=0))
+              assert rows == {}
+
+
+          def test_single_window_field_is_insufficient_evidence():
+              rows = _rows(_fragmented_wd_card(witness_count=1))
+              assert rows == {}
+
+
+          def test_door_field_conflict_forces_abstention():
+              rows = _rows(_fragmented_wd_card(witness_count=3, door_conflict=True))
+              assert rows == {}
+
+
+          def test_missing_d_fragment_does_not_invent_combined_identity():
+              rows = _rows(_fragmented_wd_card(add_d=False, witness_count=3))
+              assert "WD7" not in rows
+
+
+          def test_combined_wd_text_block_can_resolve_only_with_window_fields():
+              doc = fitz.open()
+              page = doc.new_page(width=900, height=800)
+              page.insert_text((100, 180), "WD - 05", fontsize=10)
+              page.insert_text((100, 210), "Window panel :", fontsize=8)
+              page.insert_text((100, 226), "Window frame :", fontsize=8)
+              page.insert_text((185, 300), "Overall Quantity: 14", fontsize=8)
+              rows = _rows(_reopen(doc))
+              assert set(rows) == {"WD5"}
+              assert rows["WD5"].quantity == 14.0
+
+
+          def test_neighbouring_card_quantity_is_not_borrowed():
+              doc = fitz.open()
+              page = doc.new_page(width=1600, height=900)
+              # Fully evidenced WD card header/fields at left, but its quantity
+              # is intentionally absent.
+              page.insert_text((100, 180), "W", fontsize=10)
+              page.insert_text((116, 180), "D", fontsize=10)
+              page.insert_text((135, 180), "08", fontsize=10)
+              page.insert_text((100, 210), "Window panel :", fontsize=8)
+              page.insert_text((100, 226), "Window frame :", fontsize=8)
+              # Far-away unrelated quantity in another card column.
+              page.insert_text((900, 310), "Overall Quantity: 27", fontsize=8)
+              rows = _rows(_reopen(doc))
+              assert "WD8" not in rows
+          '''
+          # Dedent the embedded source while preserving its intentional code indentation.
+          import textwrap
+          Path('tests/benchmarks/test_mutation_card_style_wd_window_binding.py').write_text(
+              textwrap.dedent(tests), encoding='utf-8'
+          )
+          PY
+      - name: Install test and runtime dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pytest ruff
+      - name: Run targeted and benchmark regression suites
+        run: |
+          pytest -q tests/benchmarks/test_mutation_card_style_schedule.py tests/benchmarks/test_mutation_card_style_wd_window_binding.py
+          pytest -q tests/benchmarks
+          python scripts/check_benchmark_gold_separation.py
+          python -m compileall -q pb_raster_schedule_extractor.py
+          ruff check --select F821,F823 pb_raster_schedule_extractor.py tests/benchmarks/test_mutation_card_style_wd_window_binding.py
+      - name: Download and verify unchanged Umma development source
+        run: |
+          curl -fL --retry 3 --retry-delay 2 'https://umma.ac.ke/wp-content/uploads/2026/06/Builders-work.pdf' -o /tmp/umma.pdf
+          echo 'f30711f69944e66ef993341180e35b49ccfcb36d6f402743284823ab588183af  /tmp/umma.pdf' | sha256sum -c -
+      - name: Measure unchanged-gold Umma benchmark
+        run: |
+          rm -rf /tmp/f28-results
+          python scripts/run_planreader_benchmarks.py --public-tender tenders_ke_umma_hostels --pdf /tmp/umma.pdf --results-dir /tmp/f28-results
+          mkdir -p diagnostics
+          python - <<'PY'
+          from pathlib import Path
+          import json, shutil
+          chosen = None
+          for p in Path('/tmp/f28-results').rglob('*.json'):
+              try:
+                  data = json.loads(p.read_text(encoding='utf-8'))
+              except Exception:
+                  continue
+              if data.get('benchmark_id') == 'tenders_ke_umma_hostels':
+                  chosen = p
+                  break
+          if chosen is None:
+              raise SystemExit('Umma benchmark JSON result not found')
+          shutil.copyfile(chosen, 'diagnostics/f28_umma_unchanged_gold_result.json')
+          PY
+      - name: Commit validated candidate and measurement
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add pb_raster_schedule_extractor.py tests/benchmarks/test_mutation_card_style_wd_window_binding.py diagnostics/f28_umma_unchanged_gold_result.json
+          git commit -m 'F.28: recover fragmented WD window-card identities from same-card semantics'
+          git push origin HEAD:feat/f28-fragmented-wd-card-binding
