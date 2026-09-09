@@ -21,6 +21,11 @@ def _make_page(
     vertical: list[float],
     *,
     prose: list[str] | None = None,
+    secondary_width: float | None = None,
+    secondary_label: str | None = None,
+    secondary_label_y: float = 430.0,
+    secondary_dimension_y: float = 440.0,
+    duplicate_secondary_label: bool = False,
 ):
     doc = fitz.open()
     page = doc.new_page(width=800, height=600)
@@ -28,12 +33,23 @@ def _make_page(
         page.insert_text((240, 80 + idx * 24), _dimension_text(value), fontsize=10)
     for idx, value in enumerate(vertical):
         page.insert_text((90 + idx * 24, 360), _dimension_text(value), fontsize=10, rotate=90)
+    if secondary_width is not None:
+        page.insert_text(
+            (90, secondary_dimension_y),
+            _dimension_text(secondary_width),
+            fontsize=10,
+            rotate=90,
+        )
+    if secondary_label is not None:
+        page.insert_text((300, secondary_label_y), secondary_label, fontsize=10)
+        if duplicate_secondary_label:
+            page.insert_text((450, secondary_label_y), secondary_label, fontsize=10)
     for idx, text in enumerate(prose or []):
         page.insert_text((500, 80 + idx * 20), text, fontsize=9)
     return doc, page
 
 
-def test_resolves_unique_orthogonal_pair_with_secondary_strip():
+def test_resolves_unique_orthogonal_pair_with_supplied_secondary_strip():
     doc, page = _make_page([15.95, 11.05, 4.3], [8.2, 7.8, 4.6, 3.0])
     try:
         result = resolve_orthogonal_envelope_evidence(
@@ -46,8 +62,33 @@ def test_resolves_unique_orthogonal_pair_with_secondary_strip():
         assert result.width_m == pytest.approx(8.2)
         assert result.corroborated_area_m2 == pytest.approx(162.69)
         assert result.relative_area_error == pytest.approx(0.0)
+        assert result.secondary_width_m == pytest.approx(2.0)
+        assert result.secondary_width_evidence is None
         assert result.horizontal_evidence.orientation == "horizontal"
         assert result.vertical_evidence.orientation == "vertical"
+    finally:
+        doc.close()
+
+
+def test_resolves_labeled_secondary_strip_from_its_spatial_band():
+    doc, page = _make_page(
+        [15.95, 11.05, 4.3],
+        [8.2, 7.8, 4.6, 3.0],
+        secondary_width=2.0,
+        secondary_label="VERANDAH",
+    )
+    try:
+        result = resolve_orthogonal_envelope_evidence(
+            page,
+            explicit_floor_area_m2=162.69,
+        )
+        assert result is not None
+        assert (result.length_m, result.width_m) == pytest.approx((15.95, 8.2))
+        assert result.secondary_width_m == pytest.approx(2.0)
+        assert result.secondary_width_evidence is not None
+        assert result.secondary_width_evidence.value_m == pytest.approx(2.0)
+        assert result.secondary_label_evidence is not None
+        assert result.secondary_label_evidence.text.upper() == "VERANDAH"
     finally:
         doc.close()
 
@@ -61,6 +102,7 @@ def test_resolves_simple_rectangle_without_secondary_area():
         )
         assert result is not None
         assert (result.length_m, result.width_m) == pytest.approx((10.0, 8.0))
+        assert result.secondary_width_m is None
     finally:
         doc.close()
 
@@ -74,6 +116,15 @@ def test_text_direction_is_source_evidence_not_bbox_guessing():
         assert by_value[7.0].orientation == "vertical"
         assert abs(by_value[12.0].direction[0]) >= 0.99
         assert abs(by_value[7.0].direction[1]) >= 0.99
+    finally:
+        doc.close()
+
+
+def test_small_figured_dimension_is_retained_for_secondary_width_evidence():
+    doc, page = _make_page([12.0], [7.0], secondary_width=1.5)
+    try:
+        observations = extract_oriented_dimension_observations(page)
+        assert 1.5 in {obs.value_m for obs in observations}
     finally:
         doc.close()
 
@@ -145,7 +196,7 @@ def test_dimension_mutation_changes_resolved_envelope_deterministically():
         doc_b.close()
 
 
-def test_secondary_width_mutation_requires_independent_area_agreement():
+def test_supplied_secondary_width_mutation_requires_area_agreement():
     doc, page = _make_page([12.0], [7.0])
     try:
         good_area = 12.0 * 7.0 + 12.0 * 1.5
@@ -161,6 +212,101 @@ def test_secondary_width_mutation_requires_independent_area_agreement():
         ) is None
     finally:
         doc.close()
+
+
+def test_unrelated_small_dimension_outside_label_band_is_rejected():
+    doc, page = _make_page(
+        [12.0],
+        [7.0],
+        secondary_width=1.5,
+        secondary_label="VERANDAH",
+        secondary_label_y=430.0,
+        secondary_dimension_y=250.0,
+    )
+    try:
+        good_area = 12.0 * 7.0 + 12.0 * 1.5
+        assert resolve_orthogonal_envelope_evidence(
+            page,
+            explicit_floor_area_m2=good_area,
+        ) is None
+    finally:
+        doc.close()
+
+
+def test_secondary_dimension_without_label_cannot_expand_floor_area():
+    doc, page = _make_page([12.0], [7.0], secondary_width=1.5)
+    try:
+        good_area = 12.0 * 7.0 + 12.0 * 1.5
+        assert resolve_orthogonal_envelope_evidence(
+            page,
+            explicit_floor_area_m2=good_area,
+        ) is None
+    finally:
+        doc.close()
+
+
+def test_duplicate_secondary_labels_fail_closed_for_compound_area():
+    doc, page = _make_page(
+        [12.0],
+        [7.0],
+        secondary_width=1.5,
+        secondary_label="VERANDAH",
+        duplicate_secondary_label=True,
+    )
+    try:
+        good_area = 12.0 * 7.0 + 12.0 * 1.5
+        assert resolve_orthogonal_envelope_evidence(
+            page,
+            explicit_floor_area_m2=good_area,
+        ) is None
+    finally:
+        doc.close()
+
+
+def test_conflicting_band_widths_fail_closed_when_both_fit_tolerance():
+    doc = fitz.open()
+    page = doc.new_page(width=800, height=600)
+    page.insert_text((240, 80), "12,000", fontsize=10)
+    page.insert_text((90, 360), "7,000", fontsize=10, rotate=90)
+    page.insert_text((90, 440), "1,500", fontsize=10, rotate=90)
+    page.insert_text((120, 440), "1,600", fontsize=10, rotate=90)
+    page.insert_text((300, 430), "VERANDAH", fontsize=10)
+    try:
+        # Midpoint area keeps both 1.5 and 1.6 within the 1.5% tolerance.
+        ambiguous_area = 12.0 * 7.0 + 12.0 * 1.55
+        assert resolve_orthogonal_envelope_evidence(
+            page,
+            explicit_floor_area_m2=ambiguous_area,
+        ) is None
+    finally:
+        doc.close()
+
+
+def test_label_and_dimension_translation_preserves_resolution():
+    doc_a, page_a = _make_page(
+        [12.0], [7.0], secondary_width=1.5, secondary_label="VERANDAH"
+    )
+    doc_b, page_b = _make_page(
+        [12.0],
+        [7.0],
+        secondary_width=1.5,
+        secondary_label="VERANDAH",
+        secondary_label_y=500.0,
+        secondary_dimension_y=510.0,
+    )
+    try:
+        area = 12.0 * 7.0 + 12.0 * 1.5
+        a = resolve_orthogonal_envelope_evidence(page_a, explicit_floor_area_m2=area)
+        b = resolve_orthogonal_envelope_evidence(page_b, explicit_floor_area_m2=area)
+        assert a is not None and b is not None
+        assert (a.length_m, a.width_m, a.secondary_width_m) == (
+            b.length_m,
+            b.width_m,
+            b.secondary_width_m,
+        )
+    finally:
+        doc_a.close()
+        doc_b.close()
 
 
 def test_invalid_secondary_width_fails_closed():
