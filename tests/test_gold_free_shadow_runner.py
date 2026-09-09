@@ -31,14 +31,18 @@ def _source_sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _legacy_result(path: Path, *predictions: LegacyPredictionSnapshot) -> LegacyExtractionResult:
+def _legacy_result(
+    path: Path,
+    *predictions: LegacyPredictionSnapshot,
+    pages: tuple[int, ...] | None = None,
+) -> LegacyExtractionResult:
     return LegacyExtractionResult(
         result_id="legacy_run_test",
         engine_id=LEGACY_EXTRACTOR_ENGINE_ID,
         adapter_version=LEGACY_EXTRACTOR_ADAPTER_VERSION,
         source_sha256=_source_sha(path),
         source_size_bytes=path.stat().st_size,
-        pages=None,
+        pages=pages,
         predictions=tuple(predictions),
     )
 
@@ -190,7 +194,11 @@ def test_duplicate_semantic_keys_fail_closed(tmp_path: Path) -> None:
 def test_shadow_runner_freezes_both_outputs_and_is_deterministic(tmp_path: Path) -> None:
     source = tmp_path / "source.pdf"
     source.write_bytes(b"source")
-    legacy_result = _legacy_result(source, _legacy_prediction("W1", 2))
+    legacy_result = _legacy_result(
+        source,
+        _legacy_prediction("W1", 2),
+        pages=(0,),
+    )
     legacy_adapter = FakeLegacyAdapter(legacy_result)
     new_engine = FakeNewEngine((_quantity("q1", "W1", 2),))
     runner = GoldFreeShadowRunner(legacy_adapter=legacy_adapter)
@@ -204,8 +212,9 @@ def test_shadow_runner_freezes_both_outputs_and_is_deterministic(tmp_path: Path)
     assert first.new_engine_id == new_engine.engine_id
     assert first.new_engine_version == new_engine.engine_version
     assert first.comparisons[0].status == "agree"
+    assert first.pages == (0,)
     assert legacy_adapter.last_pages == [0]
-    assert new_engine.last_pages == [0]
+    assert new_engine.last_pages == (0,)
 
 
 def test_shadow_runner_rejects_source_mutation_by_new_engine(tmp_path: Path) -> None:

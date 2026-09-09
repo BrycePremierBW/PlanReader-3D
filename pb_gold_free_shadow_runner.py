@@ -302,9 +302,15 @@ class GoldFreeShadowRunner:
                 "source changed before the new engine could run; shadow result was discarded"
             )
 
+        # The legacy adapter owns page-scope normalization because shadow mode
+        # must compare exactly the pages the authoritative engine actually used.
+        # Passing its normalized tuple to the new engine also makes [] mean the
+        # same thing on both sides (legacy semantics: all pages).
+        new_pages = legacy_output.pages
+
         # Materialize the new engine output before the final source hash check so
         # a lazy generator cannot mutate the source after the integrity check.
-        raw_new_output = new_engine.extract_quantities(source, pages=pages)
+        raw_new_output = new_engine.extract_quantities(source, pages=new_pages)
         new_output = tuple(raw_new_output)
         if _sha256_file(source) != source_hash:
             raise SourceMutationDuringShadowRunError(
