@@ -1,0 +1,453 @@
+{
+  "source_sha256": "6856bfa739aa136dd8e0bf17cb25fd43d0d31c9c3dfe3252525454f09d8fa4dc",
+  "source_page": 54,
+  "native_explicit_tags": [
+    {
+      "tag": "D1",
+      "trade_type": "doors",
+      "raw_text": "D\n1"
+    },
+    {
+      "tag": "D1",
+      "trade_type": "doors",
+      "raw_text": "D\n1"
+    },
+    {
+      "tag": "D1",
+      "trade_type": "doors",
+      "raw_text": "D\n1"
+    },
+    {
+      "tag": "D3",
+      "trade_type": "doors",
+      "raw_text": "D\n3"
+    }
+  ],
+  "native_opening_blocks": [
+    {
+      "text": "1. This drawing is copyright 2. Do not scale off this drawing 3. All levels and dimensions to be checked on site before any building work commences 4. Any discrepancies to be reported to the office of the consultant 5. All work to be strictly in accordance to with the standard specifications and notes 6. This drawing is to be read in conjunction with specifications and all other relevant drawings 7. Walls below 200mm thick to be reinforced with hoop iron at every alternate course 8. Depth of foundations to be decided on site 9. pv denotes permanent air vents over doors and windows as shown on drawings",
+      "bbox": [
+        2057.37,
+        65.74,
+        2276.92,
+        262.1
+      ]
+    },
+    {
+      "text": "14. All internal doors to be semi solid core doors with mahogany veneer facing",
+      "bbox": [
+        2055.71,
+        359.36,
+        2340.66,
+        383.47
+      ]
+    },
+    {
+      "text": "2,900mm x 900mm steel casement windows with",
+      "bbox": [
+        173.12,
+        238.39,
+        272.07,
+        259.7
+      ]
+    },
+    {
+      "text": "3,000mm x 900mm steel casement windows with",
+      "bbox": [
+        328.22,
+        238.39,
+        427.18,
+        259.7
+      ]
+    },
+    {
+      "text": "2,900mm x 900mm steel casement windows with 4mm thick glass",
+      "bbox": [
+        626.83,
+        238.39,
+        725.75,
+        270.55
+      ]
+    },
+    {
+      "text": "2,900mm x 900mm steel casement windows with 4mm thick glass",
+      "bbox": [
+        728.27,
+        636.8,
+        827.19,
+        668.96
+      ]
+    },
+    {
+      "text": "2,900mm x 900mm steel casement windows with 4mm thick glass",
+      "bbox": [
+        523.64,
+        836.17,
+        622.56,
+        868.32
+      ]
+    },
+    {
+      "text": "1,000mm x 2,100mm timber batten door with 3 nos. butt",
+      "bbox": [
+        70.11,
+        742.99,
+        184.19,
+        764.3
+      ]
+    },
+    {
+      "text": "2,900mm x 900mm steel casement windows with 4mm thick glass",
+      "bbox": [
+        1185.24,
+        323.3,
+        1284.17,
+        355.45
+      ]
+    },
+    {
+      "text": "1,000mm x 2,100mm timber batten door with 3 nos. butt",
+      "bbox": [
+        745.22,
+        279.43,
+        859.3,
+        300.74
+      ]
+    },
+    {
+      "text": "15 degree roof pitch with IT5 gauge 26 on 50mm x 50mm s/w battens on s/w timber trusses.",
+      "bbox": [
+        1797.42,
+        299.58,
+        1902.67,
+        342.58
+      ]
+    },
+    {
+      "text": "15 degree roof pitch with IT5 gauge 26 on 50mm x 50mm s/w battens on s/w timber trusses.",
+      "bbox": [
+        1784.5,
+        741.41,
+        1889.75,
+        784.41
+      ]
+    },
+    {
+      "text": "3,000mm x 900mm steel casement windows with 4mm thick glass 15 degree roof pitch with IT5 gauge 26 on 50mm x 50mm s/w battens on s/w timber trusses.",
+      "bbox": [
+        1251.64,
+        1100.27,
+        1836.36,
+        1168.59
+      ]
+    },
+    {
+      "text": "15 degree roof pitch with IT5 gauge 26 on 50mm x 50mm s/w battens on s/w timber trusses.",
+      "bbox": [
+        880.05,
+        1085.26,
+        985.29,
+        1128.27
+      ]
+    },
+    {
+      "text": "15 degree roof pitch with IT5 gauge 26 on 50mm x 50mm s/w battens on s/w timber trusses.",
+      "bbox": [
+        1176.52,
+        704.24,
+        1281.77,
+        747.24
+      ]
+    }
+  ],
+  "current_extractor_rows": [],
+  "ocr_explicit_tags": [],
+  "ocr_opening_text": [
+    {
+      "text": "9. pv denotes permanent air vents over doors and",
+      "confidence": 0.9992,
+      "bbox": [
+        2056.0,
+        237.91,
+        2257.76,
+        250.16
+      ],
+      "variant": "raw"
+    },
+    {
+      "text": "casement windows with",
+      "confidence": 0.9999,
+      "bbox": [
+        171.96,
+        249.74,
+        273.86,
+        259.46
+      ],
+      "variant": "raw"
+    },
+    {
+      "text": "casement windows with",
+      "confidence": 1.0,
+      "bbox": [
+        327.36,
+        249.74,
+        428.42,
+        259.46
+      ],
+      "variant": "contrast"
+    },
+    {
+      "text": "casement windows with-",
+      "confidence": 0.982,
+      "bbox": [
+        171.96,
+        250.16,
+        273.86,
+        259.88
+      ],
+      "variant": "contrast"
+    },
+    {
+      "text": "casement windows with-",
+      "confidence": 0.9879,
+      "bbox": [
+        327.36,
+        250.16,
+        428.84,
+        259.88
+      ],
+      "variant": "raw"
+    },
+    {
+      "text": "-casement windows with",
+      "confidence": 0.9839,
+      "bbox": [
+        625.43,
+        250.16,
+        726.91,
+        259.88
+      ],
+      "variant": "contrast"
+    },
+    {
+      "text": "windows as shown on drawings",
+      "confidence": 0.9947,
+      "bbox": [
+        2065.77,
+        251.01,
+        2194.05,
+        262.84
+      ],
+      "variant": "raw"
+    },
+    {
+      "text": "batten door with 3 nos.",
+      "confidence": 0.9968,
+      "bbox": [
+        743.47,
+        290.31,
+        841.98,
+        301.29
+      ],
+      "variant": "contrast"
+    },
+    {
+      "text": "oatten door with 3 nos. butt-",
+      "confidence": 0.9834,
+      "bbox": [
+        746.97,
+        290.85,
+        861.83,
+        301.03
+      ],
+      "variant": "contrast"
+    },
+    {
+      "text": "oatten door with 3 nos. butt",
+      "confidence": 0.9902,
+      "bbox": [
+        746.97,
+        291.29,
+        861.38,
+        300.15
+      ],
+      "variant": "raw"
+    },
+    {
+      "text": "50mm s/w battens on s/w",
+      "confidence": 0.9996,
+      "bbox": [
+        1796.05,
+        322.0,
+        1903.09,
+        331.72
+      ],
+      "variant": "raw"
+    },
+    {
+      "text": "casement windows with",
+      "confidence": 0.9999,
+      "bbox": [
+        1183.98,
+        334.68,
+        1285.38,
+        344.86
+      ],
+      "variant": "raw"
+    },
+    {
+      "text": "14. All internal doors to be semi solid core doors with mahogany veneer",
+      "confidence": 0.9972,
+      "bbox": [
+        2053.88,
+        359.61,
+        2342.29,
+        372.71
+      ],
+      "variant": "contrast"
+    },
+    {
+      "text": "ement windows with",
+      "confidence": 0.9974,
+      "bbox": [
+        746.97,
+        647.25,
+        829.08,
+        658.86
+      ],
+      "variant": "raw"
+    },
+    {
+      "text": "-casement windows with",
+      "confidence": 0.9825,
+      "bbox": [
+        726.91,
+        648.39,
+        828.39,
+        658.0
+      ],
+      "variant": "raw"
+    },
+    {
+      "text": "50mm s/w battens on s/w",
+      "confidence": 0.9809,
+      "bbox": [
+        1175.46,
+        726.28,
+        1283.14,
+        736.55
+      ],
+      "variant": "contrast"
+    },
+    {
+      "text": "battęn door with 3 nos. butt",
+      "confidence": 0.9896,
+      "bbox": [
+        68.36,
+        754.15,
+        185.97,
+        765.02
+      ],
+      "variant": "raw"
+    },
+    {
+      "text": "battęn door with 3 nos. butt-",
+      "confidence": 0.9796,
+      "bbox": [
+        68.36,
+        754.15,
+        185.97,
+        765.02
+      ],
+      "variant": "contrast"
+    },
+    {
+      "text": "50mm w battens on s/w",
+      "confidence": 0.9607,
+      "bbox": [
+        1782.45,
+        762.51,
+        1891.19,
+        774.63
+      ],
+      "variant": "contrast"
+    },
+    {
+      "text": "casement windows with",
+      "confidence": 1.0,
+      "bbox": [
+        522.25,
+        846.95,
+        624.16,
+        857.81
+      ],
+      "variant": "raw"
+    },
+    {
+      "text": "-casement windows with",
+      "confidence": 0.9617,
+      "bbox": [
+        522.25,
+        846.95,
+        624.16,
+        857.81
+      ],
+      "variant": "contrast"
+    },
+    {
+      "text": "50mm s/w battens on s/w",
+      "confidence": 0.9998,
+      "bbox": [
+        878.43,
+        1106.55,
+        987.46,
+        1118.5
+      ],
+      "variant": "contrast"
+    },
+    {
+      "text": "-casement windows with",
+      "confidence": 0.989,
+      "bbox": [
+        1250.39,
+        1111.42,
+        1351.79,
+        1121.6
+      ],
+      "variant": "contrast"
+    },
+    {
+      "text": "casement windows with",
+      "confidence": 0.9854,
+      "bbox": [
+        1250.39,
+        1111.62,
+        1351.79,
+        1121.89
+      ],
+      "variant": "raw"
+    },
+    {
+      "text": "50mm s/w battens onsw",
+      "confidence": 0.9551,
+      "bbox": [
+        1729.78,
+        1147.5,
+        1837.67,
+        1155.86
+      ],
+      "variant": "contrast"
+    },
+    {
+      "text": "50mm s/w battens oprs",
+      "confidence": 0.9747,
+      "bbox": [
+        1729.78,
+        1147.58,
+        1837.25,
+        1158.57
+      ],
+      "variant": "contrast"
+    }
+  ]
+}
