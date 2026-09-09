@@ -1,0 +1,76 @@
+name: F24B Explicit Opening Probe
+
+on:
+  push:
+    branches:
+      - codex/f24b-explicit-opening-recovery
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install probe dependencies
+        run: pip install PyMuPDF==1.28.0
+      - name: Download hash-verified development drawing source
+        run: |
+          curl -fL --retry 3 --retry-delay 2 'https://tenders.go.ke/storage/Documents/1727358888238-bq-nd-drawing.pdf' -o /tmp/kstvet.pdf
+          echo '6856bfa739aa136dd8e0bf17cb25fd43d0d31c9c3dfe3252525454f09d8fa4dc  /tmp/kstvet.pdf' | sha256sum -c -
+      - name: Inspect explicit opening evidence and current generic schedule extraction
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: |
+          python - <<'PY'
+          import re
+          import fitz
+          from pb_raster_schedule_extractor import GenericScheduleTableExtractor
+          from pb_opening_tag_normalization import find_explicit_opening_tags
+
+          doc = fitz.open('/tmp/kstvet.pdf')
+          ex = GenericScheduleTableExtractor()
+          tag_re = re.compile(r'(?<![A-Za-z0-9])(?:WINDOW|WIN|W|DOOR|DR|D)\s*[-_]?\s*\d{1,3}(?![A-Za-z0-9])', re.I)
+          dim_re = re.compile(r'\b\d{3,4}\s*(?:mm)?\s*[xX×*]\s*\d{3,4}\b', re.I)
+          count_re = re.compile(r'\b\d{1,3}\s*(?:no\.?s?|nos?)\b', re.I)
+
+          all_rows = []
+          for pno, page in enumerate(doc):
+              text = page.get_text('text') or ''
+              tags = find_explicit_opening_tags(text)
+              if tags or tag_re.search(text):
+                  print(f'PAGE {pno+1} chars={len(text)} explicit_tags={[t.tag for t in tags]}')
+                  for block in page.get_text('blocks') or []:
+                      btxt = ' '.join(str(block[4]).split())
+                      if tag_re.search(btxt) or (dim_re.search(btxt) and re.search(r'window|door|casement|batten|glaz', btxt, re.I)):
+                          print(' BLOCK', btxt[:600])
+                  words = page.get_text('words') or []
+                  # emit visual rows containing tag/dimension/count evidence
+                  visual=[]
+                  for w in sorted(words,key=lambda w:(((w[1]+w[3])/2.0),w[0])):
+                      cy=(w[1]+w[3])/2.0
+                      target=None
+                      for r in visual:
+                          if abs(cy-r['cy'])<=5.0:
+                              target=r;break
+                      if target is None:
+                          target={'cy':cy,'words':[]};visual.append(target)
+                      target['words'].append(w)
+                  for r in visual:
+                      rt=' '.join(str(w[4]) for w in sorted(r['words'],key=lambda w:w[0]))
+                      if tag_re.search(rt) or (dim_re.search(rt) and count_re.search(rt)):
+                          print(' ROW', rt[:600])
+              rows = ex.extract_from_page(page,pno+1)
+              for row in rows:
+                  if row.trade_type in ('windows','doors'):
+                      print(' EXTRACTED',pno+1,row.to_dict())
+                      all_rows.append(row)
+          print('DEDUPED')
+          for row in ex.deduplicate_schedule_rows(all_rows):
+              print(row.to_dict())
+          doc.close()
+          PY
