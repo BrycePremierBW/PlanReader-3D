@@ -21,6 +21,8 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 import fitz
 
+from pb_opening_tag_normalization import normalize_opening_tag
+
 
 @dataclass
 class ScheduleCell:
@@ -105,11 +107,18 @@ class GenericScheduleTableExtractor:
         table_rows = self._extract_tables_from_page(page, page_num)
         page_rows.extend(table_rows)
 
-        # 2. Column-aligned schedule detection (CAD multi-column schedules)
+        # 2. Row-aligned schedule detection. This path is independent of
+        # PyMuPDF's structured-table detector and is therefore stable for
+        # vector/CAD schedules whose cells are visually aligned but not
+        # recognized by ``find_tables()``.
+        row_rows = self._extract_row_aligned_opening_schedules(page, page_num)
+        page_rows.extend(row_rows)
+
+        # 3. Column-aligned schedule detection (CAD multi-column schedules)
         col_rows = self._extract_column_aligned_schedules(page, page_num)
         page_rows.extend(col_rows)
 
-        # 3. Explicit callouts (windows, doors, vents, pillars, trusses)
+        # 4. Explicit callouts (windows, doors, vents, pillars, trusses)
         callout_rows = self._extract_callouts_from_page(page, page_num)
         page_rows.extend(callout_rows)
 
@@ -159,22 +168,23 @@ class GenericScheduleTableExtractor:
                     qty_val = self._parse_quantity_string(raw_qty)
                     dims = self._parse_dimensions_string(raw_dim)
 
-                    # Determine trade type
+                    # Normalize only an explicitly documented opening identity.
+                    # Dimensions never imply W/D tags.
+                    normalized_opening = normalize_opening_tag(raw_tag)
                     combined_text = f"{raw_tag} {raw_desc} {raw_dim}".lower()
-                    trade = "other"
-                    if any(k in combined_text for k in ("window", "casement", "glaz", "w1", "w2", "w3", "w4")):
+                    trade = normalized_opening.trade_type if normalized_opening else "other"
+                    if trade == "other" and any(k in combined_text for k in ("window", "casement", "glaz")):
                         trade = "windows"
-                    elif any(k in combined_text for k in ("door", "flush", "panelled", "d1", "d2")):
+                    elif trade == "other" and any(k in combined_text for k in ("door", "flush", "panelled")):
                         trade = "doors"
-                    elif any(k in combined_text for k in ("vent", "pv")):
+                    elif trade == "other" and any(k in combined_text for k in ("vent", "pv")):
                         trade = "walls"
-                    elif any(k in combined_text for k in ("pillar", "column", "pier", "truss")):
+                    elif trade == "other" and any(k in combined_text for k in ("pillar", "column", "pier", "truss")):
                         trade = "structure"
 
-                    # Only accept recognized architectural trade tags, skip generic non-schedule items
                     if trade == "other" or not raw_tag or raw_tag.startswith("ITEM_") or raw_tag.isdigit():
                         continue
-                    tag_name = raw_tag
+                    tag_name = normalized_opening.tag if normalized_opening else raw_tag
 
                     if qty_val is not None and qty_val > 0:
                         rows.append(
@@ -209,6 +219,89 @@ class GenericScheduleTableExtractor:
                         )
         except Exception:
             pass
+
+        return rows
+
+    def _extract_row_aligned_opening_schedules(self, page: fitz.Page, page_num: int) -> List[ScheduleRow]:
+        """Recover explicit opening schedule rows from native word geometry.
+
+        This is a deterministic fallback for vector/CAD schedule sheets where
+        ``Page.find_tables()`` does not recognize the grid. A firm row requires
+        all three pieces of source evidence on one visual row: an explicit W/D
+        identity, figured dimensions, and an explicit count marker. Dimensions
+        or counts alone never manufacture an opening identity.
+        """
+        rows: List[ScheduleRow] = []
+        try:
+            page_text = page.get_text("text") or ""
+            normalized_page = re.sub(r"\s+", " ", page_text.lower())
+            has_schedule_context = (
+                bool(re.search(r"\bschedules?\b", normalized_page))
+                and bool(re.search(r"\b(?:windows?|doors?)\b", normalized_page))
+            )
+            if not has_schedule_context:
+                return rows
+
+            words = page.get_text("words") or []
+            if not words:
+                return rows
+
+            # Cluster by visual baseline rather than PDF block identity. CAD
+            # exports commonly place each schedule cell in a separate block.
+            visual_rows: List[Dict[str, Any]] = []
+            for word in sorted(words, key=lambda w: (((w[1] + w[3]) / 2.0), w[0])):
+                cy = (float(word[1]) + float(word[3])) / 2.0
+                target = None
+                for candidate in visual_rows:
+                    if abs(cy - candidate["cy"]) <= 4.5:
+                        target = candidate
+                        break
+                if target is None:
+                    target = {"cy": cy, "words": []}
+                    visual_rows.append(target)
+                target["words"].append(word)
+                n = len(target["words"])
+                target["cy"] = ((target["cy"] * (n - 1)) + cy) / n
+
+            for visual in visual_rows:
+                row_words = sorted(visual["words"], key=lambda w: w[0])
+                row_text = " ".join(str(w[4]) for w in row_words).strip()
+                normalized_opening = normalize_opening_tag(row_text)
+                if normalized_opening is None:
+                    continue
+
+                dims = self._parse_dimensions_string(row_text)
+                qty_match = re.search(r"\b(\d{1,3})\s*(?:no\.?s?|nos?)\b", row_text, re.I)
+                if dims is None or qty_match is None:
+                    continue
+
+                qty = float(qty_match.group(1))
+                if qty <= 0:
+                    continue
+
+                x0 = min(float(w[0]) for w in row_words)
+                y0 = min(float(w[1]) for w in row_words)
+                x1 = max(float(w[2]) for w in row_words)
+                y1 = max(float(w[3]) for w in row_words)
+                rows.append(
+                    ScheduleRow(
+                        tag=normalized_opening.tag,
+                        trade_type=normalized_opening.trade_type,
+                        description=(
+                            f"Row-aligned schedule item {normalized_opening.tag} "
+                            f"({int(qty)} No)"
+                        ),
+                        quantity=qty,
+                        unit="NO",
+                        dimensions=dims,
+                        source_page=page_num,
+                        bbox=(x0, y0, x1, y1),
+                        confidence=0.87,
+                        evidence_text=f"Row-aligned native schedule evidence: {row_text}",
+                    )
+                )
+        except Exception:
+            return []
 
         return rows
 
@@ -250,15 +343,18 @@ class GenericScheduleTableExtractor:
                 col_w = [w for w in sched_words if x_min <= w[0] <= x_max]
                 col_text = " ".join(w[4] for w in sorted(col_w, key=lambda w: (w[1], w[0])))
                 
+                normalized_opening = normalize_opening_tag(col_text)
                 is_window = any(k in col_text.lower() for k in ("casement", "window", "glass", "fixed glass"))
                 is_door = any(k in col_text.lower() for k in ("door", "flush door", "panelled door"))
 
-                if not (is_window or is_door):
+                if normalized_opening is not None:
+                    trade = normalized_opening.trade_type
+                elif is_window != is_door:
+                    trade = "windows" if is_window else "doors"
+                else:
                     continue
 
-                trade = "windows" if is_window else "doors"
                 dims = self._parse_dimensions_string(col_text)
-
                 qty_match = re.search(r"\b(\d+)\s*(?:no\.?s?|nos?)\b", col_text, re.I)
                 qty = float(qty_match.group(1)) if qty_match else None
 
@@ -267,10 +363,11 @@ class GenericScheduleTableExtractor:
                 c_x1 = max(w[2] for w in col_w)
                 c_y1 = max(w[3] for w in col_w)
 
-                tag_match = re.search(r"\b(W\d+|D\d+)\b", col_text, re.I)
-                tag_name = tag_match.group(1).upper() if tag_match else f"{trade[0].upper()}_COL_{col_idx}"
+                tag_name = normalized_opening.tag if normalized_opening else f"{trade[0].upper()}_COL_{col_idx}"
 
-                if qty is not None:
+                # Untagged visual columns remain provisional even when a count
+                # is visible: type existence is not schedule identity.
+                if qty is not None and normalized_opening is not None:
                     rows.append(
                         ScheduleRow(
                             tag=tag_name,
@@ -290,7 +387,7 @@ class GenericScheduleTableExtractor:
                         ScheduleRow(
                             tag=tag_name,
                             trade_type=trade,
-                            description=f"Column schedule item {tag_name} (unquantified)",
+                            description=f"Column schedule item {tag_name} (unresolved identity/count)",
                             quantity=None,
                             unit="NO",
                             dimensions=dims,
@@ -481,9 +578,68 @@ class GenericScheduleTableExtractor:
         deduped: Dict[str, ScheduleRow] = {}
         vent_pages: Dict[int, float] = {}
 
+        # Canonical aliases for one documented opening identity must agree.
+        # Conflicting counts or dimensions fail closed instead of allowing
+        # source order / confidence to pick a winner.
+        opening_groups: Dict[str, List[ScheduleRow]] = {}
+        for candidate in rows:
+            if candidate.is_provisional:
+                continue
+            norm = normalize_opening_tag(candidate.tag)
+            if norm is None:
+                continue
+            candidate.tag = norm.tag
+            candidate.trade_type = norm.trade_type
+            opening_groups.setdefault(norm.tag, []).append(candidate)
+
+        conflicting_opening_tags = set()
+        resolved_opening_rows: Dict[str, ScheduleRow] = {}
+        for tag, group in opening_groups.items():
+            quantities = {float(r.quantity) for r in group if r.quantity is not None}
+            dimensions = {
+                tuple(float(v) for v in r.dimensions[:2])
+                for r in group
+                if r.dimensions is not None and len(r.dimensions) >= 2
+            }
+            if len(quantities) > 1 or len(dimensions) > 1:
+                conflicting_opening_tags.add(tag)
+                continue
+
+            # Multiple generic detectors may observe the same explicit W/D row.
+            # Prefer the most complete agreeing evidence over raw confidence:
+            # a count-only note must never overwrite a lower-confidence row
+            # that carries the same count plus figured width/height.
+            resolved_opening_rows[tag] = max(
+                group,
+                key=lambda candidate: (
+                    int(
+                        candidate.quantity is not None
+                        and candidate.quantity > 0
+                        and candidate.dimensions is not None
+                        and len(candidate.dimensions) >= 2
+                    ),
+                    int(candidate.dimensions is not None and len(candidate.dimensions) >= 2),
+                    int(candidate.quantity is not None and candidate.quantity > 0),
+                    candidate.confidence,
+                ),
+            )
+
         for r in rows:
             if r.is_provisional:
                 continue
+
+            norm = normalize_opening_tag(r.tag)
+            if norm is not None:
+                r.tag = norm.tag
+                r.trade_type = norm.trade_type
+                if r.tag in conflicting_opening_tags:
+                    continue
+                # One canonical row per explicit opening identity.  Selecting
+                # it here prevents a second count-only detector result from
+                # surviving under a dimensionless key and later overwriting
+                # the complete schedule prediction in production.
+                if resolved_opening_rows.get(r.tag) is not r:
+                    continue
 
             if r.tag == "brick_vents":
                 if r.source_page not in vent_pages and r.quantity:

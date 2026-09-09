@@ -118,6 +118,37 @@ def test_mutation_1_synthetic_schedule_produces_exact_new_values(tmp_path: Path)
     assert rows["brick_vents"].quantity == 5.0
 
 
+def test_agreeing_count_only_duplicate_cannot_strip_figured_dimensions() -> None:
+    extractor = GenericScheduleTableExtractor()
+    rows = extractor.deduplicate_schedule_rows([
+        ScheduleRow(
+            tag="WINDOW 42",
+            trade_type="windows",
+            description="Explicit drawing count",
+            quantity=7.0,
+            unit="NO",
+            dimensions=None,
+            source_page=1,
+            confidence=0.99,
+        ),
+        ScheduleRow(
+            tag="W-42",
+            trade_type="windows",
+            description="Complete schedule row",
+            quantity=7.0,
+            unit="NO",
+            dimensions=[1610.0, 1180.0],
+            source_page=1,
+            confidence=0.80,
+        ),
+    ])
+
+    assert len(rows) == 1
+    assert rows[0].tag == "W42"
+    assert rows[0].quantity == 7.0
+    assert rows[0].dimensions == [1610.0, 1180.0]
+
+
 def test_mutation_2_removing_schedule_row_removes_prediction(tmp_path: Path) -> None:
     """Proves that removing a row from the schedule removes that prediction (no hallucination/guess)."""
     extractor = GenericScheduleTableExtractor()
