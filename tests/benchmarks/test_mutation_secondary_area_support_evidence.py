@@ -44,14 +44,18 @@ def _support_page(
                 fontsize=8 * scale,
             )
 
+    lower_count = lower_bay_count if lower_bay_count is not None else bay_count
+    shared_count = min(bay_count, lower_count)
+    chain_center_x = 170 + max(0, shared_count - 1) * 58 / 2 + 12
+
     if include_upper:
         put_dims(220, bay_count)
     if include_zone:
-        page.insert_text(pos(340, 245), "VERANDAH", fontsize=10 * scale)
+        page.insert_text(pos(chain_center_x - 25, 245), "VERANDAH", fontsize=10 * scale)
     if include_lower:
-        put_dims(270, lower_bay_count if lower_bay_count is not None else bay_count)
+        put_dims(270, lower_count)
     if include_support:
-        page.insert_text(pos(390, 290), support_text, fontsize=8 * scale)
+        page.insert_text(pos(chain_center_x - 55, 290), support_text, fontsize=8 * scale)
     return _reopen(doc)
 
 
