@@ -6,12 +6,16 @@
   "holdout_scored": false,
   "metrics": {
     "abstained": 0,
-    "accepted_answered_count": 0,
+    "accepted_answered_count": 15,
     "accepted_missing_provenance": 0,
     "ambiguous_identities": 0,
-    "answered": 0,
-    "by_authority": {},
-    "by_formula": {},
+    "answered": 15,
+    "by_authority": {
+      "schedule_extracted": 15
+    },
+    "by_formula": {
+      "explicit_schedule_count": 15
+    },
     "by_project": {
       "tenders_ke_ghazi_science_lab": {
         "abstained": 0,
@@ -85,7 +89,7 @@
         },
         "precision_on_answered_identities": 0.0,
         "recall": 0.0,
-        "source_status": "SOURCE_UNAVAILABLE"
+        "source_status": "ok"
       },
       "tenders_ke_lamu_ishakani_ecd_classrooms": {
         "abstained": 0,
@@ -120,7 +124,7 @@
         },
         "precision_on_answered_identities": 0.0,
         "recall": 0.0,
-        "source_status": "SOURCE_UNAVAILABLE"
+        "source_status": "ok"
       },
       "tenders_ke_murera_science_lab": {
         "abstained": 0,
@@ -156,26 +160,46 @@
         },
         "precision_on_answered_identities": 0.0,
         "recall": 0.0,
-        "source_status": "SOURCE_UNAVAILABLE"
+        "source_status": "ok"
       },
       "tenders_ke_umma_hostels": {
         "abstained": 0,
         "abstained_keys": [],
-        "accepted_answered_count": 0,
+        "accepted_answered_count": 15,
         "accepted_missing_provenance": 0,
         "ambiguous_identities": 0,
-        "answered": 0,
-        "answered_keys": [],
+        "answered": 15,
+        "answered_keys": [
+          "D1",
+          "D10",
+          "D11",
+          "D12",
+          "D2",
+          "D3",
+          "D4",
+          "D5",
+          "D6",
+          "D7",
+          "D8",
+          "D9",
+          "WD1",
+          "WD2",
+          "WD3"
+        ],
         "benchmark_id": "tenders_ke_umma_hostels",
-        "by_authority": {},
-        "by_formula": {},
+        "by_authority": {
+          "schedule_extracted": 15
+        },
+        "by_formula": {
+          "explicit_schedule_count": 15
+        },
         "conflict_not_fail_closed": 0,
         "conflicts": 0,
-        "coverage": 0.0,
+        "coverage": 1.0,
         "critical_duplicate_counts": 0,
         "dimension_derived_fake_identities": 0,
         "duplicate_counts": 0,
-        "duplicate_observations_suppressed": 0,
+        "duplicate_observations_suppressed": 1,
         "eligible_keys": [
           "WD1",
           "WD2",
@@ -194,49 +218,65 @@
           "D12"
         ],
         "eligible_opening_count_items": 15,
-        "exact_correctness_on_answered_counts": 0.0,
-        "exact_keys": [],
+        "exact_correctness_on_answered_counts": 1.0,
+        "exact_keys": [
+          "D1",
+          "D10",
+          "D11",
+          "D12",
+          "D2",
+          "D3",
+          "D4",
+          "D5",
+          "D6",
+          "D7",
+          "D8",
+          "D9",
+          "WD1",
+          "WD2",
+          "WD3"
+        ],
         "hallucinated_keys": [],
         "hallucinations": 0,
         "legacy_new_agreement": {
-          "agree": 0,
-          "compared": 0,
-          "rate": null
+          "agree": 15,
+          "compared": 15,
+          "rate": 1.0
         },
-        "precision_on_answered_identities": 0.0,
-        "recall": 0.0,
-        "source_status": "SOURCE_UNAVAILABLE"
+        "precision_on_answered_identities": 1.0,
+        "recall": 1.0,
+        "source_status": "ok"
       }
     },
     "conflict_not_fail_closed": 0,
     "conflicts": 0,
-    "coverage": 0.0,
+    "coverage": 0.625,
     "critical_duplicate_counts": 0,
     "dimension_derived_fake_identities": 0,
     "duplicate_counts": 0,
     "eligible_opening_count_items": 24,
-    "exact_correctness_on_answered_counts": 0.0,
+    "exact_correctness_on_answered_counts": 1.0,
     "hallucinations": 0,
     "legacy_new_agreement": {
-      "agree": 0,
-      "compared": 0,
-      "rate": null
+      "agree": 15,
+      "compared": 15,
+      "rate": 1.0
     },
-    "precision_on_answered_identities": 0.0,
-    "recall": 0.0
+    "precision_on_answered_identities": 1.0,
+    "recall": 0.625
   },
   "migration_gate": {
     "authority_recommendation": "remain_new_shadow",
     "checks": {
       "complete_provenance_on_accepted": true,
       "conflicts_fail_closed_or_review": true,
-      "exact_correctness_on_answered_counts": false,
-      "precision_on_answered_identities": false,
+      "exact_correctness_on_answered_counts": true,
+      "precision_on_answered_identities": true,
       "zero_critical_duplicate_counts": true,
       "zero_dimension_derived_fake_identities": true
     },
     "coverage_is_not_a_gate_input": true,
-    "decision": "FAIL",
+    "decision": "PASS",
     "gate": {
       "conflicts_must_fail_closed_or_review": true,
       "max_critical_duplicate_counts": 0,
@@ -249,6 +289,25 @@
   "projects": [
     {
       "benchmark_id": "tenders_ke_kstvet_cbc_classroom",
+      "canonical_openings": [],
+      "diagnostics": {
+        "authoritative": false,
+        "authority_state": "new_shadow",
+        "engine_id": "shadow_opening_count",
+        "engine_version": "1.0.0",
+        "families": [
+          "door_count",
+          "opening_count",
+          "window_count"
+        ],
+        "gold_consulted": false,
+        "pages_considered": [
+          53,
+          54
+        ],
+        "type_count_is_not_physical_reconstruction": true
+      },
+      "entity_evidence": [],
       "frozen_quantities": [],
       "metrics": {
         "abstained": 0,
@@ -285,12 +344,38 @@
         },
         "precision_on_answered_identities": 0.0,
         "recall": 0.0,
-        "source_status": "SOURCE_UNAVAILABLE"
+        "source_status": "ok"
       },
-      "source_status": "SOURCE_UNAVAILABLE"
+      "pages": [
+        53,
+        54
+      ],
+      "shadow_result_id": "shadow_run_9e34ed019c3d19bf1626",
+      "source_pdf": "/workspace/benchmarks/sources/1727358888238-bq-nd-drawing.pdf",
+      "source_status": "ok"
     },
     {
       "benchmark_id": "tenders_ke_murera_science_lab",
+      "canonical_openings": [],
+      "diagnostics": {
+        "authoritative": false,
+        "authority_state": "new_shadow",
+        "engine_id": "shadow_opening_count",
+        "engine_version": "1.0.0",
+        "families": [
+          "door_count",
+          "opening_count",
+          "window_count"
+        ],
+        "gold_consulted": false,
+        "pages_considered": [
+          205,
+          225,
+          236
+        ],
+        "type_count_is_not_physical_reconstruction": true
+      },
+      "entity_evidence": [],
       "frozen_quantities": [],
       "metrics": {
         "abstained": 0,
@@ -326,9 +411,16 @@
         },
         "precision_on_answered_identities": 0.0,
         "recall": 0.0,
-        "source_status": "SOURCE_UNAVAILABLE"
+        "source_status": "ok"
       },
-      "source_status": "SOURCE_UNAVAILABLE"
+      "pages": [
+        205,
+        225,
+        236
+      ],
+      "shadow_result_id": "shadow_run_a0f679fdc13be5a44d0e",
+      "source_pdf": "/workspace/benchmarks/sources/1785347143869-bqs-drawings.pdf",
+      "source_status": "ok"
     },
     {
       "benchmark_id": "tenders_ke_ghazi_science_lab",
@@ -397,25 +489,1659 @@
     },
     {
       "benchmark_id": "tenders_ke_umma_hostels",
-      "frozen_quantities": [],
+      "canonical_openings": [
+        {
+          "children_ids": [],
+          "confidence": null,
+          "deduction_authority": false,
+          "finish": null,
+          "height_m": null,
+          "id": "open_1637be5e2bc9124e0940",
+          "level_id": null,
+          "mark": "D1",
+          "metadata": {
+            "count_kind": "opening_type",
+            "physical_instance_count_not_implied": true,
+            "spatially_reconstructed": false,
+            "type_count": 10.0
+          },
+          "name": "D1 opening type",
+          "object_type": "DOOR",
+          "offset_along_wall_m": null,
+          "opening_type": "DOOR",
+          "parent_id": null,
+          "provenance": {
+            "contributing_evidence": [
+              "ev_78ddaa04712ccceb5620"
+            ],
+            "coordinate_space": null,
+            "document_id": null,
+            "drawing_id": null,
+            "is_stale": false,
+            "is_superseded": false,
+            "opening_instance_id": null,
+            "page_id": null,
+            "page_number": 160,
+            "plan_geometry_signature": null,
+            "producer_module": "shadow_opening_count",
+            "producer_version": "1.0.0",
+            "scale_source": null,
+            "source_coords": null,
+            "source_pdf": "/workspace/benchmarks/sources/umma-university-hostels-builders-work.pdf",
+            "wall_ref": null,
+            "workspace_id": null
+          },
+          "review_state": "REVIEW_REQUIRED",
+          "sill_height_m": null,
+          "substrate": null,
+          "takeoff_eligible": false,
+          "wall_id": null,
+          "width_m": null
+        },
+        {
+          "children_ids": [],
+          "confidence": null,
+          "deduction_authority": false,
+          "finish": null,
+          "height_m": null,
+          "id": "open_e8e6d7cee769d42d7679",
+          "level_id": null,
+          "mark": "D10",
+          "metadata": {
+            "count_kind": "opening_type",
+            "physical_instance_count_not_implied": true,
+            "spatially_reconstructed": false,
+            "type_count": 3.0
+          },
+          "name": "D10 opening type",
+          "object_type": "DOOR",
+          "offset_along_wall_m": null,
+          "opening_type": "DOOR",
+          "parent_id": null,
+          "provenance": {
+            "contributing_evidence": [
+              "ev_86e8aa89d23a222fb021"
+            ],
+            "coordinate_space": null,
+            "document_id": null,
+            "drawing_id": null,
+            "is_stale": false,
+            "is_superseded": false,
+            "opening_instance_id": null,
+            "page_id": null,
+            "page_number": 162,
+            "plan_geometry_signature": null,
+            "producer_module": "shadow_opening_count",
+            "producer_version": "1.0.0",
+            "scale_source": null,
+            "source_coords": null,
+            "source_pdf": "/workspace/benchmarks/sources/umma-university-hostels-builders-work.pdf",
+            "wall_ref": null,
+            "workspace_id": null
+          },
+          "review_state": "REVIEW_REQUIRED",
+          "sill_height_m": null,
+          "substrate": null,
+          "takeoff_eligible": false,
+          "wall_id": null,
+          "width_m": null
+        },
+        {
+          "children_ids": [],
+          "confidence": null,
+          "deduction_authority": false,
+          "finish": null,
+          "height_m": null,
+          "id": "open_f2b5966529fc29118437",
+          "level_id": null,
+          "mark": "D11",
+          "metadata": {
+            "count_kind": "opening_type",
+            "physical_instance_count_not_implied": true,
+            "spatially_reconstructed": false,
+            "type_count": 1.0
+          },
+          "name": "D11 opening type",
+          "object_type": "DOOR",
+          "offset_along_wall_m": null,
+          "opening_type": "DOOR",
+          "parent_id": null,
+          "provenance": {
+            "contributing_evidence": [
+              "ev_6ecd825c07832a2805e9"
+            ],
+            "coordinate_space": null,
+            "document_id": null,
+            "drawing_id": null,
+            "is_stale": false,
+            "is_superseded": false,
+            "opening_instance_id": null,
+            "page_id": null,
+            "page_number": 162,
+            "plan_geometry_signature": null,
+            "producer_module": "shadow_opening_count",
+            "producer_version": "1.0.0",
+            "scale_source": null,
+            "source_coords": null,
+            "source_pdf": "/workspace/benchmarks/sources/umma-university-hostels-builders-work.pdf",
+            "wall_ref": null,
+            "workspace_id": null
+          },
+          "review_state": "REVIEW_REQUIRED",
+          "sill_height_m": null,
+          "substrate": null,
+          "takeoff_eligible": false,
+          "wall_id": null,
+          "width_m": null
+        },
+        {
+          "children_ids": [],
+          "confidence": null,
+          "deduction_authority": false,
+          "finish": null,
+          "height_m": null,
+          "id": "open_b9b04e8612ab4da221be",
+          "level_id": null,
+          "mark": "D12",
+          "metadata": {
+            "count_kind": "opening_type",
+            "physical_instance_count_not_implied": true,
+            "spatially_reconstructed": false,
+            "type_count": 2.0
+          },
+          "name": "D12 opening type",
+          "object_type": "DOOR",
+          "offset_along_wall_m": null,
+          "opening_type": "DOOR",
+          "parent_id": null,
+          "provenance": {
+            "contributing_evidence": [
+              "ev_9aef6426a5b215b0630f"
+            ],
+            "coordinate_space": null,
+            "document_id": null,
+            "drawing_id": null,
+            "is_stale": false,
+            "is_superseded": false,
+            "opening_instance_id": null,
+            "page_id": null,
+            "page_number": 162,
+            "plan_geometry_signature": null,
+            "producer_module": "shadow_opening_count",
+            "producer_version": "1.0.0",
+            "scale_source": null,
+            "source_coords": null,
+            "source_pdf": "/workspace/benchmarks/sources/umma-university-hostels-builders-work.pdf",
+            "wall_ref": null,
+            "workspace_id": null
+          },
+          "review_state": "REVIEW_REQUIRED",
+          "sill_height_m": null,
+          "substrate": null,
+          "takeoff_eligible": false,
+          "wall_id": null,
+          "width_m": null
+        },
+        {
+          "children_ids": [],
+          "confidence": null,
+          "deduction_authority": false,
+          "finish": null,
+          "height_m": null,
+          "id": "open_e515ed7bc2eea4e2d891",
+          "level_id": null,
+          "mark": "D2",
+          "metadata": {
+            "count_kind": "opening_type",
+            "physical_instance_count_not_implied": true,
+            "spatially_reconstructed": false,
+            "type_count": 160.0
+          },
+          "name": "D2 opening type",
+          "object_type": "DOOR",
+          "offset_along_wall_m": null,
+          "opening_type": "DOOR",
+          "parent_id": null,
+          "provenance": {
+            "contributing_evidence": [
+              "ev_ab30245094a26305288d"
+            ],
+            "coordinate_space": null,
+            "document_id": null,
+            "drawing_id": null,
+            "is_stale": false,
+            "is_superseded": false,
+            "opening_instance_id": null,
+            "page_id": null,
+            "page_number": 160,
+            "plan_geometry_signature": null,
+            "producer_module": "shadow_opening_count",
+            "producer_version": "1.0.0",
+            "scale_source": null,
+            "source_coords": null,
+            "source_pdf": "/workspace/benchmarks/sources/umma-university-hostels-builders-work.pdf",
+            "wall_ref": null,
+            "workspace_id": null
+          },
+          "review_state": "REVIEW_REQUIRED",
+          "sill_height_m": null,
+          "substrate": null,
+          "takeoff_eligible": false,
+          "wall_id": null,
+          "width_m": null
+        },
+        {
+          "children_ids": [],
+          "confidence": null,
+          "deduction_authority": false,
+          "finish": null,
+          "height_m": null,
+          "id": "open_d05406f429ce52f4499d",
+          "level_id": null,
+          "mark": "D3",
+          "metadata": {
+            "count_kind": "opening_type",
+            "physical_instance_count_not_implied": true,
+            "spatially_reconstructed": false,
+            "type_count": 308.0
+          },
+          "name": "D3 opening type",
+          "object_type": "DOOR",
+          "offset_along_wall_m": null,
+          "opening_type": "DOOR",
+          "parent_id": null,
+          "provenance": {
+            "contributing_evidence": [
+              "ev_1c67dfff47d5086c42ed"
+            ],
+            "coordinate_space": null,
+            "document_id": null,
+            "drawing_id": null,
+            "is_stale": false,
+            "is_superseded": false,
+            "opening_instance_id": null,
+            "page_id": null,
+            "page_number": 160,
+            "plan_geometry_signature": null,
+            "producer_module": "shadow_opening_count",
+            "producer_version": "1.0.0",
+            "scale_source": null,
+            "source_coords": null,
+            "source_pdf": "/workspace/benchmarks/sources/umma-university-hostels-builders-work.pdf",
+            "wall_ref": null,
+            "workspace_id": null
+          },
+          "review_state": "REVIEW_REQUIRED",
+          "sill_height_m": null,
+          "substrate": null,
+          "takeoff_eligible": false,
+          "wall_id": null,
+          "width_m": null
+        },
+        {
+          "children_ids": [],
+          "confidence": null,
+          "deduction_authority": false,
+          "finish": null,
+          "height_m": null,
+          "id": "open_a0f784f55a420a1c51af",
+          "level_id": null,
+          "mark": "D4",
+          "metadata": {
+            "count_kind": "opening_type",
+            "physical_instance_count_not_implied": true,
+            "spatially_reconstructed": false,
+            "type_count": 308.0
+          },
+          "name": "D4 opening type",
+          "object_type": "DOOR",
+          "offset_along_wall_m": null,
+          "opening_type": "DOOR",
+          "parent_id": null,
+          "provenance": {
+            "contributing_evidence": [
+              "ev_42898162d28991e0abc7"
+            ],
+            "coordinate_space": null,
+            "document_id": null,
+            "drawing_id": null,
+            "is_stale": false,
+            "is_superseded": false,
+            "opening_instance_id": null,
+            "page_id": null,
+            "page_number": 161,
+            "plan_geometry_signature": null,
+            "producer_module": "shadow_opening_count",
+            "producer_version": "1.0.0",
+            "scale_source": null,
+            "source_coords": null,
+            "source_pdf": "/workspace/benchmarks/sources/umma-university-hostels-builders-work.pdf",
+            "wall_ref": null,
+            "workspace_id": null
+          },
+          "review_state": "REVIEW_REQUIRED",
+          "sill_height_m": null,
+          "substrate": null,
+          "takeoff_eligible": false,
+          "wall_id": null,
+          "width_m": null
+        },
+        {
+          "children_ids": [],
+          "confidence": null,
+          "deduction_authority": false,
+          "finish": null,
+          "height_m": null,
+          "id": "open_ec18b221d22edaeb714a",
+          "level_id": null,
+          "mark": "D5",
+          "metadata": {
+            "count_kind": "opening_type",
+            "physical_instance_count_not_implied": true,
+            "spatially_reconstructed": false,
+            "type_count": 1.0
+          },
+          "name": "D5 opening type",
+          "object_type": "DOOR",
+          "offset_along_wall_m": null,
+          "opening_type": "DOOR",
+          "parent_id": null,
+          "provenance": {
+            "contributing_evidence": [
+              "ev_a9b6cf76a19dca9357de"
+            ],
+            "coordinate_space": null,
+            "document_id": null,
+            "drawing_id": null,
+            "is_stale": false,
+            "is_superseded": false,
+            "opening_instance_id": null,
+            "page_id": null,
+            "page_number": 161,
+            "plan_geometry_signature": null,
+            "producer_module": "shadow_opening_count",
+            "producer_version": "1.0.0",
+            "scale_source": null,
+            "source_coords": null,
+            "source_pdf": "/workspace/benchmarks/sources/umma-university-hostels-builders-work.pdf",
+            "wall_ref": null,
+            "workspace_id": null
+          },
+          "review_state": "REVIEW_REQUIRED",
+          "sill_height_m": null,
+          "substrate": null,
+          "takeoff_eligible": false,
+          "wall_id": null,
+          "width_m": null
+        },
+        {
+          "children_ids": [],
+          "confidence": null,
+          "deduction_authority": false,
+          "finish": null,
+          "height_m": null,
+          "id": "open_7de0f0d292206ba2e901",
+          "level_id": null,
+          "mark": "D6",
+          "metadata": {
+            "count_kind": "opening_type",
+            "physical_instance_count_not_implied": true,
+            "spatially_reconstructed": false,
+            "type_count": 1.0
+          },
+          "name": "D6 opening type",
+          "object_type": "DOOR",
+          "offset_along_wall_m": null,
+          "opening_type": "DOOR",
+          "parent_id": null,
+          "provenance": {
+            "contributing_evidence": [
+              "ev_5c9f12beb55f0ec0e5a9"
+            ],
+            "coordinate_space": null,
+            "document_id": null,
+            "drawing_id": null,
+            "is_stale": false,
+            "is_superseded": false,
+            "opening_instance_id": null,
+            "page_id": null,
+            "page_number": 161,
+            "plan_geometry_signature": null,
+            "producer_module": "shadow_opening_count",
+            "producer_version": "1.0.0",
+            "scale_source": null,
+            "source_coords": null,
+            "source_pdf": "/workspace/benchmarks/sources/umma-university-hostels-builders-work.pdf",
+            "wall_ref": null,
+            "workspace_id": null
+          },
+          "review_state": "REVIEW_REQUIRED",
+          "sill_height_m": null,
+          "substrate": null,
+          "takeoff_eligible": false,
+          "wall_id": null,
+          "width_m": null
+        },
+        {
+          "children_ids": [],
+          "confidence": null,
+          "deduction_authority": false,
+          "finish": null,
+          "height_m": null,
+          "id": "open_8210b99675f0a8247d1c",
+          "level_id": null,
+          "mark": "D7",
+          "metadata": {
+            "count_kind": "opening_type",
+            "physical_instance_count_not_implied": true,
+            "spatially_reconstructed": false,
+            "type_count": 12.0
+          },
+          "name": "D7 opening type",
+          "object_type": "DOOR",
+          "offset_along_wall_m": null,
+          "opening_type": "DOOR",
+          "parent_id": null,
+          "provenance": {
+            "contributing_evidence": [
+              "ev_269b349d22777fe26171"
+            ],
+            "coordinate_space": null,
+            "document_id": null,
+            "drawing_id": null,
+            "is_stale": false,
+            "is_superseded": false,
+            "opening_instance_id": null,
+            "page_id": null,
+            "page_number": 161,
+            "plan_geometry_signature": null,
+            "producer_module": "shadow_opening_count",
+            "producer_version": "1.0.0",
+            "scale_source": null,
+            "source_coords": null,
+            "source_pdf": "/workspace/benchmarks/sources/umma-university-hostels-builders-work.pdf",
+            "wall_ref": null,
+            "workspace_id": null
+          },
+          "review_state": "REVIEW_REQUIRED",
+          "sill_height_m": null,
+          "substrate": null,
+          "takeoff_eligible": false,
+          "wall_id": null,
+          "width_m": null
+        },
+        {
+          "children_ids": [],
+          "confidence": null,
+          "deduction_authority": false,
+          "finish": null,
+          "height_m": null,
+          "id": "open_721cbbff381edf02acae",
+          "level_id": null,
+          "mark": "D8",
+          "metadata": {
+            "count_kind": "opening_type",
+            "physical_instance_count_not_implied": true,
+            "spatially_reconstructed": false,
+            "type_count": 6.0
+          },
+          "name": "D8 opening type",
+          "object_type": "DOOR",
+          "offset_along_wall_m": null,
+          "opening_type": "DOOR",
+          "parent_id": null,
+          "provenance": {
+            "contributing_evidence": [
+              "ev_f24ccbdee778c4783e77"
+            ],
+            "coordinate_space": null,
+            "document_id": null,
+            "drawing_id": null,
+            "is_stale": false,
+            "is_superseded": false,
+            "opening_instance_id": null,
+            "page_id": null,
+            "page_number": 161,
+            "plan_geometry_signature": null,
+            "producer_module": "shadow_opening_count",
+            "producer_version": "1.0.0",
+            "scale_source": null,
+            "source_coords": null,
+            "source_pdf": "/workspace/benchmarks/sources/umma-university-hostels-builders-work.pdf",
+            "wall_ref": null,
+            "workspace_id": null
+          },
+          "review_state": "REVIEW_REQUIRED",
+          "sill_height_m": null,
+          "substrate": null,
+          "takeoff_eligible": false,
+          "wall_id": null,
+          "width_m": null
+        },
+        {
+          "children_ids": [],
+          "confidence": null,
+          "deduction_authority": false,
+          "finish": null,
+          "height_m": null,
+          "id": "open_2bfdfcd25496105bef3f",
+          "level_id": null,
+          "mark": "D9",
+          "metadata": {
+            "count_kind": "opening_type",
+            "physical_instance_count_not_implied": true,
+            "spatially_reconstructed": false,
+            "type_count": 1.0
+          },
+          "name": "D9 opening type",
+          "object_type": "DOOR",
+          "offset_along_wall_m": null,
+          "opening_type": "DOOR",
+          "parent_id": null,
+          "provenance": {
+            "contributing_evidence": [
+              "ev_07b732d8ce7f7f0a6b13"
+            ],
+            "coordinate_space": null,
+            "document_id": null,
+            "drawing_id": null,
+            "is_stale": false,
+            "is_superseded": false,
+            "opening_instance_id": null,
+            "page_id": null,
+            "page_number": 161,
+            "plan_geometry_signature": null,
+            "producer_module": "shadow_opening_count",
+            "producer_version": "1.0.0",
+            "scale_source": null,
+            "source_coords": null,
+            "source_pdf": "/workspace/benchmarks/sources/umma-university-hostels-builders-work.pdf",
+            "wall_ref": null,
+            "workspace_id": null
+          },
+          "review_state": "REVIEW_REQUIRED",
+          "sill_height_m": null,
+          "substrate": null,
+          "takeoff_eligible": false,
+          "wall_id": null,
+          "width_m": null
+        },
+        {
+          "children_ids": [],
+          "confidence": null,
+          "deduction_authority": false,
+          "finish": null,
+          "height_m": null,
+          "id": "open_5591e14ed548a35e5df4",
+          "level_id": null,
+          "mark": "WD1",
+          "metadata": {
+            "count_kind": "opening_type",
+            "physical_instance_count_not_implied": true,
+            "spatially_reconstructed": false,
+            "type_count": 172.0
+          },
+          "name": "WD1 opening type",
+          "object_type": "WINDOW",
+          "offset_along_wall_m": null,
+          "opening_type": "WINDOW",
+          "parent_id": null,
+          "provenance": {
+            "contributing_evidence": [
+              "ev_e3f9e6247a17ecaa6346"
+            ],
+            "coordinate_space": null,
+            "document_id": null,
+            "drawing_id": null,
+            "is_stale": false,
+            "is_superseded": false,
+            "opening_instance_id": null,
+            "page_id": null,
+            "page_number": 160,
+            "plan_geometry_signature": null,
+            "producer_module": "shadow_opening_count",
+            "producer_version": "1.0.0",
+            "scale_source": null,
+            "source_coords": null,
+            "source_pdf": "/workspace/benchmarks/sources/umma-university-hostels-builders-work.pdf",
+            "wall_ref": null,
+            "workspace_id": null
+          },
+          "review_state": "REVIEW_REQUIRED",
+          "sill_height_m": null,
+          "substrate": null,
+          "takeoff_eligible": false,
+          "wall_id": null,
+          "width_m": null
+        },
+        {
+          "children_ids": [],
+          "confidence": null,
+          "deduction_authority": false,
+          "finish": null,
+          "height_m": null,
+          "id": "open_374e0da705f2c6dfcc7d",
+          "level_id": null,
+          "mark": "WD2",
+          "metadata": {
+            "count_kind": "opening_type",
+            "physical_instance_count_not_implied": true,
+            "spatially_reconstructed": false,
+            "type_count": 184.0
+          },
+          "name": "WD2 opening type",
+          "object_type": "WINDOW",
+          "offset_along_wall_m": null,
+          "opening_type": "WINDOW",
+          "parent_id": null,
+          "provenance": {
+            "contributing_evidence": [
+              "ev_fdcff625b0d699b07ea6"
+            ],
+            "coordinate_space": null,
+            "document_id": null,
+            "drawing_id": null,
+            "is_stale": false,
+            "is_superseded": false,
+            "opening_instance_id": null,
+            "page_id": null,
+            "page_number": 160,
+            "plan_geometry_signature": null,
+            "producer_module": "shadow_opening_count",
+            "producer_version": "1.0.0",
+            "scale_source": null,
+            "source_coords": null,
+            "source_pdf": "/workspace/benchmarks/sources/umma-university-hostels-builders-work.pdf",
+            "wall_ref": null,
+            "workspace_id": null
+          },
+          "review_state": "REVIEW_REQUIRED",
+          "sill_height_m": null,
+          "substrate": null,
+          "takeoff_eligible": false,
+          "wall_id": null,
+          "width_m": null
+        },
+        {
+          "children_ids": [],
+          "confidence": null,
+          "deduction_authority": false,
+          "finish": null,
+          "height_m": null,
+          "id": "open_45cd44948891da9bef21",
+          "level_id": null,
+          "mark": "WD3",
+          "metadata": {
+            "count_kind": "opening_type",
+            "physical_instance_count_not_implied": true,
+            "spatially_reconstructed": false,
+            "type_count": 4.0
+          },
+          "name": "WD3 opening type",
+          "object_type": "WINDOW",
+          "offset_along_wall_m": null,
+          "opening_type": "WINDOW",
+          "parent_id": null,
+          "provenance": {
+            "contributing_evidence": [
+              "ev_1163b6acd66962275b17"
+            ],
+            "coordinate_space": null,
+            "document_id": null,
+            "drawing_id": null,
+            "is_stale": false,
+            "is_superseded": false,
+            "opening_instance_id": null,
+            "page_id": null,
+            "page_number": 160,
+            "plan_geometry_signature": null,
+            "producer_module": "shadow_opening_count",
+            "producer_version": "1.0.0",
+            "scale_source": null,
+            "source_coords": null,
+            "source_pdf": "/workspace/benchmarks/sources/umma-university-hostels-builders-work.pdf",
+            "wall_ref": null,
+            "workspace_id": null
+          },
+          "review_state": "REVIEW_REQUIRED",
+          "sill_height_m": null,
+          "substrate": null,
+          "takeoff_eligible": false,
+          "wall_id": null,
+          "width_m": null
+        }
+      ],
+      "diagnostics": {
+        "authoritative": false,
+        "authority_state": "new_shadow",
+        "engine_id": "shadow_opening_count",
+        "engine_version": "1.0.0",
+        "families": [
+          "door_count",
+          "opening_count",
+          "window_count"
+        ],
+        "gold_consulted": false,
+        "pages_considered": [
+          159,
+          160,
+          161,
+          178
+        ],
+        "type_count_is_not_physical_reconstruction": true
+      },
+      "entity_evidence": [
+        {
+          "candidate_entity_id": "ent_dd7b6adcca10635eb988",
+          "candidate_type": "opening_type",
+          "confidence": 0.6,
+          "conflict_evidence_ids": [],
+          "evidence_ids": [
+            "ev_78ddaa04712ccceb5620"
+          ],
+          "metadata": {
+            "count_kind": "opening_type_count",
+            "mark": "D1",
+            "plan_instance_count": 0,
+            "scheduled_quantity": 10.0,
+            "spatially_reconstructed": false,
+            "trade_type": "doors"
+          },
+          "reason_codes": [
+            "explicit_schedule_count"
+          ],
+          "schema_version": "1.0.0",
+          "status": "candidate"
+        },
+        {
+          "candidate_entity_id": "ent_b9184f3d324078c1a9d0",
+          "candidate_type": "opening_type",
+          "confidence": 0.6,
+          "conflict_evidence_ids": [],
+          "evidence_ids": [
+            "ev_86e8aa89d23a222fb021"
+          ],
+          "metadata": {
+            "count_kind": "opening_type_count",
+            "mark": "D10",
+            "plan_instance_count": 0,
+            "scheduled_quantity": 3.0,
+            "spatially_reconstructed": false,
+            "trade_type": "doors"
+          },
+          "reason_codes": [
+            "explicit_schedule_count"
+          ],
+          "schema_version": "1.0.0",
+          "status": "candidate"
+        },
+        {
+          "candidate_entity_id": "ent_87304cf366eefc45d303",
+          "candidate_type": "opening_type",
+          "confidence": 0.6,
+          "conflict_evidence_ids": [],
+          "evidence_ids": [
+            "ev_6ecd825c07832a2805e9"
+          ],
+          "metadata": {
+            "count_kind": "opening_type_count",
+            "mark": "D11",
+            "plan_instance_count": 0,
+            "scheduled_quantity": 1.0,
+            "spatially_reconstructed": false,
+            "trade_type": "doors"
+          },
+          "reason_codes": [
+            "explicit_schedule_count"
+          ],
+          "schema_version": "1.0.0",
+          "status": "candidate"
+        },
+        {
+          "candidate_entity_id": "ent_def8a602647adb6ce4e7",
+          "candidate_type": "opening_type",
+          "confidence": 0.6,
+          "conflict_evidence_ids": [],
+          "evidence_ids": [
+            "ev_9aef6426a5b215b0630f"
+          ],
+          "metadata": {
+            "count_kind": "opening_type_count",
+            "mark": "D12",
+            "plan_instance_count": 0,
+            "scheduled_quantity": 2.0,
+            "spatially_reconstructed": false,
+            "trade_type": "doors"
+          },
+          "reason_codes": [
+            "explicit_schedule_count"
+          ],
+          "schema_version": "1.0.0",
+          "status": "candidate"
+        },
+        {
+          "candidate_entity_id": "ent_2aac1c07601a508527a6",
+          "candidate_type": "opening_type",
+          "confidence": 0.6,
+          "conflict_evidence_ids": [],
+          "evidence_ids": [
+            "ev_ab30245094a26305288d"
+          ],
+          "metadata": {
+            "count_kind": "opening_type_count",
+            "mark": "D2",
+            "plan_instance_count": 0,
+            "scheduled_quantity": 160.0,
+            "spatially_reconstructed": false,
+            "trade_type": "doors"
+          },
+          "reason_codes": [
+            "explicit_schedule_count"
+          ],
+          "schema_version": "1.0.0",
+          "status": "candidate"
+        },
+        {
+          "candidate_entity_id": "ent_b30107aa1484fc20ebf6",
+          "candidate_type": "opening_type",
+          "confidence": 0.6,
+          "conflict_evidence_ids": [],
+          "evidence_ids": [
+            "ev_1c67dfff47d5086c42ed"
+          ],
+          "metadata": {
+            "count_kind": "opening_type_count",
+            "mark": "D3",
+            "plan_instance_count": 0,
+            "scheduled_quantity": 308.0,
+            "spatially_reconstructed": false,
+            "trade_type": "doors"
+          },
+          "reason_codes": [
+            "explicit_schedule_count"
+          ],
+          "schema_version": "1.0.0",
+          "status": "candidate"
+        },
+        {
+          "candidate_entity_id": "ent_9c1221082c5a974305cd",
+          "candidate_type": "opening_type",
+          "confidence": 0.6,
+          "conflict_evidence_ids": [],
+          "evidence_ids": [
+            "ev_42898162d28991e0abc7"
+          ],
+          "metadata": {
+            "count_kind": "opening_type_count",
+            "mark": "D4",
+            "plan_instance_count": 0,
+            "scheduled_quantity": 308.0,
+            "spatially_reconstructed": false,
+            "trade_type": "doors"
+          },
+          "reason_codes": [
+            "explicit_schedule_count"
+          ],
+          "schema_version": "1.0.0",
+          "status": "candidate"
+        },
+        {
+          "candidate_entity_id": "ent_7a7cda22d24d52a1f481",
+          "candidate_type": "opening_type",
+          "confidence": 0.6,
+          "conflict_evidence_ids": [],
+          "evidence_ids": [
+            "ev_a9b6cf76a19dca9357de"
+          ],
+          "metadata": {
+            "count_kind": "opening_type_count",
+            "mark": "D5",
+            "plan_instance_count": 0,
+            "scheduled_quantity": 1.0,
+            "spatially_reconstructed": false,
+            "trade_type": "doors"
+          },
+          "reason_codes": [
+            "explicit_schedule_count"
+          ],
+          "schema_version": "1.0.0",
+          "status": "candidate"
+        },
+        {
+          "candidate_entity_id": "ent_a8c25db5fd8428ac8ba6",
+          "candidate_type": "opening_type",
+          "confidence": 0.6,
+          "conflict_evidence_ids": [],
+          "evidence_ids": [
+            "ev_5c9f12beb55f0ec0e5a9"
+          ],
+          "metadata": {
+            "count_kind": "opening_type_count",
+            "mark": "D6",
+            "plan_instance_count": 0,
+            "scheduled_quantity": 1.0,
+            "spatially_reconstructed": false,
+            "trade_type": "doors"
+          },
+          "reason_codes": [
+            "explicit_schedule_count"
+          ],
+          "schema_version": "1.0.0",
+          "status": "candidate"
+        },
+        {
+          "candidate_entity_id": "ent_5fc59e6c2f747c8916f4",
+          "candidate_type": "opening_type",
+          "confidence": 0.6,
+          "conflict_evidence_ids": [],
+          "evidence_ids": [
+            "ev_269b349d22777fe26171"
+          ],
+          "metadata": {
+            "count_kind": "opening_type_count",
+            "mark": "D7",
+            "plan_instance_count": 0,
+            "scheduled_quantity": 12.0,
+            "spatially_reconstructed": false,
+            "trade_type": "doors"
+          },
+          "reason_codes": [
+            "explicit_schedule_count"
+          ],
+          "schema_version": "1.0.0",
+          "status": "candidate"
+        },
+        {
+          "candidate_entity_id": "ent_9b0eb5cf6d1549182ce2",
+          "candidate_type": "opening_type",
+          "confidence": 0.6,
+          "conflict_evidence_ids": [],
+          "evidence_ids": [
+            "ev_f24ccbdee778c4783e77"
+          ],
+          "metadata": {
+            "count_kind": "opening_type_count",
+            "mark": "D8",
+            "plan_instance_count": 0,
+            "scheduled_quantity": 6.0,
+            "spatially_reconstructed": false,
+            "trade_type": "doors"
+          },
+          "reason_codes": [
+            "explicit_schedule_count"
+          ],
+          "schema_version": "1.0.0",
+          "status": "candidate"
+        },
+        {
+          "candidate_entity_id": "ent_987d72854735ea693840",
+          "candidate_type": "opening_type",
+          "confidence": 0.6,
+          "conflict_evidence_ids": [],
+          "evidence_ids": [
+            "ev_07b732d8ce7f7f0a6b13"
+          ],
+          "metadata": {
+            "count_kind": "opening_type_count",
+            "mark": "D9",
+            "plan_instance_count": 0,
+            "scheduled_quantity": 1.0,
+            "spatially_reconstructed": false,
+            "trade_type": "doors"
+          },
+          "reason_codes": [
+            "explicit_schedule_count"
+          ],
+          "schema_version": "1.0.0",
+          "status": "candidate"
+        },
+        {
+          "candidate_entity_id": "ent_a350b7b4d441c37eb618",
+          "candidate_type": "opening_type",
+          "confidence": 0.6,
+          "conflict_evidence_ids": [],
+          "evidence_ids": [
+            "ev_e3f9e6247a17ecaa6346"
+          ],
+          "metadata": {
+            "count_kind": "opening_type_count",
+            "mark": "WD1",
+            "plan_instance_count": 0,
+            "scheduled_quantity": 172.0,
+            "spatially_reconstructed": false,
+            "trade_type": "windows"
+          },
+          "reason_codes": [
+            "explicit_schedule_count"
+          ],
+          "schema_version": "1.0.0",
+          "status": "candidate"
+        },
+        {
+          "candidate_entity_id": "ent_158e361be812a26def50",
+          "candidate_type": "opening_type",
+          "confidence": 0.6,
+          "conflict_evidence_ids": [],
+          "evidence_ids": [
+            "ev_fdcff625b0d699b07ea6"
+          ],
+          "metadata": {
+            "count_kind": "opening_type_count",
+            "mark": "WD2",
+            "plan_instance_count": 0,
+            "scheduled_quantity": 184.0,
+            "spatially_reconstructed": false,
+            "trade_type": "windows"
+          },
+          "reason_codes": [
+            "explicit_schedule_count"
+          ],
+          "schema_version": "1.0.0",
+          "status": "candidate"
+        },
+        {
+          "candidate_entity_id": "ent_6fc189cfcf738dacb3f6",
+          "candidate_type": "opening_type",
+          "confidence": 0.6,
+          "conflict_evidence_ids": [],
+          "evidence_ids": [
+            "ev_1163b6acd66962275b17"
+          ],
+          "metadata": {
+            "count_kind": "opening_type_count",
+            "mark": "WD3",
+            "plan_instance_count": 0,
+            "scheduled_quantity": 4.0,
+            "spatially_reconstructed": false,
+            "trade_type": "windows"
+          },
+          "reason_codes": [
+            "explicit_schedule_count"
+          ],
+          "schema_version": "1.0.0",
+          "status": "candidate"
+        }
+      ],
+      "frozen_quantities": [
+        {
+          "abstained": false,
+          "authority": "schedule_extracted",
+          "blocking_reasons": [],
+          "confidence": 0.55,
+          "evidence_ids": [
+            "ev_78ddaa04712ccceb5620"
+          ],
+          "family": "door_count",
+          "formula": "explicit_schedule_count",
+          "formula_version": "1.0.0",
+          "input_entity_ids": [
+            "ent_dd7b6adcca10635eb988"
+          ],
+          "metadata": {
+            "count_kind": "opening_type_count",
+            "description": "D - 01 card schedule, explicit Overall Quantity",
+            "plan_instance_count": 0,
+            "schedule_count": 10.0,
+            "source_page": 160,
+            "source_sheet": null,
+            "spatially_reconstructed": false,
+            "trade_type": "doors",
+            "viewport_id": null
+          },
+          "quantity_id": "qty_07122ff57caa4abe0192",
+          "reason_codes": [
+            "explicit_schedule_count",
+            "confirmed"
+          ],
+          "schema_version": "1.0.0",
+          "semantic_key": "D1",
+          "status": "provisional",
+          "unit": "ea",
+          "value": 10.0
+        },
+        {
+          "abstained": false,
+          "authority": "schedule_extracted",
+          "blocking_reasons": [],
+          "confidence": 0.55,
+          "evidence_ids": [
+            "ev_86e8aa89d23a222fb021"
+          ],
+          "family": "door_count",
+          "formula": "explicit_schedule_count",
+          "formula_version": "1.0.0",
+          "input_entity_ids": [
+            "ent_b9184f3d324078c1a9d0"
+          ],
+          "metadata": {
+            "count_kind": "opening_type_count",
+            "description": "D - 10 card schedule, explicit Overall Quantity",
+            "plan_instance_count": 0,
+            "schedule_count": 3.0,
+            "source_page": 162,
+            "source_sheet": null,
+            "spatially_reconstructed": false,
+            "trade_type": "doors",
+            "viewport_id": null
+          },
+          "quantity_id": "qty_dcdc038aed099950d8b7",
+          "reason_codes": [
+            "explicit_schedule_count",
+            "confirmed"
+          ],
+          "schema_version": "1.0.0",
+          "semantic_key": "D10",
+          "status": "provisional",
+          "unit": "ea",
+          "value": 3.0
+        },
+        {
+          "abstained": false,
+          "authority": "schedule_extracted",
+          "blocking_reasons": [],
+          "confidence": 0.55,
+          "evidence_ids": [
+            "ev_6ecd825c07832a2805e9"
+          ],
+          "family": "door_count",
+          "formula": "explicit_schedule_count",
+          "formula_version": "1.0.0",
+          "input_entity_ids": [
+            "ent_87304cf366eefc45d303"
+          ],
+          "metadata": {
+            "count_kind": "opening_type_count",
+            "description": "D - 11 card schedule, explicit Overall Quantity",
+            "plan_instance_count": 0,
+            "schedule_count": 1.0,
+            "source_page": 162,
+            "source_sheet": null,
+            "spatially_reconstructed": false,
+            "trade_type": "doors",
+            "viewport_id": null
+          },
+          "quantity_id": "qty_505f253d38c3daf3cb10",
+          "reason_codes": [
+            "explicit_schedule_count",
+            "confirmed"
+          ],
+          "schema_version": "1.0.0",
+          "semantic_key": "D11",
+          "status": "provisional",
+          "unit": "ea",
+          "value": 1.0
+        },
+        {
+          "abstained": false,
+          "authority": "schedule_extracted",
+          "blocking_reasons": [],
+          "confidence": 0.55,
+          "evidence_ids": [
+            "ev_9aef6426a5b215b0630f"
+          ],
+          "family": "door_count",
+          "formula": "explicit_schedule_count",
+          "formula_version": "1.0.0",
+          "input_entity_ids": [
+            "ent_def8a602647adb6ce4e7"
+          ],
+          "metadata": {
+            "count_kind": "opening_type_count",
+            "description": "D - 12 card schedule, explicit Overall Quantity",
+            "plan_instance_count": 0,
+            "schedule_count": 2.0,
+            "source_page": 162,
+            "source_sheet": null,
+            "spatially_reconstructed": false,
+            "trade_type": "doors",
+            "viewport_id": null
+          },
+          "quantity_id": "qty_2c27375af6021bc80061",
+          "reason_codes": [
+            "explicit_schedule_count",
+            "confirmed"
+          ],
+          "schema_version": "1.0.0",
+          "semantic_key": "D12",
+          "status": "provisional",
+          "unit": "ea",
+          "value": 2.0
+        },
+        {
+          "abstained": false,
+          "authority": "schedule_extracted",
+          "blocking_reasons": [],
+          "confidence": 0.55,
+          "evidence_ids": [
+            "ev_ab30245094a26305288d"
+          ],
+          "family": "door_count",
+          "formula": "explicit_schedule_count",
+          "formula_version": "1.0.0",
+          "input_entity_ids": [
+            "ent_2aac1c07601a508527a6"
+          ],
+          "metadata": {
+            "count_kind": "opening_type_count",
+            "description": "D - 02 card schedule, explicit Overall Quantity",
+            "plan_instance_count": 0,
+            "schedule_count": 160.0,
+            "source_page": 160,
+            "source_sheet": null,
+            "spatially_reconstructed": false,
+            "trade_type": "doors",
+            "viewport_id": null
+          },
+          "quantity_id": "qty_651c159a6e63d1ffbf5d",
+          "reason_codes": [
+            "explicit_schedule_count",
+            "confirmed"
+          ],
+          "schema_version": "1.0.0",
+          "semantic_key": "D2",
+          "status": "provisional",
+          "unit": "ea",
+          "value": 160.0
+        },
+        {
+          "abstained": false,
+          "authority": "schedule_extracted",
+          "blocking_reasons": [],
+          "confidence": 0.55,
+          "evidence_ids": [
+            "ev_1c67dfff47d5086c42ed"
+          ],
+          "family": "door_count",
+          "formula": "explicit_schedule_count",
+          "formula_version": "1.0.0",
+          "input_entity_ids": [
+            "ent_b30107aa1484fc20ebf6"
+          ],
+          "metadata": {
+            "count_kind": "opening_type_count",
+            "description": "D - 03 card schedule, explicit Overall Quantity",
+            "plan_instance_count": 0,
+            "schedule_count": 308.0,
+            "source_page": 160,
+            "source_sheet": null,
+            "spatially_reconstructed": false,
+            "trade_type": "doors",
+            "viewport_id": null
+          },
+          "quantity_id": "qty_5833302a02c14b124ecd",
+          "reason_codes": [
+            "explicit_schedule_count",
+            "confirmed"
+          ],
+          "schema_version": "1.0.0",
+          "semantic_key": "D3",
+          "status": "provisional",
+          "unit": "ea",
+          "value": 308.0
+        },
+        {
+          "abstained": false,
+          "authority": "schedule_extracted",
+          "blocking_reasons": [],
+          "confidence": 0.55,
+          "evidence_ids": [
+            "ev_42898162d28991e0abc7"
+          ],
+          "family": "door_count",
+          "formula": "explicit_schedule_count",
+          "formula_version": "1.0.0",
+          "input_entity_ids": [
+            "ent_9c1221082c5a974305cd"
+          ],
+          "metadata": {
+            "count_kind": "opening_type_count",
+            "description": "D - 04 card schedule, explicit Overall Quantity",
+            "plan_instance_count": 0,
+            "schedule_count": 308.0,
+            "source_page": 161,
+            "source_sheet": null,
+            "spatially_reconstructed": false,
+            "trade_type": "doors",
+            "viewport_id": null
+          },
+          "quantity_id": "qty_b8c1dffd2c3f0ad3717c",
+          "reason_codes": [
+            "explicit_schedule_count",
+            "confirmed"
+          ],
+          "schema_version": "1.0.0",
+          "semantic_key": "D4",
+          "status": "provisional",
+          "unit": "ea",
+          "value": 308.0
+        },
+        {
+          "abstained": false,
+          "authority": "schedule_extracted",
+          "blocking_reasons": [],
+          "confidence": 0.55,
+          "evidence_ids": [
+            "ev_a9b6cf76a19dca9357de"
+          ],
+          "family": "door_count",
+          "formula": "explicit_schedule_count",
+          "formula_version": "1.0.0",
+          "input_entity_ids": [
+            "ent_7a7cda22d24d52a1f481"
+          ],
+          "metadata": {
+            "count_kind": "opening_type_count",
+            "description": "D - 05 card schedule, explicit Overall Quantity",
+            "plan_instance_count": 0,
+            "schedule_count": 1.0,
+            "source_page": 161,
+            "source_sheet": null,
+            "spatially_reconstructed": false,
+            "trade_type": "doors",
+            "viewport_id": null
+          },
+          "quantity_id": "qty_aa1bcf5f35d1d851e36f",
+          "reason_codes": [
+            "explicit_schedule_count",
+            "confirmed"
+          ],
+          "schema_version": "1.0.0",
+          "semantic_key": "D5",
+          "status": "provisional",
+          "unit": "ea",
+          "value": 1.0
+        },
+        {
+          "abstained": false,
+          "authority": "schedule_extracted",
+          "blocking_reasons": [],
+          "confidence": 0.55,
+          "evidence_ids": [
+            "ev_5c9f12beb55f0ec0e5a9"
+          ],
+          "family": "door_count",
+          "formula": "explicit_schedule_count",
+          "formula_version": "1.0.0",
+          "input_entity_ids": [
+            "ent_a8c25db5fd8428ac8ba6"
+          ],
+          "metadata": {
+            "count_kind": "opening_type_count",
+            "description": "D - 06 card schedule, explicit Overall Quantity",
+            "plan_instance_count": 0,
+            "schedule_count": 1.0,
+            "source_page": 161,
+            "source_sheet": null,
+            "spatially_reconstructed": false,
+            "trade_type": "doors",
+            "viewport_id": null
+          },
+          "quantity_id": "qty_f42724ce8e9a99e7379d",
+          "reason_codes": [
+            "explicit_schedule_count",
+            "confirmed"
+          ],
+          "schema_version": "1.0.0",
+          "semantic_key": "D6",
+          "status": "provisional",
+          "unit": "ea",
+          "value": 1.0
+        },
+        {
+          "abstained": false,
+          "authority": "schedule_extracted",
+          "blocking_reasons": [],
+          "confidence": 0.55,
+          "evidence_ids": [
+            "ev_269b349d22777fe26171"
+          ],
+          "family": "door_count",
+          "formula": "explicit_schedule_count",
+          "formula_version": "1.0.0",
+          "input_entity_ids": [
+            "ent_5fc59e6c2f747c8916f4"
+          ],
+          "metadata": {
+            "count_kind": "opening_type_count",
+            "description": "D - 07 card schedule, explicit Overall Quantity",
+            "plan_instance_count": 0,
+            "schedule_count": 12.0,
+            "source_page": 161,
+            "source_sheet": null,
+            "spatially_reconstructed": false,
+            "trade_type": "doors",
+            "viewport_id": null
+          },
+          "quantity_id": "qty_4a8bf092b334532478b6",
+          "reason_codes": [
+            "explicit_schedule_count",
+            "confirmed"
+          ],
+          "schema_version": "1.0.0",
+          "semantic_key": "D7",
+          "status": "provisional",
+          "unit": "ea",
+          "value": 12.0
+        },
+        {
+          "abstained": false,
+          "authority": "schedule_extracted",
+          "blocking_reasons": [],
+          "confidence": 0.55,
+          "evidence_ids": [
+            "ev_f24ccbdee778c4783e77"
+          ],
+          "family": "door_count",
+          "formula": "explicit_schedule_count",
+          "formula_version": "1.0.0",
+          "input_entity_ids": [
+            "ent_9b0eb5cf6d1549182ce2"
+          ],
+          "metadata": {
+            "count_kind": "opening_type_count",
+            "description": "D - 08 card schedule, explicit Overall Quantity",
+            "plan_instance_count": 0,
+            "schedule_count": 6.0,
+            "source_page": 161,
+            "source_sheet": null,
+            "spatially_reconstructed": false,
+            "trade_type": "doors",
+            "viewport_id": null
+          },
+          "quantity_id": "qty_2c0d75f00f95d04d9617",
+          "reason_codes": [
+            "explicit_schedule_count",
+            "confirmed"
+          ],
+          "schema_version": "1.0.0",
+          "semantic_key": "D8",
+          "status": "provisional",
+          "unit": "ea",
+          "value": 6.0
+        },
+        {
+          "abstained": false,
+          "authority": "schedule_extracted",
+          "blocking_reasons": [],
+          "confidence": 0.55,
+          "evidence_ids": [
+            "ev_07b732d8ce7f7f0a6b13"
+          ],
+          "family": "door_count",
+          "formula": "explicit_schedule_count",
+          "formula_version": "1.0.0",
+          "input_entity_ids": [
+            "ent_987d72854735ea693840"
+          ],
+          "metadata": {
+            "count_kind": "opening_type_count",
+            "description": "D - 09 card schedule, explicit Overall Quantity",
+            "plan_instance_count": 0,
+            "schedule_count": 1.0,
+            "source_page": 161,
+            "source_sheet": null,
+            "spatially_reconstructed": false,
+            "trade_type": "doors",
+            "viewport_id": null
+          },
+          "quantity_id": "qty_35c92a901064f6af1a26",
+          "reason_codes": [
+            "explicit_schedule_count",
+            "confirmed"
+          ],
+          "schema_version": "1.0.0",
+          "semantic_key": "D9",
+          "status": "provisional",
+          "unit": "ea",
+          "value": 1.0
+        },
+        {
+          "abstained": false,
+          "authority": "schedule_extracted",
+          "blocking_reasons": [],
+          "confidence": 0.55,
+          "evidence_ids": [
+            "ev_e3f9e6247a17ecaa6346"
+          ],
+          "family": "window_count",
+          "formula": "explicit_schedule_count",
+          "formula_version": "1.0.0",
+          "input_entity_ids": [
+            "ent_a350b7b4d441c37eb618"
+          ],
+          "metadata": {
+            "count_kind": "opening_type_count",
+            "description": "W D 01 card schedule, explicit Overall Quantity",
+            "plan_instance_count": 0,
+            "schedule_count": 172.0,
+            "source_page": 160,
+            "source_sheet": null,
+            "spatially_reconstructed": false,
+            "trade_type": "windows",
+            "viewport_id": null
+          },
+          "quantity_id": "qty_aa56a9a9062b9c2bc35f",
+          "reason_codes": [
+            "explicit_schedule_count",
+            "confirmed"
+          ],
+          "schema_version": "1.0.0",
+          "semantic_key": "WD1",
+          "status": "provisional",
+          "unit": "ea",
+          "value": 172.0
+        },
+        {
+          "abstained": false,
+          "authority": "schedule_extracted",
+          "blocking_reasons": [],
+          "confidence": 0.55,
+          "evidence_ids": [
+            "ev_fdcff625b0d699b07ea6"
+          ],
+          "family": "window_count",
+          "formula": "explicit_schedule_count",
+          "formula_version": "1.0.0",
+          "input_entity_ids": [
+            "ent_158e361be812a26def50"
+          ],
+          "metadata": {
+            "count_kind": "opening_type_count",
+            "description": "W D 02 card schedule, explicit Overall Quantity",
+            "plan_instance_count": 0,
+            "schedule_count": 184.0,
+            "source_page": 160,
+            "source_sheet": null,
+            "spatially_reconstructed": false,
+            "trade_type": "windows",
+            "viewport_id": null
+          },
+          "quantity_id": "qty_946e442d68660b78c242",
+          "reason_codes": [
+            "explicit_schedule_count",
+            "confirmed"
+          ],
+          "schema_version": "1.0.0",
+          "semantic_key": "WD2",
+          "status": "provisional",
+          "unit": "ea",
+          "value": 184.0
+        },
+        {
+          "abstained": false,
+          "authority": "schedule_extracted",
+          "blocking_reasons": [],
+          "confidence": 0.55,
+          "evidence_ids": [
+            "ev_1163b6acd66962275b17"
+          ],
+          "family": "window_count",
+          "formula": "explicit_schedule_count",
+          "formula_version": "1.0.0",
+          "input_entity_ids": [
+            "ent_6fc189cfcf738dacb3f6"
+          ],
+          "metadata": {
+            "count_kind": "opening_type_count",
+            "description": "W D 03 card schedule, explicit Overall Quantity",
+            "plan_instance_count": 0,
+            "schedule_count": 4.0,
+            "source_page": 160,
+            "source_sheet": null,
+            "spatially_reconstructed": false,
+            "trade_type": "windows",
+            "viewport_id": null
+          },
+          "quantity_id": "qty_bf3427b21b1ef16e1b00",
+          "reason_codes": [
+            "explicit_schedule_count",
+            "confirmed"
+          ],
+          "schema_version": "1.0.0",
+          "semantic_key": "WD3",
+          "status": "provisional",
+          "unit": "ea",
+          "value": 4.0
+        }
+      ],
       "metrics": {
         "abstained": 0,
         "abstained_keys": [],
-        "accepted_answered_count": 0,
+        "accepted_answered_count": 15,
         "accepted_missing_provenance": 0,
         "ambiguous_identities": 0,
-        "answered": 0,
-        "answered_keys": [],
+        "answered": 15,
+        "answered_keys": [
+          "D1",
+          "D10",
+          "D11",
+          "D12",
+          "D2",
+          "D3",
+          "D4",
+          "D5",
+          "D6",
+          "D7",
+          "D8",
+          "D9",
+          "WD1",
+          "WD2",
+          "WD3"
+        ],
         "benchmark_id": "tenders_ke_umma_hostels",
-        "by_authority": {},
-        "by_formula": {},
+        "by_authority": {
+          "schedule_extracted": 15
+        },
+        "by_formula": {
+          "explicit_schedule_count": 15
+        },
         "conflict_not_fail_closed": 0,
         "conflicts": 0,
-        "coverage": 0.0,
+        "coverage": 1.0,
         "critical_duplicate_counts": 0,
         "dimension_derived_fake_identities": 0,
         "duplicate_counts": 0,
-        "duplicate_observations_suppressed": 0,
+        "duplicate_observations_suppressed": 1,
         "eligible_keys": [
           "WD1",
           "WD2",
@@ -434,23 +2160,67 @@
           "D12"
         ],
         "eligible_opening_count_items": 15,
-        "exact_correctness_on_answered_counts": 0.0,
-        "exact_keys": [],
+        "exact_correctness_on_answered_counts": 1.0,
+        "exact_keys": [
+          "D1",
+          "D10",
+          "D11",
+          "D12",
+          "D2",
+          "D3",
+          "D4",
+          "D5",
+          "D6",
+          "D7",
+          "D8",
+          "D9",
+          "WD1",
+          "WD2",
+          "WD3"
+        ],
         "hallucinated_keys": [],
         "hallucinations": 0,
         "legacy_new_agreement": {
-          "agree": 0,
-          "compared": 0,
-          "rate": null
+          "agree": 15,
+          "compared": 15,
+          "rate": 1.0
         },
-        "precision_on_answered_identities": 0.0,
-        "recall": 0.0,
-        "source_status": "SOURCE_UNAVAILABLE"
+        "precision_on_answered_identities": 1.0,
+        "recall": 1.0,
+        "source_status": "ok"
       },
-      "source_status": "SOURCE_UNAVAILABLE"
+      "pages": [
+        159,
+        160,
+        161,
+        178
+      ],
+      "shadow_result_id": "shadow_run_bf6d441125b3cdb37dac",
+      "source_pdf": "/workspace/benchmarks/sources/umma-university-hostels-builders-work.pdf",
+      "source_status": "ok"
     },
     {
       "benchmark_id": "tenders_ke_lamu_ishakani_ecd_classrooms",
+      "canonical_openings": [],
+      "diagnostics": {
+        "authoritative": false,
+        "authority_state": "new_shadow",
+        "engine_id": "shadow_opening_count",
+        "engine_version": "1.0.0",
+        "families": [
+          "door_count",
+          "opening_count",
+          "window_count"
+        ],
+        "gold_consulted": false,
+        "pages_considered": [
+          40,
+          41,
+          42
+        ],
+        "type_count_is_not_physical_reconstruction": true
+      },
+      "entity_evidence": [],
       "frozen_quantities": [],
       "metrics": {
         "abstained": 0,
@@ -485,9 +2255,16 @@
         },
         "precision_on_answered_identities": 0.0,
         "recall": 0.0,
-        "source_status": "SOURCE_UNAVAILABLE"
+        "source_status": "ok"
       },
-      "source_status": "SOURCE_UNAVAILABLE"
+      "pages": [
+        40,
+        41,
+        42
+      ],
+      "shadow_result_id": "shadow_run_df32f7bded6c7749b196",
+      "source_pdf": "/workspace/benchmarks/sources/lamu-ishakani-ecd-classrooms-boq.pdf",
+      "source_status": "ok"
     }
   ],
   "recommendation": "remain_new_shadow"
