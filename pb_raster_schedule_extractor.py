@@ -122,7 +122,101 @@ class GenericScheduleTableExtractor:
         callout_rows = self._extract_callouts_from_page(page, page_num)
         page_rows.extend(callout_rows)
 
+        # 5. Card-style schedules: a standalone documented tag label sitting
+        # above its own labelled "Overall Quantity" field, rather than a
+        # table row or a bare tag counted on a plan.
+        card_rows = self._extract_card_style_schedules(page, page_num)
+        page_rows.extend(card_rows)
+
         return page_rows
+
+    def _extract_card_style_schedules(self, page: fitz.Page, page_num: int) -> List[ScheduleRow]:
+        """Detect a vertical 'card' schedule shape.
+
+        Some drafting standards lay out one bordered card per opening type
+        (a detail drawing plus a small key/value table) rather than a
+        shared table or a bare tag counted where it appears on a plan. The
+        card states its own total directly in a labelled field such as
+        "Overall Quantity: 172" -- stronger, less ambiguous evidence than
+        counting tag occurrences, when it can be associated with a real
+        documented tag.
+
+        A tag is only accepted when it is the *entire* content of its own
+        text block (typically 1-3 words, e.g. "D", "-", "01") -- never a
+        substring found inside a longer sentence -- and the quantity is
+        associated with the nearest such tag block positioned directly
+        above it in the same horizontal band (real spatial evidence, not
+        document order). A combined/ambiguous prefix (e.g. "WD", split
+        across overlapping text runs in some CAD exports) does not match
+        any single documented opening type via ``normalize_opening_tag``
+        and is safely skipped rather than guessed at.
+        """
+        words = page.get_text("words")
+        blocks: Dict[int, List[tuple]] = {}
+        for w in words:
+            blocks.setdefault(int(w[5]), []).append(w)
+
+        tag_candidates: List[Tuple[Any, Tuple[float, float, float, float]]] = []
+        quantity_candidates: List[Tuple[float, Tuple[float, float, float, float]]] = []
+
+        for block_words in blocks.values():
+            if not block_words:
+                continue
+            ordered = sorted(block_words, key=lambda w: (w[6], w[7]))
+            text = " ".join(str(w[4]) for w in ordered).strip()
+            bbox = (
+                min(w[0] for w in block_words),
+                min(w[1] for w in block_words),
+                max(w[2] for w in block_words),
+                max(w[3] for w in block_words),
+            )
+
+            if len(block_words) <= 3 and len(text) <= 12:
+                norm = normalize_opening_tag(text)
+                if norm is not None:
+                    tag_candidates.append((norm, bbox))
+                    continue
+
+            lower = text.lower()
+            if "overall" in lower and "quantity" in lower:
+                m = re.search(r"(\d+(?:\.\d+)?)\s*$", text)
+                if m:
+                    quantity_candidates.append((float(m.group(1)), bbox))
+
+        rows: List[ScheduleRow] = []
+        for value, qbbox in quantity_candidates:
+            if value <= 0:
+                continue
+            qx0, qy0, qx1, qy1 = qbbox
+            best_norm = None
+            best_dist: Optional[float] = None
+            for norm, tbbox in tag_candidates:
+                tx0, ty0, tx1, ty1 = tbbox
+                if ty1 > qy0:
+                    continue  # the tag must sit above the quantity field
+                overlap = min(tx1, qx1) - max(tx0, qx0)
+                if overlap <= 0:
+                    continue  # must share the same horizontal card column
+                dist = qy0 - ty1
+                if best_dist is None or dist < best_dist:
+                    best_dist = dist
+                    best_norm = norm
+            if best_norm is None:
+                continue
+            rows.append(
+                ScheduleRow(
+                    tag=best_norm.tag,
+                    trade_type=best_norm.trade_type,
+                    description=f"{best_norm.raw_text} card schedule, explicit Overall Quantity",
+                    quantity=value,
+                    unit="NO",
+                    source_page=page_num,
+                    bbox=(qx0, qy0, qx1, qy1),
+                    confidence=0.90,
+                    evidence_text=f"Overall Quantity: {value:g}",
+                )
+            )
+        return rows
 
     def _extract_tables_from_page(self, page: fitz.Page, page_num: int) -> List[ScheduleRow]:
         """Extract schedule rows from structured table grids found by PyMuPDF or vector borders."""
