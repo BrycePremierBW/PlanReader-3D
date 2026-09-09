@@ -1,6 +1,6 @@
 {
   "benchmark_id": "tenders_ke_ghazi_science_lab",
-  "timestamp": "2026-09-09T07:53:58.952460+00:00",
+  "timestamp": "2026-09-09T18:35:48.164505+00:00",
   "project_name": "Proposed Construction of a Science Laboratory at Ghazi Primary School",
   "organization": "NG-CDF Voi Constituency / Ministry of Public Works",
   "tender_reference": "NG-CDF/VOI/GZ/34/2023-2024",
@@ -222,5 +222,11 @@
       "notes": "Item present in BOQ but absent from extraction predictions"
     }
   ],
-  "errors": []
+  "errors": [],
+  "run_id": "ea8c3973d0734aa7b8e30e2b18d03d47",
+  "evaluated_commit_sha": "bd00700678937e9ffdf82ba7cd2384b23f95c031",
+  "scoring_policy_identifier": "public_tender_exact_or_within_5pct_v1",
+  "schema_version": "1.0.0",
+  "evaluator_version": "pb_benchmark_accuracy_engine.v1",
+  "generated_at": "2026-09-09T18:35:59.136329+00:00"
 }

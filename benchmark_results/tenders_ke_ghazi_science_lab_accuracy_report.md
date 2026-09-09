@@ -3,7 +3,7 @@
 - **Benchmark ID**: `tenders_ke_ghazi_science_lab`
 - **Organization**: NG-CDF Voi Constituency / Ministry of Public Works
 - **Tender Reference**: `NG-CDF/VOI/GZ/34/2023-2024`
-- **Evaluation Timestamp**: `2026-09-09T07:53:58.952460+00:00`
+- **Evaluation Timestamp**: `2026-09-09T18:35:48.164505+00:00`
 - **Evaluation Status**: `scored`
 - **Source PDF**: `C:\Users\bryce\Documents\PB-PlanReader-3D\benchmarks\sources\1739211305954-tender-document-for-construction-of-science-laboratory-at-ghazi-primary-school.pdf`
 

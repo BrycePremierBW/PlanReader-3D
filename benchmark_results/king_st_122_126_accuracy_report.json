@@ -1,16 +1,16 @@
 {
-  "benchmark_id": "tenders_ke_mbagha_maternity_dispensary",
-  "timestamp": "2026-09-09T18:35:48.154500+00:00",
-  "project_name": "Proposed Construction of a Maternity Block at Mbagha Dispensary in Mwatate Sub-County",
-  "organization": "County Government of Taita Taveta",
-  "tender_reference": "2028763-2025/2026",
-  "status": "candidate_unscored",
+  "benchmark_id": "king_st_122_126",
+  "timestamp": "2026-09-09T18:35:59.003988+00:00",
+  "project_name": "122-126 King St, Buderim - Construction Issue",
+  "organization": "Public Tender / Commercial Client",
+  "tender_reference": "23-060",
+  "status": "candidate_unverified",
   "is_scored": false,
   "is_headline_eligible": false,
   "source_pdf": null,
   "summary": {
-    "total_boq_items": 123,
-    "total_measurable_expected": 16,
+    "total_boq_items": 135,
+    "total_measurable_expected": 82,
     "total_items_compared": 0,
     "exact_matches": 0,
     "within_5_percent": 0,
@@ -20,17 +20,19 @@
     "missed_items": 0,
     "hallucinated_items": 0,
     "preliminaries_excluded": 0,
-    "provisional_sums_excluded": 1,
+    "provisional_sums_excluded": 5,
     "non_architectural_excluded": 0,
     "overall_accuracy_percentage": null,
     "strict_exact_accuracy_percentage": null
   },
   "item_results": [],
-  "errors": [],
+  "errors": [
+    "unverified_candidate_seed_cannot_contribute_to_accuracy_metrics"
+  ],
   "run_id": "ea8c3973d0734aa7b8e30e2b18d03d47",
   "evaluated_commit_sha": "bd00700678937e9ffdf82ba7cd2384b23f95c031",
   "scoring_policy_identifier": "public_tender_exact_or_within_5pct_v1",
   "schema_version": "1.0.0",
   "evaluator_version": "pb_benchmark_accuracy_engine.v1",
-  "generated_at": "2026-09-09T18:35:59.140866+00:00"
+  "generated_at": "2026-09-09T18:35:59.144359+00:00"
 }
