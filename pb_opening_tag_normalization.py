@@ -3,7 +3,10 @@
 This module normalizes only identities that are explicitly documented in drawing
 text or schedule cells. It deliberately does *not* infer W/D identities from
 opening dimensions, expected quantities, benchmark IDs, project names, or BOQ
-content.
+content. When multiple generic detectors agree on one identity, downstream
+schedule reconciliation preserves the most complete evidence (count plus figured
+dimensions) rather than allowing a higher-confidence count-only observation to
+strip geometry.
 """
 from __future__ import annotations
 
