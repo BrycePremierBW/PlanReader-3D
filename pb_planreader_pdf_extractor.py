@@ -574,7 +574,44 @@ class GenericPlanReaderExtractor:
                 k in pt_lower for k in ("ground floor plan", "floor plan", "layout plan")
             )
 
-            length_m, width_m = self._detect_outer_envelope(parsed_dims_m, detected_span, is_elevation_page)
+            # F.30: a dense multi-room plan can carry multiple same-axis
+            # overall/sub-chain dimensions. Prefer a source-corroborated
+            # orthogonal envelope only when native text direction plus the
+            # drawing's own explicit FLOOR AREA resolve one unique geometry.
+            # Otherwise preserve the existing size-ranked heuristic unchanged.
+            page_explicit_floor_area = (
+                global_resolved_explicit_floor_area
+                if global_resolved_explicit_floor_area is not None
+                and page_num in global_resolved_explicit_floor_area.source_pages
+                else None
+            )
+            resolved_verandah_width_for_page = global_verandah_width
+            orthogonal_envelope_evidence = None
+            if not is_elevation_page and page_explicit_floor_area is not None:
+                from pb_orthogonal_envelope_evidence import (
+                    resolve_orthogonal_envelope_evidence,
+                )
+
+                orthogonal_envelope_evidence = resolve_orthogonal_envelope_evidence(
+                    page,
+                    explicit_floor_area_m2=page_explicit_floor_area.area_m2,
+                    secondary_width_m=global_verandah_width,
+                )
+
+            if orthogonal_envelope_evidence is not None:
+                length_m = orthogonal_envelope_evidence.length_m
+                width_m = orthogonal_envelope_evidence.width_m
+                if (
+                    resolved_verandah_width_for_page is None
+                    and orthogonal_envelope_evidence.secondary_width_m is not None
+                ):
+                    resolved_verandah_width_for_page = (
+                        orthogonal_envelope_evidence.secondary_width_m
+                    )
+            else:
+                length_m, width_m = self._detect_outer_envelope(
+                    parsed_dims_m, detected_span, is_elevation_page
+                )
 
             if length_m is not None and width_m is not None:
                 from pb_multi_space_footprint_geometry import MultiSpaceFootprintBuilder
@@ -590,7 +627,7 @@ class GenericPlanReaderExtractor:
                 if global_has_verandah_mention:
                     builder.add_verandah(
                         length_m=length_m,
-                        width_m=global_verandah_width,
+                        width_m=resolved_verandah_width_for_page,
                         adjacency="front",
                         label="Verandah",
                         source_page=page_num,
@@ -657,8 +694,14 @@ class GenericPlanReaderExtractor:
                             "Floor screed / finish ("
                             f"{explicit_floor_area_for_page.area_m2} m2 explicit drawing FLOOR AREA)"
                         )
-                    elif global_verandah_width is not None and global_verandah_width > 0:
-                        desc_flr = f"Floor screed ({length_m}m x {width_m}m envelope + {length_m}m x {global_verandah_width}m verandah)"
+                    elif (
+                        resolved_verandah_width_for_page is not None
+                        and resolved_verandah_width_for_page > 0
+                    ):
+                        desc_flr = (
+                            f"Floor screed ({length_m}m x {width_m}m envelope + "
+                            f"{length_m}m x {resolved_verandah_width_for_page}m verandah)"
+                        )
                     else:
                         desc_flr = f"Floor screed ({length_m}m x {width_m}m envelope)"
 
@@ -705,6 +748,29 @@ class GenericPlanReaderExtractor:
                             "missing_components": footprint_res.missing_components,
                             "structural_bed_area_m2": structural_bed_area_m2,
                             "derived_footprint_area_m2": derived_footprint_area_m2,
+                            **(
+                                {
+                                    "envelope_authority": orthogonal_envelope_evidence.authority,
+                                    "orthogonal_horizontal_dimension_m": orthogonal_envelope_evidence.horizontal_m,
+                                    "orthogonal_vertical_dimension_m": orthogonal_envelope_evidence.vertical_m,
+                                    "orthogonal_corroborated_floor_area_m2": orthogonal_envelope_evidence.corroborated_area_m2,
+                                    "orthogonal_relative_area_error": orthogonal_envelope_evidence.relative_area_error,
+                                    **(
+                                        {
+                                            "secondary_width_m": orthogonal_envelope_evidence.secondary_width_m,
+                                            "secondary_width_source": (
+                                                "spatial_label_dimension"
+                                                if orthogonal_envelope_evidence.secondary_width_evidence is not None
+                                                else "upstream_secondary_width"
+                                            ),
+                                        }
+                                        if orthogonal_envelope_evidence.secondary_width_m is not None
+                                        else {}
+                                    ),
+                                }
+                                if orthogonal_envelope_evidence is not None
+                                else {}
+                            ),
                             **(
                                 {
                                     "area_authority": explicit_floor_area_for_page.authority,
@@ -863,6 +929,16 @@ class GenericPlanReaderExtractor:
                             "enclosed_wall_perimeter_m": perimeter_m,
                             "shared_edge_length_m": footprint_res.shared_edge_length_m,
                             "footprint_status": footprint_res.status,
+                            **(
+                                {
+                                    "envelope_authority": orthogonal_envelope_evidence.authority,
+                                    "orthogonal_horizontal_dimension_m": orthogonal_envelope_evidence.horizontal_m,
+                                    "orthogonal_vertical_dimension_m": orthogonal_envelope_evidence.vertical_m,
+                                    "secondary_width_m": orthogonal_envelope_evidence.secondary_width_m,
+                                }
+                                if orthogonal_envelope_evidence is not None
+                                else {}
+                            ),
                             "wall_height_source": (
                                 "resolved_level_datum_evidence"
                                 if height_is_genuine_evidence
