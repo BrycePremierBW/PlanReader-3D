@@ -107,11 +107,18 @@ class GenericScheduleTableExtractor:
         table_rows = self._extract_tables_from_page(page, page_num)
         page_rows.extend(table_rows)
 
-        # 2. Column-aligned schedule detection (CAD multi-column schedules)
+        # 2. Row-aligned schedule detection. This path is independent of
+        # PyMuPDF's structured-table detector and is therefore stable for
+        # vector/CAD schedules whose cells are visually aligned but not
+        # recognized by ``find_tables()``.
+        row_rows = self._extract_row_aligned_opening_schedules(page, page_num)
+        page_rows.extend(row_rows)
+
+        # 3. Column-aligned schedule detection (CAD multi-column schedules)
         col_rows = self._extract_column_aligned_schedules(page, page_num)
         page_rows.extend(col_rows)
 
-        # 3. Explicit callouts (windows, doors, vents, pillars, trusses)
+        # 4. Explicit callouts (windows, doors, vents, pillars, trusses)
         callout_rows = self._extract_callouts_from_page(page, page_num)
         page_rows.extend(callout_rows)
 
@@ -212,6 +219,89 @@ class GenericScheduleTableExtractor:
                         )
         except Exception:
             pass
+
+        return rows
+
+    def _extract_row_aligned_opening_schedules(self, page: fitz.Page, page_num: int) -> List[ScheduleRow]:
+        """Recover explicit opening schedule rows from native word geometry.
+
+        This is a deterministic fallback for vector/CAD schedule sheets where
+        ``Page.find_tables()`` does not recognize the grid. A firm row requires
+        all three pieces of source evidence on one visual row: an explicit W/D
+        identity, figured dimensions, and an explicit count marker. Dimensions
+        or counts alone never manufacture an opening identity.
+        """
+        rows: List[ScheduleRow] = []
+        try:
+            page_text = page.get_text("text") or ""
+            normalized_page = re.sub(r"\s+", " ", page_text.lower())
+            has_schedule_context = (
+                bool(re.search(r"\bschedules?\b", normalized_page))
+                and bool(re.search(r"\b(?:windows?|doors?)\b", normalized_page))
+            )
+            if not has_schedule_context:
+                return rows
+
+            words = page.get_text("words") or []
+            if not words:
+                return rows
+
+            # Cluster by visual baseline rather than PDF block identity. CAD
+            # exports commonly place each schedule cell in a separate block.
+            visual_rows: List[Dict[str, Any]] = []
+            for word in sorted(words, key=lambda w: (((w[1] + w[3]) / 2.0), w[0])):
+                cy = (float(word[1]) + float(word[3])) / 2.0
+                target = None
+                for candidate in visual_rows:
+                    if abs(cy - candidate["cy"]) <= 4.5:
+                        target = candidate
+                        break
+                if target is None:
+                    target = {"cy": cy, "words": []}
+                    visual_rows.append(target)
+                target["words"].append(word)
+                n = len(target["words"])
+                target["cy"] = ((target["cy"] * (n - 1)) + cy) / n
+
+            for visual in visual_rows:
+                row_words = sorted(visual["words"], key=lambda w: w[0])
+                row_text = " ".join(str(w[4]) for w in row_words).strip()
+                normalized_opening = normalize_opening_tag(row_text)
+                if normalized_opening is None:
+                    continue
+
+                dims = self._parse_dimensions_string(row_text)
+                qty_match = re.search(r"\b(\d{1,3})\s*(?:no\.?s?|nos?)\b", row_text, re.I)
+                if dims is None or qty_match is None:
+                    continue
+
+                qty = float(qty_match.group(1))
+                if qty <= 0:
+                    continue
+
+                x0 = min(float(w[0]) for w in row_words)
+                y0 = min(float(w[1]) for w in row_words)
+                x1 = max(float(w[2]) for w in row_words)
+                y1 = max(float(w[3]) for w in row_words)
+                rows.append(
+                    ScheduleRow(
+                        tag=normalized_opening.tag,
+                        trade_type=normalized_opening.trade_type,
+                        description=(
+                            f"Row-aligned schedule item {normalized_opening.tag} "
+                            f"({int(qty)} No)"
+                        ),
+                        quantity=qty,
+                        unit="NO",
+                        dimensions=dims,
+                        source_page=page_num,
+                        bbox=(x0, y0, x1, y1),
+                        confidence=0.87,
+                        evidence_text=f"Row-aligned native schedule evidence: {row_text}",
+                    )
+                )
+        except Exception:
+            return []
 
         return rows
 

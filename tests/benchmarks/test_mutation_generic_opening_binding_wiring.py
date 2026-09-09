@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 import fitz
 
@@ -49,6 +50,25 @@ def test_arbitrary_documented_tags_wire_end_to_end(tmp_path: Path) -> None:
     assert preds["D12"].quantity == 3.0
     assert preds["D12"].dimensions == [940.0, 2140.0]
     assert preds["D12"].trade_type == "doors"
+
+
+def test_row_aligned_fallback_does_not_depend_on_structured_table_detection(tmp_path: Path) -> None:
+    pdf = _schedule_pdf(
+        tmp_path,
+        "row_fallback.pdf",
+        [
+            ["Mark", "Dimensions", "Quantity", "Description"],
+            ["WINDOW 42", "1610 x 1180 mm", "7 No.", "Casement window"],
+            ["DR-19", "920 x 2110 mm", "2 No.", "Flush door"],
+        ],
+    )
+    with patch.object(GenericScheduleTableExtractor, "_extract_tables_from_page", return_value=[]):
+        preds = {p.tag: p for p in GenericPlanReaderExtractor().extract_from_pdf(pdf)}
+
+    assert preds["W42"].quantity == 7.0
+    assert preds["W42"].dimensions == [1610.0, 1180.0]
+    assert preds["D19"].quantity == 2.0
+    assert preds["D19"].dimensions == [920.0, 2110.0]
 
 
 def test_mutating_source_count_changes_only_that_opening(tmp_path: Path) -> None:

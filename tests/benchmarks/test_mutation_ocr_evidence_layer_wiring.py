@@ -74,22 +74,22 @@ class TestOCRLayerIsReachable:
         pdf_path = _make_pdf(tmp_path, "native_complete.pdf", [
             "GROUND FLOOR PLAN",
             "SCALE 1:100",
-            "2,900mm x 900mm steel casement windows with 4mm thick glass",
+            "WINDOW SCHEDULE",
+            "W27: 2,900 x 900 mm 4 No. steel casement window",
             "General notes: all dimensions are in millimetres unless",
             "otherwise stated. Drawings are not to be scaled. Any",
             "discrepancy must be reported to the architect before work begins.",
         ])
         with patch.object(
             DrawingOCREngine, "recognize_page_rect",
-            return_value=_ocr_lines("W2: 999 x 999 mm 99 No."),
+            return_value=_ocr_lines("W27: 999 x 999 mm 99 No."),
         ) as mocked:
             preds = GenericPlanReaderExtractor().extract_from_pdf(pdf_path)
 
         pred_map = {p.tag: p for p in preds}
-        # Native W2 occurrence was found (non-zero quantity) -- the bogus
-        # injected OCR count must never have overwritten or added to it.
-        if "W2" in pred_map:
-            assert pred_map["W2"].quantity != 99.0
+        # Explicit native W27 schedule evidence is complete, so the bogus
+        # injected OCR count must never run or overwrite it.
+        assert pred_map["W27"].quantity == 4.0
         assert not mocked.called
 
     def test_broadened_opening_keyword_trigger_fires_without_the_word_schedule(self, tmp_path: Path) -> None:

@@ -42,8 +42,8 @@ def test_mutation_1_changing_source_drawing_numbers_changes_predictions(tmp_path
         "DRAWING NO: AD-01\n"
         "12,000 x 6,000\n"
         "TRUSS T1 (6 No.)\n"
-        "3,000mm x 1,200mm steel casement\n"
-        "3,000mm x 1,200mm steel casement\n"
+        "WINDOW SCHEDULE\n"
+        "W17 3,000 x 1,200 mm 2 No. steel casement window\n"
         "D.P.C.\n"
     )
     pdf_a = _create_mock_pdf(tmp_path, "draw_a.pdf", [text_a])
@@ -56,7 +56,7 @@ def test_mutation_1_changing_source_drawing_numbers_changes_predictions(tmp_path
     assert preds_a["perimeter_walling"].metadata["total_deducted_opening_area_m2"] == 7.2
     assert preds_a["roof_trusses"].quantity == 6.0
     assert preds_a["damp_proof_course"].quantity == 36.0  # 2 * (12 + 6)
-    assert preds_a["W1"].quantity == 2.0
+    assert preds_a["W17"].quantity == 2.0
 
     # Mutated Drawing B: 18m x 9m, 11 trusses, 4 window callouts
     text_b = (
@@ -65,10 +65,8 @@ def test_mutation_1_changing_source_drawing_numbers_changes_predictions(tmp_path
         "DRAWING NO: AD-01\n"
         "18,000 x 9,000\n"
         "TRUSS T1 (11 No.)\n"
-        "3,000mm x 1,200mm steel casement\n"
-        "3,000mm x 1,200mm steel casement\n"
-        "3,000mm x 1,200mm steel casement\n"
-        "3,000mm x 1,200mm steel casement\n"
+        "WINDOW SCHEDULE\n"
+        "W17 3,000 x 1,200 mm 4 No. steel casement window\n"
         "D.P.C.\n"
     )
     pdf_b = _create_mock_pdf(tmp_path, "draw_b.pdf", [text_b])
@@ -81,13 +79,13 @@ def test_mutation_1_changing_source_drawing_numbers_changes_predictions(tmp_path
     assert preds_b["perimeter_walling"].metadata["total_deducted_opening_area_m2"] == 14.4
     assert preds_b["roof_trusses"].quantity == 11.0
     assert preds_b["damp_proof_course"].quantity == 54.0  # 2 * (18 + 9)
-    assert preds_b["W1"].quantity == 4.0
+    assert preds_b["W17"].quantity == 4.0
 
     # Predictions strictly changed based on drawing numbers
     assert preds_a["floor_screed"].quantity != preds_b["floor_screed"].quantity
     assert preds_a["perimeter_walling"].quantity != preds_b["perimeter_walling"].quantity
     assert preds_a["roof_trusses"].quantity != preds_b["roof_trusses"].quantity
-    assert preds_a["W1"].quantity != preds_b["W1"].quantity
+    assert preds_a["W17"].quantity != preds_b["W17"].quantity
 
 
 def test_mutation_2_removing_source_numbers_removes_predictions(tmp_path: Path) -> None:
@@ -142,11 +140,9 @@ def test_mutation_3_synthetic_unknown_project_produces_exact_new_values(tmp_path
         "24,000 x 12,000\n"
         "2,000mm wide verandah\n"
         "20 degree roof pitch\n"
-        "3,000mm x 1,200mm steel casement\n"
-        "3,000mm x 1,200mm steel casement\n"
-        "3,000mm x 1,200mm steel casement\n"
-        "1,000mm x 2,100mm timber door\n"
-        "1,000mm x 2,100mm timber door\n"
+        "WINDOW & DOOR SCHEDULE\n"
+        "W17 3,000 x 1,200 mm 3 No. steel casement window\n"
+        "D12 1,000 x 2,100 mm 2 No. timber door\n"
         "2,400mm x 1,200mm black board\n"
     )
     sheet_2 = (
@@ -181,11 +177,11 @@ def test_mutation_3_synthetic_unknown_project_produces_exact_new_values(tmp_path
     # Vents: exactly 8.0 NO (8 PV callouts)
     assert preds["brick_vents"].quantity == 8.0
     # Windows: exactly 3.0 NO with parsed dimensions [3000, 1200]
-    assert preds["W1"].quantity == 3.0
-    assert preds["W1"].dimensions == [3000.0, 1200.0]
+    assert preds["W17"].quantity == 3.0
+    assert preds["W17"].dimensions == [3000.0, 1200.0]
     # Doors: exactly 2.0 NO with parsed dimensions [1000, 2100]
-    assert preds["D1"].quantity == 2.0
-    assert preds["D1"].dimensions == [1000.0, 2100.0]
+    assert preds["D12"].quantity == 2.0
+    assert preds["D12"].dimensions == [1000.0, 2100.0]
     # Chalkboard: parsed dimensions [2400, 1200]
     assert preds["chalkboard"].dimensions == [2400.0, 1200.0]
 
