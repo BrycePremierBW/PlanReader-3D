@@ -1,0 +1,53 @@
+name: F25 Raster Gate Diagnostic
+
+on:
+  push:
+    branches:
+      - diag/f25-canonical-20260909
+
+permissions:
+  contents: read
+
+jobs:
+  diag:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 8c657969e3b654810a98ea8d657bf66fa41c8abc
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: |
+          pip install PyMuPDF==1.28.0 Pillow==12.3.0 numpy==2.3.5 rapidocr==3.9.2 onnxruntime==1.29.0
+          curl -fL --retry 3 --retry-delay 2 'https://tenders.go.ke/storage/Documents/1785347143869-bqs-drawings.pdf' -o /tmp/source_b.pdf
+          echo '84dec737ede7adfa32b02c6732d4289a6a2d25f7ae50cf07209428f1b4e0c94b  /tmp/source_b.pdf' | sha256sum -c -
+      - name: Trace production OCR confidence and instance gates
+        env:
+          PYTHONPATH: .
+        run: |
+          python - <<'PY'
+          import fitz
+          from pb_drawing_ocr_evidence_layer import DrawingOCREngine
+          from pb_portable_raster_ocr import extract_opening_instance_evidence
+          from pb_opening_tag_normalization import normalize_opening_tag
+          from pb_planreader_pdf_extractor import GenericPlanReaderExtractor
+
+          doc=fitz.open('/tmp/source_b.pdf')
+          engine=DrawingOCREngine()
+          ext=GenericPlanReaderExtractor()
+          for page_no in (228,230):
+              page=doc[page_no-1]
+              text=page.get_text('text') or ''
+              print('PAGE_GATE',page_no,'native_chars',len(text.strip()),'is_drawing',ext.is_drawing_page(text),'images',len(page.get_images(full=True)))
+              lines=engine.recognize_page_tiled(page,dpi=220)
+              print('OCR_LINES',page_no,len(lines))
+              for line in sorted(lines,key=lambda r:(r['bounding_box'][1],r['bounding_box'][0])):
+                  norm=normalize_opening_tag(str(line.get('text','')))
+                  if norm:
+                      print('TAG_LINE',page_no,norm.tag,round(float(line.get('confidence',0)),4),line.get('text'),[round(float(v),1) for v in line['bounding_box']])
+              for threshold in (0.80,0.70,0.60,0.50,0.40):
+                  ev=extract_opening_instance_evidence(lines,source_page=page_no,minimum_confidence=threshold)
+                  print('INSTANCE_GATE',page_no,threshold,[(e.tag,e.quantity,round(e.confidence,4)) for e in ev])
+          doc.close()
+          PY
