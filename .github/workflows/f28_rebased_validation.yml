@@ -1,0 +1,66 @@
+name: F28 Rebased Contextual WD Validation
+
+on:
+  push:
+    branches:
+      - feat/f28-contextual-wd-card-rebased
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    env:
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/f28-contextual-wd-card-rebased
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pytest ruff
+      - name: Run regression and safety gates
+        run: |
+          pytest -q tests/benchmarks/test_mutation_card_style_schedule.py tests/benchmarks/test_mutation_contextual_wd_card_evidence.py
+          pytest -q tests/benchmarks
+          python scripts/check_benchmark_gold_separation.py
+          python -m compileall -q pb_contextual_wd_card_evidence.py pb_raster_schedule_extractor.py
+          ruff check --select F821,F823 pb_contextual_wd_card_evidence.py pb_raster_schedule_extractor.py tests/benchmarks/test_mutation_contextual_wd_card_evidence.py
+      - name: Download and verify current Umma development source
+        run: |
+          curl -fL --retry 3 --retry-delay 2 'https://umma.ac.ke/wp-content/uploads/2026/06/Builders-work.pdf' -o /tmp/umma.pdf
+          echo 'f30711f69944e66ef993341180e35b49ccfcb36d6f402743284823ab588183af  /tmp/umma.pdf' | sha256sum -c -
+      - name: Measure current-gold Umma benchmark
+        run: |
+          rm -rf /tmp/f28-rebased-results
+          python scripts/run_planreader_benchmarks.py --public-tender tenders_ke_umma_hostels --pdf /tmp/umma.pdf --results-dir /tmp/f28-rebased-results
+          mkdir -p diagnostics
+          python - <<'PY'
+          from pathlib import Path
+          import json, shutil
+          chosen = None
+          for candidate in Path('/tmp/f28-rebased-results').rglob('*.json'):
+              try:
+                  data = json.loads(candidate.read_text(encoding='utf-8'))
+              except Exception:
+                  continue
+              if data.get('benchmark_id') == 'tenders_ke_umma_hostels':
+                  chosen = candidate
+                  break
+          if chosen is None:
+              raise SystemExit('Umma benchmark JSON result not found')
+          shutil.copyfile(chosen, 'diagnostics/f28_rebased_umma_result.json')
+          PY
+      - name: Persist measurement
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add diagnostics/f28_rebased_umma_result.json
+          git commit -m 'diag(F28): persist rebased Umma measurement'
+          git push origin HEAD:feat/f28-contextual-wd-card-rebased
