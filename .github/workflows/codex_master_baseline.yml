@@ -1,0 +1,50 @@
+name: Codex Master Baseline
+
+on:
+  push:
+    branches: [diag/codex-master-baseline-20260909]
+
+jobs:
+  canonical-benchmark:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install benchmark dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          if [ -f requirements-ci-v1228.txt ]; then pip install -r requirements-ci-v1228.txt; fi
+      - name: Download and verify public benchmark sources
+        run: |
+          mkdir -p benchmarks/sources
+          curl -fL --retry 3 --retry-delay 2 \
+            'https://tenders.go.ke/storage/Documents/1727358888238-bq-nd-drawing.pdf' \
+            -o benchmarks/sources/1727358888238-bq-nd-drawing.pdf
+          echo '6856bfa739aa136dd8e0bf17cb25fd43d0d31c9c3dfe3252525454f09d8fa4dc  benchmarks/sources/1727358888238-bq-nd-drawing.pdf' | sha256sum -c -
+          curl -fL --retry 3 --retry-delay 2 \
+            'https://tenders.go.ke/storage/Documents/1785347143869-bqs-drawings.pdf' \
+            -o benchmarks/sources/1785347143869-bqs-drawings.pdf
+          echo '84dec737ede7adfa32b02c6732d4289a6a2d25f7ae50cf07209428f1b4e0c94b  benchmarks/sources/1785347143869-bqs-drawings.pdf' | sha256sum -c -
+      - name: Run canonical suite without printing item gold
+        run: |
+          rm -rf /tmp/planreader-benchmark
+          python pb_benchmark_accuracy_engine.py --all --output-dir /tmp/planreader-benchmark
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('/tmp/planreader-benchmark/headline_accuracy_dashboard.json')
+          d = json.loads(p.read_text())
+          h = d['headline_metrics']
+          print('CANONICAL_HEADLINE', h['overall_accuracy_percentage'])
+          print('COMPARED', h['total_items_compared'])
+          print('EXACT', h['exact_matches'])
+          print('WITHIN_5', h['within_5_percent'])
+          print('MISSED', h['missed_items'])
+          print('HALLUCINATED', h['hallucinated_items'])
+          for r in d.get('headline_reports', []):
+              s = r['summary']
+              print('PROJECT_SUMMARY', r['benchmark_id'], s['overall_accuracy_percentage'], s['total_items_compared'], s['exact_matches'], s['within_5_percent'], s['missed_items'], s['hallucinated_items'])
+          PY
