@@ -22,7 +22,7 @@ jobs:
         run: |
           curl -fL --retry 3 --retry-delay 2 'https://tenders.go.ke/storage/Documents/1785347143869-bqs-drawings.pdf' -o /tmp/murera.pdf
           echo '84dec737ede7adfa32b02c6732d4289a6a2d25f7ae50cf07209428f1b4e0c94b  /tmp/murera.pdf' | sha256sum -c -
-      - name: Print native and OCR opening type evidence
+      - name: Tiled OCR page 223 detail evidence with coordinates
         env:
           PYTHONUNBUFFERED: '1'
         run: |
@@ -36,29 +36,54 @@ jobs:
           interesting = re.compile(r'(?:\bW\s*[-_.]?\s*\d+\b|\bD\s*[-_.]?\s*\d+\b|window|door|casement|glaz|glass|louvr|vent|frame|fixed|openable)', re.I)
           engine = RapidOCR()
           doc = fitz.open('/tmp/murera.pdf')
-          for page_no in range(221, 231):
-              page = doc[page_no - 1]
-              native = [ln.strip() for ln in (page.get_text('text') or '').splitlines() if ln.strip() and interesting.search(ln)]
-              print(f'\n=== PAGE {page_no} native_chars={len(page.get_text("text") or "")} images={len(page.get_images(full=True))} ===')
-              for ln in native:
-                  print('NATIVE', ln)
-              pix = page.get_pixmap(dpi=220, alpha=False)
-              base = Image.frombytes('RGB', [pix.width, pix.height], pix.samples)
-              rows = []
-              for variant_name, variant in [('raw', base), ('contrast', ImageEnhance.Contrast(base).enhance(1.35))]:
-                  result = engine(np.asarray(variant))
-                  txts = getattr(result, 'txts', None) or []
-                  scores = getattr(result, 'scores', None) or []
-                  for idx, raw in enumerate(txts):
-                      text = ' '.join(str(raw).split()).strip()
-                      conf = float(scores[idx]) if idx < len(scores) else 0.0
-                      if conf >= .55 and interesting.search(text):
-                          rows.append((variant_name, conf, text))
-              seen=set()
-              for variant, conf, text in sorted(rows, key=lambda x:(x[2].casefold(), -x[1])):
-                  key=text.casefold()
-                  if key in seen: continue
-                  seen.add(key)
-                  print('OCR', round(conf,3), text)
+          page = doc[222]
+          rect = page.rect
+          cols = rows = 3
+          overlap = .06
+          tile_w = rect.width / cols
+          tile_h = rect.height / rows
+          detections = []
+          for row in range(rows):
+              for col in range(cols):
+                  clip = fitz.Rect(
+                      max(rect.x0, rect.x0 + col * tile_w - tile_w * overlap),
+                      max(rect.y0, rect.y0 + row * tile_h - tile_h * overlap),
+                      min(rect.x1, rect.x0 + (col + 1) * tile_w + tile_w * overlap),
+                      min(rect.y1, rect.y0 + (row + 1) * tile_h + tile_h * overlap),
+                  )
+                  pix = page.get_pixmap(clip=clip, dpi=220, alpha=False)
+                  base = Image.frombytes('RGB', [pix.width, pix.height], pix.samples)
+                  for variant in (base, ImageEnhance.Contrast(base).enhance(1.35)):
+                      result = engine(np.asarray(variant))
+                      txts = getattr(result, 'txts', None) or []
+                      scores = getattr(result, 'scores', None) or []
+                      boxes = getattr(result, 'boxes', None)
+                      if boxes is None:
+                          continue
+                      scale = 72.0 / 220.0
+                      for idx, raw in enumerate(txts):
+                          text = ' '.join(str(raw).split()).strip()
+                          conf = float(scores[idx]) if idx < len(scores) else 0.0
+                          if conf < .55 or not interesting.search(text):
+                              continue
+                          pts = boxes[idx].tolist() if hasattr(boxes[idx], 'tolist') else boxes[idx]
+                          xs = [float(p[0]) for p in pts]; ys = [float(p[1]) for p in pts]
+                          bb = (clip.x0 + min(xs)*scale, clip.y0 + min(ys)*scale, clip.x0 + max(xs)*scale, clip.y0 + max(ys)*scale)
+                          detections.append((text, conf, bb))
+          kept=[]
+          for text, conf, bb in sorted(detections, key=lambda x:-x[1]):
+              cx=(bb[0]+bb[2])/2; cy=(bb[1]+bb[3])/2
+              duplicate=False
+              for ptext, pconf, pbb in kept:
+                  pcx=(pbb[0]+pbb[2])/2; pcy=(pbb[1]+pbb[3])/2
+                  if text.casefold()==ptext.casefold() and abs(cx-pcx)<=6 and abs(cy-pcy)<=6:
+                      duplicate=True; break
+              if not duplicate:
+                  kept.append((text,conf,bb))
+          native = [ln.strip() for ln in (page.get_text('text') or '').splitlines() if ln.strip() and interesting.search(ln)]
+          for line in native:
+              print('NATIVE', line)
+          for text, conf, bb in sorted(kept, key=lambda x:(x[2][1],x[2][0])):
+              print('OCR', round(conf,3), tuple(round(v,1) for v in bb), text)
           doc.close()
           PY
