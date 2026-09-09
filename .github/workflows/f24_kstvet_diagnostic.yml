@@ -1,4 +1,4 @@
-name: F24 Murera Raster Diagnostic
+name: F24 Murera Drawing Diagnostic
 
 on:
   push:
@@ -16,71 +16,37 @@ jobs:
           python-version: '3.13'
       - name: Install focused dependencies
         run: pip install 'PyMuPDF==1.28.0' 'Pillow==12.3.0'
-      - name: Check portable OCR backend
-        run: |
-          echo "TESSERACT_PATH=$(command -v tesseract || true)"
-          tesseract --version || true
       - name: Download verified public Murera drawing
         run: |
           curl -fL --retry 3 --retry-delay 2 \
             'https://tenders.go.ke/storage/Documents/1785347143869-bqs-drawings.pdf' \
             -o /tmp/murera.pdf
           echo '84dec737ede7adfa32b02c6732d4289a6a2d25f7ae50cf07209428f1b4e0c94b  /tmp/murera.pdf' | sha256sum -c -
-      - name: Inspect page raster/native evidence and OCR likely schedule pages
+      - name: Inspect candidate drawing pages 220 through 226
         run: |
           python - <<'PY'
-          import fitz, re, shutil, subprocess, tempfile
-          from pathlib import Path
-
+          import fitz, re
           doc = fitz.open('/tmp/murera.pdf')
-          print('PAGE_COUNT', len(doc))
-          native_pat = re.compile(r'window|door|schedule|casement|\bW\s*\d+\b|\bD\s*\d+\b', re.I)
-          ocr_pat = re.compile(r'window|door|schedule|casement|\bW\s*\d+\b|\bD\s*\d+\b', re.I)
-          tesseract = shutil.which('tesseract')
-
-          candidates = []
-          for pno, page in enumerate(doc):
-              text = page.get_text('text') or ''
-              images = page.get_images(full=True)
-              drawings = page.get_drawings()
-              native_hit = bool(native_pat.search(text))
-              low_text = len(text.strip()) < 300
-              image_heavy = bool(images) and len(text.strip()) < 1200
-              print(
-                  'PAGE_STAT', pno + 1,
-                  'text_chars', len(text.strip()),
-                  'images', len(images),
-                  'drawings', len(drawings),
-                  'native_opening_hit', native_hit,
-              )
-              if native_hit:
-                  for line in text.splitlines():
-                      if native_pat.search(line):
-                          print('NATIVE_MATCH', pno + 1, repr(line[:240]))
-              if low_text or image_heavy:
-                  candidates.append(pno)
-
-          print('OCR_CANDIDATE_PAGES', [p + 1 for p in candidates])
-          if not tesseract:
-              print('NO_TESSERACT_BACKEND')
-              raise SystemExit(0)
-
-          # OCR only candidate pages; use a moderate render and preserve output
-          # strictly as diagnostic evidence. No BOQ/expected values are read.
-          for pno in candidates:
+          pat = re.compile(r'window|door|casement|schedule|elevation|floor plan|section|drawing|\bW\s*\d+\b|\bD\s*\d+\b', re.I)
+          for pno in range(219, 226):
               page = doc[pno]
-              pix = page.get_pixmap(dpi=180, alpha=False)
-              with tempfile.TemporaryDirectory() as td:
-                  img_path = Path(td) / 'page.png'
-                  pix.save(str(img_path))
-                  proc = subprocess.run(
-                      [tesseract, str(img_path), 'stdout', '--psm', '6'],
-                      capture_output=True, text=True, timeout=90,
+              print('\n=== PDF_PAGE', pno + 1, 'SIZE', round(page.rect.width,2), round(page.rect.height,2), '===')
+              text = page.get_text('text') or ''
+              print('TEXT_CHARS', len(text.strip()), 'IMAGES', len(page.get_images(full=True)), 'DRAWINGS', len(page.get_drawings()))
+              print('TEXT_START', repr(text[:1200]))
+              for i, b in enumerate(page.get_text('blocks')):
+                  s = ' '.join(str(b[4]).split())
+                  if pat.search(s):
+                      print('TEXT_BLOCK', i, [round(float(x),2) for x in b[:4]], repr(s[:500]))
+              for i, image in enumerate(page.get_images(full=True)):
+                  xref = image[0]
+                  rects = page.get_image_rects(xref)
+                  info = doc.extract_image(xref)
+                  print(
+                      'IMAGE', i,
+                      'xref', xref,
+                      'pixel_size', (info.get('width'), info.get('height')),
+                      'ext', info.get('ext'),
+                      'rects', [[round(r.x0,2), round(r.y0,2), round(r.x1,2), round(r.y1,2)] for r in rects],
                   )
-                  text = proc.stdout or ''
-              hits = [line.strip() for line in text.splitlines() if ocr_pat.search(line)]
-              if hits:
-                  print('=== OCR_PAGE', pno + 1, '===')
-                  for line in hits[:80]:
-                      print('OCR_MATCH', repr(line[:300]))
           PY
