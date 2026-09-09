@@ -9,7 +9,6 @@ permissions:
 
 jobs:
   apply:
-    if: "!contains(github.event.head_commit.message, '[f24-applied]')"
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -25,12 +24,8 @@ jobs:
 
           raster = Path('pb_raster_schedule_extractor.py')
           text = raster.read_text(encoding='utf-8')
-          old_import = 'import fitz\n'
-          new_import = 'import fitz\n\nfrom pb_opening_tag_normalization import normalize_opening_tag\n'
           if 'from pb_opening_tag_normalization import normalize_opening_tag' not in text:
-              if old_import not in text:
-                  raise SystemExit('fitz import anchor not found')
-              text = text.replace(old_import, new_import, 1)
+              text = text.replace('import fitz\n', 'import fitz\n\nfrom pb_opening_tag_normalization import normalize_opening_tag\n', 1)
 
           old_table = '''                    # Determine trade type
                     combined_text = f"{raw_tag} {raw_desc} {raw_dim}".lower()
@@ -63,9 +58,9 @@ jobs:
                     elif trade == "other" and any(k in combined_text for k in ("pillar", "column", "pier", "truss")):
                         trade = "structure"
 
-                    # Only accept documented schedule identities.  Arbitrary
-                    # non-opening tag text may remain verbatim for other trades,
-                    # while opening aliases canonicalize through the generic parser.
+                    # Only accept documented schedule identities. Opening aliases
+                    # canonicalize through the generic parser; dimensions alone
+                    # never manufacture a W/D identity.
                     if trade == "other" or not raw_tag or raw_tag.startswith("ITEM_") or raw_tag.isdigit():
                         continue
                     tag_name = normalized_opening.tag if normalized_opening else raw_tag
@@ -118,37 +113,19 @@ jobs:
 
                 tag_name = normalized_opening.tag if normalized_opening else f"{trade[0].upper()}_COL_{col_idx}"
 
-                # An untagged visual column may prove that an opening type
-                # exists, but it does not prove a W/D identity.  Keep it
-                # provisional so production cannot turn geometry into an
-                # invented schedule tag.
+                # Untagged visual columns remain provisional even when a count
+                # is visible: type existence is not schedule identity.
                 if qty is not None and normalized_opening is not None:
 '''
           if old_col not in text:
               raise SystemExit('column block anchor not found')
           text = text.replace(old_col, new_col, 1)
 
-          # Ensure the anonymous-column else branch is always provisional even
-          # if a numeric count was visible without an explicit identity.
-          old_else = '''                else:
-                    rows.append(
-                        ScheduleRow(
-                            tag=tag_name,
-                            trade_type=trade,
-                            description=f"Column schedule item {tag_name} (unquantified)",
-                            quantity=None,
-'''
-          new_else = '''                else:
-                    rows.append(
-                        ScheduleRow(
-                            tag=tag_name,
-                            trade_type=trade,
-                            description=f"Column schedule item {tag_name} (unresolved identity/count)",
-                            quantity=None,
-'''
-          if old_else not in text:
-              raise SystemExit('column provisional branch anchor not found')
-          text = text.replace(old_else, new_else, 1)
+          text = text.replace(
+              'description=f"Column schedule item {tag_name} (unquantified)",',
+              'description=f"Column schedule item {tag_name} (unresolved identity/count)",',
+              1,
+          )
 
           dedup_anchor = '''        deduped: Dict[str, ScheduleRow] = {}
         vent_pages: Dict[int, float] = {}
@@ -158,9 +135,9 @@ jobs:
           dedup_replacement = '''        deduped: Dict[str, ScheduleRow] = {}
         vent_pages: Dict[int, float] = {}
 
-        # Canonical aliases for one documented opening tag must agree.  A
-        # conflicting count or dimension across pages/sheets is blocked
-        # rather than resolved by source order or confidence.
+        # Canonical aliases for one documented opening identity must agree.
+        # Conflicting counts or dimensions fail closed instead of allowing
+        # source order / confidence to pick a winner.
         opening_groups: Dict[str, List[ScheduleRow]] = {}
         for candidate in rows:
             if candidate.is_provisional:
@@ -228,7 +205,7 @@ jobs:
             # ------------------------------------------------------------------
             # Opening identities are deliberately NOT inferred from dimensions.
             # Generic documented schedule/tag extraction is applied across the
-            # whole drawing package by Phase F.8 after this page loop.  The
+            # whole drawing package by Phase F.8 after this page loop. The
             # contextual explicit-tag path below may add a count only when a
             # W/D identity is actually present in drawing text.
 
@@ -236,14 +213,12 @@ jobs:
           text = text[:start] + replacement + text[end:]
           extractor.write_text(text, encoding='utf-8')
           PY
-      - name: Remove temporary diagnostic workflows
+      - name: Remove temporary workflows and commit
         run: |
           rm -f .github/workflows/f24_opening_evidence_diag.yml
           rm -f .github/workflows/f24_apply_patch.yml
-      - name: Commit production patch
-        run: |
           git config user.name 'Bryce Curran'
           git config user.email 'bryce@premierbw.com.au'
-          git add pb_raster_schedule_extractor.py pb_planreader_pdf_extractor.py .github/workflows/f24_opening_evidence_diag.yml .github/workflows/f24_apply_patch.yml
-          git commit -m 'F24: generic opening identity binding [f24-applied]'
+          git add -A
+          git commit -m 'F24: generic opening identity binding'
           git push origin HEAD:codex/f24-generic-opening-binding
