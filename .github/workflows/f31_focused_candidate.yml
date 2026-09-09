@@ -1,0 +1,27 @@
+name: F31 Focused Candidate
+
+on:
+  push:
+    branches: [feat/f31-raster-wall-network-evidence]
+
+permissions:
+  contents: read
+
+jobs:
+  focused:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install focused dependencies
+        run: pip install pytest PyMuPDF==1.28.0 numpy==2.3.5 opencv-python-headless==4.14.0.94 ruff
+      - name: Focused F31 tests
+        env:
+          PYTHONPATH: .
+        run: pytest -q tests/benchmarks/test_mutation_raster_wall_network_evidence.py
+      - name: Compile and undefined names
+        run: |
+          python -m compileall -q pb_raster_wall_network_evidence.py
+          ruff check --select F821,F823 pb_raster_wall_network_evidence.py tests/benchmarks/test_mutation_raster_wall_network_evidence.py
