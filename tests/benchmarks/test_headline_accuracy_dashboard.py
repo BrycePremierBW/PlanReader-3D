@@ -179,15 +179,25 @@ def test_save_dashboard_generates_files(tmp_path: Path):
     assert m_path.stat().st_size > 0
 
 
-def test_cli_all_execution():
+def test_cli_all_execution(tmp_path: Path):
     """Executing CLI with --all flag exits code 0 and prints headline dashboard."""
     cmd = [
         sys.executable,
         str(REPO_ROOT / "pb_benchmark_accuracy_engine.py"),
         "--all",
+        "--output-dir",
+        str(tmp_path),
     ]
     res = subprocess.run(cmd, capture_output=True, text=True, cwd=str(REPO_ROOT))
     assert res.returncode == 0
     assert "PLANREADER PUBLIC TENDER BENCHMARK" in res.stdout
     assert "Official Headline Accuracy" in res.stdout
     assert "Scored Headline Benchmarks:            3" in res.stdout
+    assert (tmp_path / "current.json").is_file()
+    assert (tmp_path / "headline_accuracy_dashboard.json").is_file()
+    pointer = json.loads((tmp_path / "current.json").read_text(encoding="utf-8"))
+    kstvet = json.loads(
+        (tmp_path / "tenders_ke_kstvet_cbc_classroom_accuracy_report.json").read_text(encoding="utf-8")
+    )
+    assert kstvet["run_id"] == pointer["run_id"]
+    assert kstvet["evaluated_commit_sha"] == pointer["evaluated_commit_sha"]
