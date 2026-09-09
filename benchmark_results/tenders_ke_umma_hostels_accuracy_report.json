@@ -1,0 +1,30 @@
+{
+  "benchmark_id": "tenders_ke_umma_hostels",
+  "timestamp": "2026-09-09T05:10:29.376746+00:00",
+  "project_name": "Proposed Student Hostels for Umma University in Kajiado",
+  "organization": "Umma University",
+  "tender_reference": "UUT/02/2026",
+  "status": "candidate_unscored",
+  "is_scored": false,
+  "is_headline_eligible": true,
+  "source_pdf": "C:\\Users\\bryce\\Documents\\PB-PlanReader-3D\\benchmarks\\sources\\umma-university-hostels-builders-work.pdf",
+  "summary": {
+    "total_boq_items": 60,
+    "total_measurable_expected": 12,
+    "total_items_compared": 0,
+    "exact_matches": 0,
+    "within_5_percent": 0,
+    "within_10_percent": 0,
+    "within_20_percent": 0,
+    "gross_mismatches": 0,
+    "missed_items": 0,
+    "hallucinated_items": 0,
+    "preliminaries_excluded": 0,
+    "provisional_sums_excluded": 0,
+    "non_architectural_excluded": 0,
+    "overall_accuracy_percentage": null,
+    "strict_exact_accuracy_percentage": null
+  },
+  "item_results": [],
+  "errors": []
+}

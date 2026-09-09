@@ -1,0 +1,36 @@
+{
+  "benchmark_id": "tenders_ke_umma_hostels",
+  "tender_reference": "UUT/02/2026",
+  "publisher": "Umma University, Kajiado",
+  "source_url": "https://umma.ac.ke/wp-content/uploads/2026/06/Builders-work.pdf",
+  "retrieval_date": "2026-09-09",
+  "documents": [
+    {
+      "filename": "umma-university-hostels-builders-work.pdf",
+      "role": "architectural_drawings",
+      "description": "Working drawings: Window and Door Schedule sheets (2 of 3 sheets in this file; a floor-plan/elevation sheet was not found in this specific document -- only the schedule sheets are present).",
+      "sha256": "f30711f69944e66ef993341180e35b49ccfcb36d6f402743284823ab588183af",
+      "file_size_bytes": 10312648,
+      "expected_pages": 209,
+      "drawing_pages": [
+        160,
+        162
+      ],
+      "total_pages": 209
+    },
+    {
+      "filename": "umma-university-hostels-builders-work.pdf",
+      "role": "bill_of_quantities",
+      "description": "Builders Work Bill of Quantities for the proposed multi-storey student hostel block (substructure, superstructure, formwork, reinforcement).",
+      "sha256": "f30711f69944e66ef993341180e35b49ccfcb36d6f402743284823ab588183af",
+      "file_size_bytes": 10312648,
+      "expected_pages": 209,
+      "boq_pages": [
+        50,
+        176
+      ],
+      "total_pages": 209
+    }
+  ],
+  "download_notes": "Direct open download from Umma University's own public tender-documents page (umma.ac.ke). No floor-plan/elevation sheet was found in this file -- only the Window and Door Schedule sheets (pages 160-162) are present alongside the Builders Work BOQ."
+}

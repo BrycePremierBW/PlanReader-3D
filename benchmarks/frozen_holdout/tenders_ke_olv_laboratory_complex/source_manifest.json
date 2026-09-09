@@ -1,0 +1,33 @@
+{
+  "benchmark_id": "tenders_ke_olv_laboratory_complex",
+  "project_name": "Proposed Construction and Completion of Laboratory Complex Block at Our Lady of Victory Girls High School-Kapnyeberai",
+  "project_number": "SEALED_PENDING_TENDER_NO",
+  "client": "The Principal, Our Lady of Victory Girls High School-Kapnyeberai",
+  "drawing_issue": "Tender Issue",
+  "drawing_date": "September 2025",
+  "source_pdf": "1770804188619-bill-of-quntities.pdf",
+  "source_takeoff": "1770804188619-bill-of-quntities.pdf",
+  "source_url": "https://tenders.go.ke/storage/Documents/1770804188619-bill-of-quntities.pdf",
+  "issuer": "Republic of Kenya, Ministry of Lands, Public Works, Housing and Urban Development / State Department for Public Works, Uasin Gishu County",
+  "sha256": "09068a7672b971c60539d931e117ea04f83ecdb947a3e5e4afb6ba3e619eb722",
+  "byte_size": 5199828,
+  "page_count": 245,
+  "drawing_pages": [242, 245],
+  "boq_pages_approx": [2, 241],
+  "drawings_native_or_raster": "native_vector",
+  "building_type": "Education - multi-storey laboratory complex (2 laboratories, prep rooms, store, offices, open hall)",
+  "architect": "Ndamwe Dennis (Drawn/Design), Evan Kelunyo (Approved)",
+  "allowed_comparison_sources": [
+    "1770804188619-bill-of-quntities.pdf"
+  ],
+  "rejected_comparison_sources": [
+    "1727358888238-bq-nd-drawing.pdf",
+    "1785347143869-bqs-drawings.pdf",
+    "1739211305954-tender-document-for-construction-of-science-laboratory-at-ghazi-primary-school.pdf",
+    "umma-university-hostels-builders-work.pdf"
+  ],
+  "status": "sealed_frozen_holdout_pending_transcription",
+  "retrieval_date": "2026-09-09",
+  "duplicate_check_notes": "SHA-256 does not match any other registered benchmark or holdout in this repository. Title block architect/consultant identity (Ndamwe Dennis / Evan Kelunyo, Uasin Gishu County Public Works) does not match any other registered project's consultant team (KSTVET/Murera architect unnamed on drawing; Ghazi drawn by J.M. Kichunju; Umma by Tectura International). Plan geometry (2-laboratory + prep-room + office + open-hall multi-storey layout, grid A-E x 1-9) is structurally distinct from every other registered project's single-room-plus-verandah or hostel-block layout. Not a renamed/reused standard design.",
+  "verification_notes": "Verified authentic public procurement package from Kenya's national Ministry of Lands, Public Works, Housing and Urban Development (State Department for Public Works), prepared by Uasin Gishu County technical officers, retrieved directly from tenders.go.ke. Contains a native-vector 'ARCHITECTURAL WORKING DRAWING' sheet (page 245, scale 1:100) showing typical first/second floor and a distinct second-floor layout, with an explicit door-and-window schedule embedded in the title block (D1-D5, W1-W5 with sizes and counts), plus a full priced Bill of Quantities (Bills 1-7) for the same building. SHA-256 of the downloaded file matches this record. DELIBERATELY SEALED: this project's expected_boq_summary.json and benchmark_rules.json item mappings have NOT been created. Its Bill of Quantities pages (approx. 2-241) have not been read for line-item quantities -- only the table of contents (structural/navigational text, not gold values) and the drawing sheets (242-245, for scope/quality verification) were inspected. Do not read, transcribe, or score this project's BOQ during development. Final expected-quantity transcription (creating benchmark_rules.json and expected_boq_summary.json) is a separate, later, one-time act reserved for when a genuine final master-accuracy verification run is actually being performed -- not before."
+}
