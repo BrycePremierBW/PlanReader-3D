@@ -1,4 +1,4 @@
-name: F25 Vent Vector Source Probe
+name: F25 Vent Motif Source Probe
 
 on:
   push:
@@ -16,70 +16,98 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-      - name: Install source dependency
-        run: pip install PyMuPDF==1.28.0
+      - name: Install source dependencies
+        run: pip install PyMuPDF==1.28.0 numpy==2.3.5 opencv-python-headless==4.14.0.94
       - name: Download hash-verified Murera source
         run: |
           curl -fL --retry 3 --retry-delay 2 'https://tenders.go.ke/storage/Documents/1785347143869-bqs-drawings.pdf' -o /tmp/murera.pdf
           echo '84dec737ede7adfa32b02c6732d4289a6a2d25f7ae50cf07209428f1b4e0c94b  /tmp/murera.pdf' | sha256sum -c -
-      - name: Inspect vector geometry around labelled vents and elevation titles
+      - name: Learn repeated image motif around explicit PV anchors
         env:
           PYTHONUNBUFFERED: '1'
         run: |
           python - <<'PY'
           import re
-          from collections import Counter, defaultdict
           import fitz
+          import cv2
+          import numpy as np
 
           doc=fitz.open('/tmp/murera.pdf')
           page=doc[218]
-          print('PAGE_RECT',tuple(round(v,1) for v in page.rect))
-          words=page.get_text('words') or []
-          for w in words:
+          dpi=216
+          scale=dpi/72.0
+          pix=page.get_pixmap(dpi=dpi,alpha=False)
+          arr=np.frombuffer(pix.samples,dtype=np.uint8).reshape(pix.height,pix.width,pix.n)
+          gray=cv2.cvtColor(arr[:,:,:3],cv2.COLOR_RGB2GRAY)
+
+          anchors=[]
+          for w in page.get_text('words') or []:
               token=str(w[4]).strip()
-              if re.search(r'ELEVATION|E-0[1-4]', token, re.I):
-                  print('TITLE_WORD',tuple(round(float(v),1) for v in w[:4]),token)
-          pv=[]
-          for w in words:
-              token=str(w[4]).strip()
-              if re.fullmatch(r'P\.?V\.?',token,re.I):
-                  x0,y0,x1,y1=map(float,w[:4])
-                  if y0 > 300:
-                      pv.append((x0,y0,x1,y1,token))
-          print('LABELLED_PV',[(round(x0,1),round(y0,1),round(x1,1),round(y1,1),t) for x0,y0,x1,y1,t in pv])
+              if re.fullmatch(r'P\.?V\.?',token,re.I) and float(w[1])>300:
+                  anchors.append(((float(w[0])+float(w[2]))/2,(float(w[1])+float(w[3]))/2))
+          print('ANCHORS',[(round(x,1),round(y,1)) for x,y in anchors])
+          assert len(anchors)>=3
 
-          drawings=page.get_drawings()
-          print('DRAWING_COUNT',len(drawings))
-          def sig(d):
-              r=d['rect']; w=float(r.width); h=float(r.height)
-              return (round(w,1),round(h,1),len(d.get('items',[])),round(float(d.get('width') or 0),2),str(d.get('fill')))
-          small=[]
-          for i,d in enumerate(drawings):
-              r=d['rect']; w=float(r.width); h=float(r.height)
-              if 1.0 <= w <= 40.0 and 1.0 <= h <= 40.0:
-                  small.append((i,d,sig(d)))
-          print('SMALL_DRAWINGS',len(small),'TOP_SIGS',Counter(s for _,_,s in small).most_common(25))
+          # Search relative offsets for a high-edge image patch that repeats
+          # consistently around independently labelled PV anchors. The label
+          # itself is excluded by restricting candidate patches above it.
+          patch_pt=14.0
+          half=int(round(patch_pt*scale/2))
+          candidates=[]
+          for dy_pt in np.arange(-55.0,-5.0,2.5):
+              for dx_pt in np.arange(-20.0,20.1,2.5):
+                  patches=[]
+                  ok=True
+                  for ax,ay in anchors:
+                      cx=int(round((ax+dx_pt)*scale)); cy=int(round((ay+dy_pt)*scale))
+                      p=gray[cy-half:cy+half,cx-half:cx+half]
+                      if p.shape!=(2*half,2*half): ok=False; break
+                      patches.append(p.astype(np.float32))
+                  if not ok: continue
+                  # Require non-trivial linework so blank wall regions cannot win.
+                  edge=[float(cv2.Canny(p.astype(np.uint8),60,160).mean()) for p in patches]
+                  if np.mean(edge)<5.0: continue
+                  norm=[]
+                  for p in patches:
+                      q=p-p.mean(); sd=float(q.std())
+                      if sd<4.0: ok=False; break
+                      norm.append(q/sd)
+                  if not ok: continue
+                  corrs=[]
+                  for i in range(len(norm)):
+                      for j in range(i+1,len(norm)):
+                          corrs.append(float(np.mean(norm[i]*norm[j])))
+                  score=float(np.median(corrs)) if corrs else -1
+                  candidates.append((score,float(np.mean(edge)),dx_pt,dy_pt,patches))
+          candidates.sort(key=lambda x:(x[0],x[1]),reverse=True)
+          for score,edge,dx,dy,_ in candidates[:20]:
+              print('OFFSET_CAND',round(score,4),'edge',round(edge,2),'dx',dx,'dy',dy)
+          if not candidates:
+              raise SystemExit('no repeated nonblank motif found')
 
-          for n,(x0,y0,x1,y1,token) in enumerate(pv,1):
-              cx=(x0+x1)/2; cy=(y0+y1)/2
-              near=[]
-              for i,d,s in small:
-                  r=d['rect']; rcx=(r.x0+r.x1)/2; rcy=(r.y0+r.y1)/2
-                  dx=rcx-cx; dy=rcy-cy
-                  if abs(dx)<=35 and abs(dy)<=35:
-                      near.append((round((dx*dx+dy*dy)**0.5,1),i,s,tuple(round(float(v),1) for v in r)))
-              print('PV_NEAR',n,sorted(near)[:30])
+          score,edge,dx,dy,patches=candidates[0]
+          template=np.median(np.stack(patches),axis=0).astype(np.uint8)
+          print('SELECTED',round(score,4),round(edge,2),dx,dy,'template_shape',template.shape)
 
-          # Print repeated small-vector signatures by vertical band. This is
-          # diagnostic only: no benchmark quantity is used.
-          by_sig=defaultdict(list)
-          for i,d,s in small:
-              r=d['rect']; by_sig[s].append((i,(r.x0+r.x1)/2,(r.y0+r.y1)/2,tuple(round(float(v),1) for v in r)))
-          for s,items in sorted(by_sig.items(), key=lambda kv:-len(kv[1])):
-              upper=[it for it in items if it[2] < page.rect.height/2]
-              lower=[it for it in items if it[2] >= page.rect.height/2]
-              if len(items)>=4 and upper and lower:
-                  print('CROSS_BAND_SIG',s,'UPPER',len(upper),'LOWER',len(lower))
-                  print(' POS',[(round(x,1),round(y,1),r) for _,x,y,r in items[:40]])
+          # Search the sheet for this source-learned motif. Restrict reporting
+          # to the two elevation bodies (above their title captions), not the
+          # title block / notes. Non-max suppression is based on template size.
+          response=cv2.matchTemplate(gray,template,cv2.TM_CCOEFF_NORMED)
+          flat=[]
+          ys,xs=np.where(response>=0.72)
+          for y,x in zip(ys.tolist(),xs.tolist()):
+              flat.append((float(response[y,x]),x+half,y+half))
+          flat.sort(reverse=True)
+          kept=[]
+          min_sep=max(half*2,int(round(10*scale)))
+          for s,x,y in flat:
+              if all((x-kx)**2+(y-ky)**2 >= min_sep**2 for _,kx,ky in kept):
+                  kept.append((s,x,y))
+          pts=[(round(s,3),round(x/scale,1),round(y/scale,1)) for s,x,y in kept[:80]]
+          print('MATCHES',pts)
+          upper=[p for p in pts if 115 <= p[2] <= 300]
+          lower=[p for p in pts if 330 <= p[2] <= 535]
+          print('UPPER_ELEV_MATCHES',upper)
+          print('LOWER_ELEV_MATCHES',lower)
           doc.close()
           PY
