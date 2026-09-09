@@ -1,4 +1,4 @@
-name: F25 Vent Population Source Probe
+name: F25 Vent Vector Source Probe
 
 on:
   push:
@@ -22,36 +22,64 @@ jobs:
         run: |
           curl -fL --retry 3 --retry-delay 2 'https://tenders.go.ke/storage/Documents/1785347143869-bqs-drawings.pdf' -o /tmp/murera.pdf
           echo '84dec737ede7adfa32b02c6732d4289a6a2d25f7ae50cf07209428f1b4e0c94b  /tmp/murera.pdf' | sha256sum -c -
-      - name: Print vent counts, titles and positions on drawing pages
+      - name: Inspect vector geometry around labelled vents and elevation titles
         env:
           PYTHONUNBUFFERED: '1'
         run: |
           python - <<'PY'
           import re
+          from collections import Counter, defaultdict
           import fitz
 
           doc=fitz.open('/tmp/murera.pdf')
-          pv_re=re.compile(r'\bPV\b|\bPermanent\s+Vent\b|\bBrick\s+Vent\b',re.I)
-          title_re=re.compile(r'(?:ELEVATION|ELEV\.?|FACADE|FAÇADE|SECTION)[^\n]{0,80}',re.I)
-          for page_no in range(219,239):
-              page=doc[page_no-1]
-              text=page.get_text('text') or ''
-              matches=list(pv_re.finditer(text))
-              titles=title_re.findall(text)
-              if matches or titles or 'elev' in text.lower():
-                  print(f'\nPAGE {page_no} native_PV={len(matches)}')
-                  print('TITLES',titles[:20])
-                  words=page.get_text('words') or []
-                  pv_words=[]
-                  for w in words:
-                      token=str(w[4]).strip()
-                      if re.fullmatch(r'P\.?V\.?',token,re.I) or re.search(r'Permanent\s*Vent|Brick\s*Vent',token,re.I):
-                          pv_words.append((round(float(w[0]),1),round(float(w[1]),1),round(float(w[2]),1),round(float(w[3]),1),token))
-                  print('PV_WORDS',pv_words)
-                  lines=[ln.strip() for ln in text.splitlines() if ln.strip()]
-                  for i,ln in enumerate(lines):
-                      if pv_re.search(ln) or re.search(r'elevation|facade|façade',ln,re.I):
-                          lo=max(0,i-2); hi=min(len(lines),i+3)
-                          print('CTX',' | '.join(lines[lo:hi]))
+          page=doc[218]
+          print('PAGE_RECT',tuple(round(v,1) for v in page.rect))
+          words=page.get_text('words') or []
+          for w in words:
+              token=str(w[4]).strip()
+              if re.search(r'ELEVATION|E-0[1-4]', token, re.I):
+                  print('TITLE_WORD',tuple(round(float(v),1) for v in w[:4]),token)
+          pv=[]
+          for w in words:
+              token=str(w[4]).strip()
+              if re.fullmatch(r'P\.?V\.?',token,re.I):
+                  x0,y0,x1,y1=map(float,w[:4])
+                  if y0 > 300:
+                      pv.append((x0,y0,x1,y1,token))
+          print('LABELLED_PV',[(round(x0,1),round(y0,1),round(x1,1),round(y1,1),t) for x0,y0,x1,y1,t in pv])
+
+          drawings=page.get_drawings()
+          print('DRAWING_COUNT',len(drawings))
+          def sig(d):
+              r=d['rect']; w=float(r.width); h=float(r.height)
+              return (round(w,1),round(h,1),len(d.get('items',[])),round(float(d.get('width') or 0),2),str(d.get('fill')))
+          small=[]
+          for i,d in enumerate(drawings):
+              r=d['rect']; w=float(r.width); h=float(r.height)
+              if 1.0 <= w <= 40.0 and 1.0 <= h <= 40.0:
+                  small.append((i,d,sig(d)))
+          print('SMALL_DRAWINGS',len(small),'TOP_SIGS',Counter(s for _,_,s in small).most_common(25))
+
+          for n,(x0,y0,x1,y1,token) in enumerate(pv,1):
+              cx=(x0+x1)/2; cy=(y0+y1)/2
+              near=[]
+              for i,d,s in small:
+                  r=d['rect']; rcx=(r.x0+r.x1)/2; rcy=(r.y0+r.y1)/2
+                  dx=rcx-cx; dy=rcy-cy
+                  if abs(dx)<=35 and abs(dy)<=35:
+                      near.append((round((dx*dx+dy*dy)**0.5,1),i,s,tuple(round(float(v),1) for v in r)))
+              print('PV_NEAR',n,sorted(near)[:30])
+
+          # Print repeated small-vector signatures by vertical band. This is
+          # diagnostic only: no benchmark quantity is used.
+          by_sig=defaultdict(list)
+          for i,d,s in small:
+              r=d['rect']; by_sig[s].append((i,(r.x0+r.x1)/2,(r.y0+r.y1)/2,tuple(round(float(v),1) for v in r)))
+          for s,items in sorted(by_sig.items(), key=lambda kv:-len(kv[1])):
+              upper=[it for it in items if it[2] < page.rect.height/2]
+              lower=[it for it in items if it[2] >= page.rect.height/2]
+              if len(items)>=4 and upper and lower:
+                  print('CROSS_BAND_SIG',s,'UPPER',len(upper),'LOWER',len(lower))
+                  print(' POS',[(round(x,1),round(y,1),r) for _,x,y,r in items[:40]])
           doc.close()
           PY
