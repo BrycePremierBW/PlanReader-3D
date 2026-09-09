@@ -1,0 +1,48 @@
+name: F30 Verandah Width Probe
+
+on:
+  push:
+    branches: [diag/f30-orthogonal-envelope]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pip install PyMuPDF==1.28.0
+      - run: |
+          curl -fL --retry 3 --retry-delay 2 'https://tenders.go.ke/storage/Documents/1739211305954-tender-document-for-construction-of-science-laboratory-at-ghazi-primary-school.pdf' -o /tmp/ghazi.pdf
+          echo 'c8c001c9dadb791e7cb18b7bea19ce795eebba2f9b9eb7dec4844212da4d8f4f  /tmp/ghazi.pdf' | sha256sum -c -
+      - name: Resolve current secondary width
+        env:
+          PYTHONPATH: .
+        run: |
+          python - <<'PY'
+          import re
+          import fitz
+          from pb_secondary_footprint_evidence import resolve_secondary_footprint_width_m
+
+          doc = fitz.open('/tmp/ghazi.pdf')
+          page = doc[166]
+          text = page.get_text('text') or ''
+          norm = re.sub(r'\s+', ' ', text.lower())
+          evidence = resolve_secondary_footprint_width_m(page, page_num=167)
+          print('SPATIAL_EVIDENCE', evidence)
+          for pattern in (
+              r'(\d+(?:[,.]\d+)?)\s*(?:m|mm)?\s*wide\s*veranda',
+              r'veranda[h]?\s*[:\-\(]?\s*(\d+(?:[,.]\d+)?)\s*(?:m|mm)',
+          ):
+              m = re.search(pattern, norm)
+              print('REGEX', pattern, 'MATCH', m.group(0) if m else None, 'VALUE', m.group(1) if m else None)
+          print('VERANDAH_LINES')
+          for line in text.splitlines():
+              if 'veranda' in line.lower():
+                  print(repr(line))
+          doc.close()
+          PY
