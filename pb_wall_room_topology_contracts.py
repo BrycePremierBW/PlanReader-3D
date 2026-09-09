@@ -51,13 +51,51 @@ REASON_NO_PLAUSIBLE_HOST = "no_plausible_host"
 
 
 class JunctionType(str, Enum):
-    """Deterministic wall-junction classification (topology spec Section 7)."""
+    """Deterministic wall-junction classification (topology spec Section 7, extended W3).
+
+    ENDPOINT/L_CORNER/T_JUNCTION/X_CROSSING/UNRESOLVED are the original W1 members,
+    unchanged in meaning. W3 adds:
+
+    - COLLINEAR_CONTINUATION: a degree-2 node whose two incident edges are collinear
+      -- normally already collapsed away by W2's ``merge_collinear_degree_two_nodes``,
+      classified here only for observability when one reaches the classifier anyway
+      (e.g. a caller that ran classification without first running that merge pass).
+    - MULTI_WAY: five or more incident edges that pair up cleanly into collinear
+      through-pairs with no leftover arm -- the same underlying pattern as
+      X_CROSSING, generalized beyond four arms.
+    - NEAR_JUNCTION_REVIEW: two distinct (unmerged) graph nodes closer together than
+      a review band above the snap tolerance -- a possible near-miss fragmentation
+      that Stage A's endpoint-snap tolerance did not bridge, flagged for human/
+      richer-evidence review rather than silently left as two disconnected walls.
+    - AMBIGUOUS: a node whose incident-edge pattern is partially, but not cleanly,
+      structural (e.g. a through-pair plus unexplained extra arms), or whose base
+      classification carries a suspiciously short, dead-end arm that could equally
+      be a real short wall return or an unrelated line merely touching a wall.
+    - REJECTED_NON_WALL_CROSSING: a geometric crossing between a real structural
+      edge and a segment Stage A's pre-filter already excluded (hatch, dimension,
+      or annotation-layer/dash convention) -- recorded explicitly so the rejection
+      is visible and auditable, not merely a silent absence of a junction.
+    """
 
     ENDPOINT = "endpoint"
     L_CORNER = "l_corner"
     T_JUNCTION = "t_junction"
     X_CROSSING = "x_crossing"
     UNRESOLVED = "unresolved"
+    COLLINEAR_CONTINUATION = "collinear_continuation"
+    MULTI_WAY = "multi_way"
+    NEAR_JUNCTION_REVIEW = "near_junction_review"
+    AMBIGUOUS = "ambiguous"
+    REJECTED_NON_WALL_CROSSING = "rejected_non_wall_crossing"
+
+
+# Junction types for which incident_wall_candidate_ids may legitimately be empty
+# (there is no "at least one incident wall" to reference: UNRESOLVED can arise from
+# a degenerate/irregular node with no clean interpretation at all, and
+# NEAR_JUNCTION_REVIEW describes a *pair* of nodes rather than one node's incident
+# edges -- its own incident edges are reported normally, but a review record may be
+# emitted for a bare degree-0/1 node with nothing else to reference yet).
+_JUNCTION_TYPES_ALLOWING_EMPTY_INCIDENT_IDS = frozenset({JunctionType.UNRESOLVED})
 
 
 WallRepresentation = Literal["single_line", "double_line", "curved"]
@@ -131,24 +169,44 @@ def _require_authority_not_above_provisional_without_tier(
 
 @dataclass(frozen=True)
 class JunctionCandidate:
-    """A classified (or explicitly unresolved) wall-graph junction.
+    """A classified (or explicitly unresolved/rejected) wall-graph junction.
 
-    Corresponds to ``pb_vector_geometry_v130.snap_geometry``'s node output, once
-    extended (W3) with junction-type classification. This dataclass does not
-    itself classify anything -- it is the record shape the classifier writes.
+    Corresponds to ``pb_vector_geometry_v130.snap_geometry``'s node output
+    (as prepared by W2's ``pb_wall_room_topology_stage_a``), classified by W3's
+    junction classifier. This dataclass does not itself classify anything -- it
+    is the record shape the classifier writes.
+
+    ``incident_wall_candidate_ids`` currently references **Stage-A edge ids**,
+    not ``WallCandidate.candidate_id`` values -- wall-candidate assembly (W4)
+    happens *after* junction classification (W3) in this workstream's own
+    roadmap, so no ``WallCandidate`` exists yet at the point this dataclass is
+    populated. A future W4 pass is expected to re-key these to real
+    ``WallCandidate`` ids once wall-candidate assembly exists (each Stage-A
+    edge is expected to become approximately one wall candidate, modulo
+    further collapsing W4 may apply) -- this is a deliberate, documented
+    sequencing choice, not an oversight.
     """
 
     node_id: str
+    document_id: str
+    page_id: str
+    viewport_id: str
     position_pt: Tuple[float, float]
     junction_type: JunctionType
     incident_wall_candidate_ids: Tuple[str, ...]
     incident_angles_deg: Tuple[float, ...]
+    status: EvidenceResolutionStatus
     confidence: float
+    evidence_ids: Tuple[str, ...] = ()
+    conflict_evidence_ids: Tuple[str, ...] = ()
     reason_codes: Tuple[str, ...] = ()
     schema_version: str = TOPOLOGY_CONTRACT_SCHEMA_VERSION
 
     def __post_init__(self) -> None:
         _require_nonempty(self.node_id, "node_id")
+        _require_nonempty(self.document_id, "document_id")
+        _require_nonempty(self.page_id, "page_id")
+        _require_nonempty(self.viewport_id, "viewport_id")
         _require_point_sequence((self.position_pt,), "position_pt", min_points=1)
         _require_confidence(self.confidence)
         if len(self.incident_wall_candidate_ids) != len(self.incident_angles_deg):
@@ -156,16 +214,95 @@ class JunctionCandidate:
                 "incident_wall_candidate_ids and incident_angles_deg must have equal length"
             )
         _require_unique(self.incident_wall_candidate_ids, "incident_wall_candidate_ids")
-        if self.junction_type != JunctionType.UNRESOLVED and not self.incident_wall_candidate_ids:
-            raise ValueError("a classified junction must reference at least one incident wall")
+        _require_unique(self.evidence_ids, "evidence_ids")
+        _require_unique(self.conflict_evidence_ids, "conflict_evidence_ids")
+        if (
+            self.junction_type not in _JUNCTION_TYPES_ALLOWING_EMPTY_INCIDENT_IDS
+            and not self.incident_wall_candidate_ids
+        ):
+            raise ValueError(
+                f"junction_type={self.junction_type.value!r} must reference at least one "
+                "incident wall/segment id"
+            )
+        if self.status == EvidenceResolutionStatus.CONFLICT and not self.conflict_evidence_ids:
+            raise ValueError("CONFLICT status requires conflict_evidence_ids")
+        if self.status == EvidenceResolutionStatus.CORROBORATED and self.conflict_evidence_ids:
+            raise ValueError("a CORROBORATED junction cannot retain unresolved conflicts")
 
     def to_dict(self) -> dict:
         return {
             "node_id": self.node_id,
+            "document_id": self.document_id,
+            "page_id": self.page_id,
+            "viewport_id": self.viewport_id,
             "position_pt": list(self.position_pt),
             "junction_type": self.junction_type.value,
             "incident_wall_candidate_ids": list(self.incident_wall_candidate_ids),
             "incident_angles_deg": list(self.incident_angles_deg),
+            "status": self.status.value,
+            "confidence": self.confidence,
+            "evidence_ids": list(self.evidence_ids),
+            "conflict_evidence_ids": list(self.conflict_evidence_ids),
+            "reason_codes": list(self.reason_codes),
+            "schema_version": self.schema_version,
+        }
+
+
+class TopologyRelationshipType(str, Enum):
+    """Deterministic peer relationships between wall-segment candidates (W3).
+
+    Nothing in ``pb_migration_contracts`` or ``pb_canonical_building`` already
+    models this: ``pb_canonical_building``'s ``parent_id``/``children_ids`` are
+    a hierarchical (containment) relationship, not a topological peer
+    relationship between two same-level wall segments meeting at a junction --
+    so this is new, not a duplicate of an existing relationship system.
+    """
+
+    CONNECTED_TO = "connected_to"
+    CONTINUES_AS = "continues_as"
+    TERMINATES_AT = "terminates_at"
+    INTERSECTS = "intersects"
+    BRANCHES_FROM = "branches_from"
+
+
+@dataclass(frozen=True)
+class TopologyRelationship:
+    """One deterministic edge-to-edge relationship produced at a junction.
+
+    ``to_edge_id`` is ``None`` only for ``TERMINATES_AT`` (an edge ending at a
+    degree-1 node has no "other" edge to relate to at that node).
+    """
+
+    relationship_id: str
+    from_edge_id: str
+    to_edge_id: Optional[str]
+    relationship_type: TopologyRelationshipType
+    via_junction_id: str
+    confidence: float
+    reason_codes: Tuple[str, ...] = ()
+    schema_version: str = TOPOLOGY_CONTRACT_SCHEMA_VERSION
+
+    def __post_init__(self) -> None:
+        _require_nonempty(self.relationship_id, "relationship_id")
+        _require_nonempty(self.from_edge_id, "from_edge_id")
+        _require_nonempty(self.via_junction_id, "via_junction_id")
+        _require_confidence(self.confidence)
+        if self.relationship_type == TopologyRelationshipType.TERMINATES_AT:
+            if self.to_edge_id is not None:
+                raise ValueError("TERMINATES_AT must not carry a to_edge_id")
+        else:
+            if not self.to_edge_id:
+                raise ValueError(f"{self.relationship_type.value} requires a to_edge_id")
+            if self.to_edge_id == self.from_edge_id:
+                raise ValueError("an edge cannot relate to itself")
+
+    def to_dict(self) -> dict:
+        return {
+            "relationship_id": self.relationship_id,
+            "from_edge_id": self.from_edge_id,
+            "to_edge_id": self.to_edge_id,
+            "relationship_type": self.relationship_type.value,
+            "via_junction_id": self.via_junction_id,
             "confidence": self.confidence,
             "reason_codes": list(self.reason_codes),
             "schema_version": self.schema_version,

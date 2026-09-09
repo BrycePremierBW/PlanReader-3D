@@ -64,6 +64,15 @@ DEFAULT_COLLINEAR_ANGLE_TOLERANCE_DEG = 3.0
 # metadata (dash pattern, layer name) is used to reject a segment here.
 _HATCH_LAYER_KEYWORDS = ("hatch", "pattern", "fill", "shading")
 _DIMENSION_LAYER_KEYWORDS = ("dim", "dimension", "annotation", "note")
+# Added for W3's false-positive protection: a text box, callout, or leader
+# line frame is not wall linework even when solid/undashed. Matched the same
+# way as the hatch/dimension keywords above -- by layer name only, never by
+# length or position -- and only catches a text-box border when the source
+# PDF actually tags it with an identifiable layer name. A text/annotation
+# frame with no identifying layer metadata at all is a known, honest gap left
+# to later corroboration stages (see docs/planreader_wall_room_topology_spec.md
+# Section 12/W9-11) -- not silently claimed as solved here.
+_TEXT_FRAME_LAYER_KEYWORDS = ("text", "frame", "border", "leader", "callout", "label")
 
 
 def _angle_delta(a_deg: float, b_deg: float) -> float:
@@ -95,6 +104,8 @@ def is_structural_candidate_segment(segment: Dict[str, Any]) -> Tuple[bool, List
             reason_codes.append("hatch_layer_excluded")
         if any(keyword in layer for keyword in _DIMENSION_LAYER_KEYWORDS):
             reason_codes.append("dimension_layer_excluded")
+        if any(keyword in layer for keyword in _TEXT_FRAME_LAYER_KEYWORDS):
+            reason_codes.append("text_frame_layer_excluded")
 
     return (len(reason_codes) == 0, reason_codes)
 
