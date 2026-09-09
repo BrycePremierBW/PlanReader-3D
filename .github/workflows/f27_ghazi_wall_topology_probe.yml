@@ -24,86 +24,65 @@ jobs:
         run: |
           curl -fL --retry 3 --retry-delay 2 'https://tenders.go.ke/storage/Documents/1739211305954-tender-document-for-construction-of-science-laboratory-at-ghazi-primary-school.pdf' -o /tmp/ghazi.pdf
           echo 'c8c001c9dadb791e7cb18b7bea19ce795eebba2f9b9eb7dec4844212da4d8f4f  /tmp/ghazi.pdf' | sha256sum -c -
-      - name: Probe plan geometry and dimension evidence
+      - name: Bind verandah label, bay chains and pole label
         run: |
           python - <<'PY'
-          import math
           import re
           import fitz
-          from pb_dimension_chain_evidence_extractor import (
-              extract_dimension_chains_from_page,
-              resolve_corroborated_wall_thickness_m,
-          )
-          from pb_dimension_graph_constraint_engine import classify_chain_segments
-          from pb_viewport_segmentation import segment_page_viewports
-          from pb_figured_dimension_evidence import extract_vector_segments
+          from pb_dimension_chain_evidence_extractor import extract_dimension_chains_from_page
+          from pb_structural_bay_pillar_count import derive_support_count_from_bay_chain, find_uniform_bay_runs
 
-          doc = fitz.open('/tmp/ghazi.pdf')
-          page_num = 167
-          page = doc[page_num - 1]
-          print('PAGE_RECT', tuple(round(float(v), 2) for v in page.rect))
+          doc=fitz.open('/tmp/ghazi.pdf')
+          page=doc[166]
+          words=page.get_text('words') or []
 
-          print('\nVIEWPORTS')
-          viewports = segment_page_viewports(page, page_number=page_num)
-          for v in viewports:
-              print(v)
+          def bbox_for_phrase(tokens):
+              target=[t.lower() for t in tokens]
+              rows=[]
+              for i in range(len(words)-len(target)+1):
+                  got=[str(words[i+j][4]).strip('.,:;()').lower() for j in range(len(target))]
+                  if got==target:
+                      xs=[float(words[i+j][0]) for j in range(len(target))]+[float(words[i+j][2]) for j in range(len(target))]
+                      ys=[float(words[i+j][1]) for j in range(len(target))]+[float(words[i+j][3]) for j in range(len(target))]
+                      rows.append((min(xs),min(ys),max(xs),max(ys)))
+              return rows
 
-          print('\nDIMENSION_CHAINS')
-          chains = extract_dimension_chains_from_page(page, page_num=page_num, view_id=f'page_{page_num}')
-          print('CHAIN_COUNT', len(chains))
+          print('VERANDAH_BBOXES', bbox_for_phrase(['VERANDAH']))
+          print('RHS_STEEL_POLES_BBOXES', bbox_for_phrase(['RHS','Steel','Poles']))
+          print('STEEL_POLES_BBOXES', bbox_for_phrase(['Steel','Poles']))
+
+          for w in words:
+              token=str(w[4]).strip()
+              if re.search(r'RHS|pole|verand',token,re.I):
+                  print('KEYWORD_WORD',tuple(round(float(v),2) for v in w[:4]),token)
+
+          chains=extract_dimension_chains_from_page(page,page_num=167,view_id='page_167')
+          repeated=[]
           for c in chains:
-              print('CHAIN', c.chain_id, c.view_id, c.orientation, 'CLASS', classify_chain_segments(c))
-              for o in c.observations:
-                  print('  OBS', o.raw_text, round(float(o.value_m), 4), o.bbox, o.endpoints, o.authority, o.confidence)
-          print('RESOLVED_WALL_THICKNESS_M', resolve_corroborated_wall_thickness_m(chains))
+              vals=[round(float(o.value_m),4) for o in c.observations]
+              if len(vals)>=2:
+                  res=derive_support_count_from_bay_chain(vals)
+                  if res.status=='resolved':
+                      boxes=[o.bbox for o in c.observations if o.bbox]
+                      x0=min(b[0] for b in boxes); y0=min(b[1] for b in boxes)
+                      x1=max(b[2] for b in boxes); y1=max(b[3] for b in boxes)
+                      repeated.append((c.chain_id,vals,res.support_count,(x0,y0,x1,y1)))
+          print('REPEATED_CHAIN_CANDIDATES')
+          for row in repeated: print(row)
 
-          text = page.get_text('text') or ''
-          print('\nDPC_AND_WALL_TEXT')
-          for line in text.splitlines():
-              s = ' '.join(line.split())
-              if re.search(r'\bDPC\b|damp proof|walls?|partition|laboratory|office|store|preparation|verandah|floor area', s, re.I):
-                  print(s)
+          text=page.get_text('text') or ''
+          parsed=[]
+          for major,minor in re.findall(r'\b(\d{1,2})[,.]?(\d{3})\b',text):
+              v=float(major)+float(minor)/1000.0
+              if 2.0<=v<=35.0: parsed.append(round(v,3))
+          print('FLAT_PARSED_DIMS',parsed)
+          flat_runs=find_uniform_bay_runs(parsed)
+          print('FLAT_BAY_RUN_COUNT',len(flat_runs))
+          for r in flat_runs: print('FLAT_RUN',r)
 
-          print('\nROOM_LABEL_WORDS')
-          labels = ('LABORATORY','OFFICE','STORE','PREPARATION','ROOM','VERANDAH')
-          for w in page.get_text('words') or []:
-              token = str(w[4]).strip()
-              if token.upper().strip("'.,") in labels:
-                  print(tuple(round(float(x), 2) for x in w[:4]), token)
-
-          print('\n200MM_WORDS')
-          for w in page.get_text('words') or []:
-              token = str(w[4]).strip().replace(',', '')
-              if token in {'200', '200mm', '200MM'}:
-                  print(tuple(round(float(x), 2) for x in w[:4]), w[4])
-
-          print('\nVECTOR_SEGMENTS')
-          segments = extract_vector_segments(page, page_num=page_num, view_id=f'page_{page_num}')
-          print('SEGMENT_COUNT', len(segments))
-          rows=[]
-          for s in segments:
-              x0,y0=s.start; x1,y1=s.end
-              length=math.hypot(x1-x0,y1-y0)
-              if length >= 8:
-                  orient='H' if abs(y1-y0) <= 1.0 else ('V' if abs(x1-x0) <= 1.0 else 'D')
-                  rows.append((round(length,2), orient, tuple(round(float(x),2) for x in s.start), tuple(round(float(x),2) for x in s.end), s.segment_id))
-          for row in sorted(rows, reverse=True)[:500]:
-              print('SEG', row)
-
-          print('\nRAW_DRAWINGS')
-          drawings = page.get_drawings()
-          print('DRAWING_COUNT', len(drawings))
-          for idx,d in enumerate(drawings[:120]):
-              rect=d.get('rect')
-              items=d.get('items') or []
-              if rect is not None:
-                  rw=float(rect.x1-rect.x0); rh=float(rect.y1-rect.y0)
-              else:
-                  rw=rh=0
-              if rw >= 15 or rh >= 15:
-                  print('DRAW', idx, 'RECT', tuple(round(float(v),2) for v in rect) if rect else None, 'ITEMS', len(items), 'WIDTH', d.get('width'))
-                  for item in items[:30]:
-                      print('  ITEM', item)
-
+          print('LOWER_PLAN_WORDS')
+          for w in words:
+              if 400 <= float(w[1]) <= 500 and float(w[0]) < 650:
+                  print(tuple(round(float(v),2) for v in w[:4]),w[4])
           doc.close()
           PY
