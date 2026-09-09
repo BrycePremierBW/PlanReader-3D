@@ -1,0 +1,45 @@
+name: F31 Ghazi Plan Crop
+
+on:
+  push:
+    branches: [diag/f31-ghazi-vector-wall-network]
+
+permissions:
+  contents: write
+
+jobs:
+  crop:
+    if: "!contains(github.event.head_commit.message, '[f31-crop-ready]')"
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: diag/f31-ghazi-vector-wall-network
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pip install PyMuPDF==1.28.0
+      - run: |
+          curl -fL --retry 3 --retry-delay 2 'https://tenders.go.ke/storage/Documents/1739211305954-tender-document-for-construction-of-science-laboratory-at-ghazi-primary-school.pdf' -o /tmp/ghazi.pdf
+          echo 'c8c001c9dadb791e7cb18b7bea19ce795eebba2f9b9eb7dec4844212da4d8f4f  /tmp/ghazi.pdf' | sha256sum -c -
+      - name: Render floor-plan crop
+        run: |
+          mkdir -p diagnostics
+          python - <<'PY'
+          import fitz
+          doc=fitz.open('/tmp/ghazi.pdf')
+          page=doc[166]
+          # Floor-plan / verandah viewport with enough surrounding annotation
+          # to distinguish walls, dimensions and room labels visually.
+          clip=fitz.Rect(90,150,615,470)
+          pix=page.get_pixmap(matrix=fitz.Matrix(3,3), clip=clip, alpha=False)
+          pix.save('diagnostics/f31_ghazi_plan_crop.png')
+          doc.close()
+          PY
+      - name: Commit temporary diagnostic crop
+        run: |
+          git config user.name 'BrycePremierBW'
+          git config user.email 'bryce@premierbw.com.au'
+          git add diagnostics/f31_ghazi_plan_crop.png
+          git commit -m 'diag(F31): add temporary Ghazi plan crop [f31-crop-ready]'
+          git push origin HEAD:diag/f31-ghazi-vector-wall-network
