@@ -10,6 +10,7 @@ from dataclasses import dataclass
 import json
 import math
 from pathlib import Path
+import re
 from typing import Any, Mapping, Optional, Sequence
 
 from pb_benchmark_runner import resolve_file_path
@@ -37,7 +38,9 @@ HEADLINE_DEVELOPMENT_BENCHMARKS = (
 
 COUNT_UNITS = frozenset({"NO", "NO.", "NOS", "NOS.", "EA", "EACH", "NR"})
 AGGREGATE_OPENING_KEYS = frozenset({"steel_casement_windows", "doors_complete"})
+FAMILY_TOTAL_KEYS = frozenset({"door_total", "window_total"})
 _HOLD_OUT_ID = "tenders_ke_olv_laboratory_complex"
+_WD_KEY_RE = re.compile(r"^WD\d{1,3}$", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -58,9 +61,27 @@ def _public_tender_dir(benchmark_id: str) -> Path:
 def _is_opening_identity(key: str) -> bool:
     if key in AGGREGATE_OPENING_KEYS:
         return True
+    if key in FAMILY_TOTAL_KEYS:
+        return False
     if normalize_opening_tag(key) is not None:
         return True
-    return resolve_opening_identity(key, trade_type="windows") is not None or key.upper().startswith("WD")
+    return resolve_opening_identity(key, trade_type="windows") is not None or bool(_WD_KEY_RE.fullmatch(key))
+
+
+def _is_well_formed_type_mark(key: str) -> bool:
+    if key in AGGREGATE_OPENING_KEYS or key in FAMILY_TOTAL_KEYS:
+        return False
+    if normalize_opening_tag(key) is not None:
+        return True
+    return bool(_WD_KEY_RE.fullmatch(key))
+
+
+def _is_family_aggregate(item: QuantityEvidence) -> bool:
+    return (
+        item.semantic_key in FAMILY_TOTAL_KEYS
+        or item.metadata.get("count_kind") == "family_aggregate"
+        or item.formula == "sum_of_authoritative_type_counts"
+    )
 
 
 def _looks_like_opening_count(description: str, unit: str, mapped: str) -> bool:
@@ -135,14 +156,26 @@ def score_frozen_quantities(
     source_status: str = "ok",
 ) -> dict[str, Any]:
     """Score already-frozen quantities against gold. Does not run extraction."""
-    answered = _answered(frozen_quantities)
+    answered_all = _answered(frozen_quantities)
     abstained = _abstained(frozen_quantities)
     gold_by_key = {item.semantic_key: item for item in eligible}
-    answered_keys = [item.semantic_key for item in answered]
+    aggregates = [item for item in answered_all if _is_family_aggregate(item)]
+    type_answers = [item for item in answered_all if not _is_family_aggregate(item)]
+    answered_keys = [item.semantic_key for item in type_answers]
     duplicate_answered = len(answered_keys) - len(set(answered_keys))
 
-    matched = [item for item in answered if item.semantic_key in gold_by_key]
-    hallucinations = [item for item in answered if item.semantic_key not in gold_by_key]
+    matched = [item for item in type_answers if item.semantic_key in gold_by_key]
+    extra_valid = [
+        item
+        for item in type_answers
+        if item.semantic_key not in gold_by_key and _is_well_formed_type_mark(item.semantic_key)
+    ]
+    hallucinations = [
+        item
+        for item in type_answers
+        if item.semantic_key not in gold_by_key and not _is_well_formed_type_mark(item.semantic_key)
+    ]
+    answered = matched
     exact = [
         item
         for item in matched
@@ -173,7 +206,8 @@ def score_frozen_quantities(
     answered_n = len(answered)
     exact_n = len(exact)
     identity_n = len(matched)
-    precision = (identity_n / answered_n) if answered_n else 0.0
+    precision_den = identity_n + len(hallucinations)
+    precision = (identity_n / precision_den) if precision_den else 0.0
     exact_rate = (exact_n / answered_n) if answered_n else 0.0
     recall = (exact_n / eligible_n) if eligible_n else 0.0
     coverage = (answered_n / eligible_n) if eligible_n else 0.0
@@ -221,6 +255,10 @@ def score_frozen_quantities(
         "answered_keys": [item.semantic_key for item in answered],
         "exact_keys": [item.semantic_key for item in exact],
         "hallucinated_keys": [item.semantic_key for item in hallucinations],
+        "extra_valid_type_marks": len(extra_valid),
+        "extra_valid_keys": [item.semantic_key for item in extra_valid],
+        "family_aggregates": len(aggregates),
+        "family_aggregate_keys": [item.semantic_key for item in aggregates],
         "eligible_keys": [item.semantic_key for item in eligible],
         "abstained_keys": [item.semantic_key for item in abstained],
         "duplicate_observations_suppressed": duplicate_observations,
@@ -321,6 +359,8 @@ def aggregate_development_metrics(project_rows: Sequence[Mapping[str, Any]]) -> 
         "exact_correctness_on_answered_counts": exact_rate,
         "recall": recall,
         "hallucinations": _sum_int(project_rows, "hallucinations"),
+        "extra_valid_type_marks": _sum_int(project_rows, "extra_valid_type_marks"),
+        "family_aggregates": _sum_int(project_rows, "family_aggregates"),
         "duplicate_counts": _sum_int(project_rows, "duplicate_counts"),
         "critical_duplicate_counts": _sum_int(project_rows, "critical_duplicate_counts"),
         "conflicts": _sum_int(project_rows, "conflicts"),

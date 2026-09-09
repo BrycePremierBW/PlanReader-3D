@@ -33,7 +33,25 @@ def test_evaluator_scores_frozen_outputs_without_reextracting() -> None:
         EligibleOpeningItem("demo", "I1", "W1", 6.0, "NO", "Window W1", "schedule_extractable"),
         EligibleOpeningItem("demo", "I2", "D1", 3.0, "NO", "Door D1", "schedule_extractable"),
     )
-    frozen = (_qty("W1", 6.0), _qty("D1", None, abstained=True), _qty("W99", 2.0))
+    frozen = (
+        _qty("W1", 6.0),
+        _qty("D1", None, abstained=True),
+        _qty("W99", 2.0),
+        QuantityEvidence(
+            quantity_id="qty_casement_x",
+            family="window_count",
+            semantic_key="casement",
+            value=4.0,
+            unit="ea",
+            input_entity_ids=("ent_type",),
+            evidence_ids=("ev_2",),
+            formula="dimension_inferred_identity",
+            formula_version="1.0.0",
+            authority="provisional",
+            status="provisional",
+            confidence=0.4,
+        ),
+    )
     metrics = score_frozen_quantities(
         benchmark_id="demo",
         frozen_quantities=frozen,
@@ -41,11 +59,14 @@ def test_evaluator_scores_frozen_outputs_without_reextracting() -> None:
         conflicts=(),
     )
     assert metrics["eligible_opening_count_items"] == 2
-    assert metrics["answered"] == 2
+    assert metrics["answered"] == 1
+    assert metrics["extra_valid_type_marks"] == 1
+    assert "W99" in metrics["extra_valid_keys"]
     assert metrics["hallucinations"] == 1
+    assert "casement" in metrics["hallucinated_keys"]
     assert metrics["precision_on_answered_identities"] == 0.5
-    assert metrics["exact_correctness_on_answered_counts"] == 0.5
-    assert "W99" in metrics["hallucinated_keys"]
+    assert metrics["exact_correctness_on_answered_counts"] == 1.0
+    assert metrics["coverage"] == 0.5
 
 
 def test_legacy_new_agreement_ignores_non_opening_legacy_keys() -> None:

@@ -49,12 +49,29 @@ from pb_opening_tag_normalization import (
 )
 from pb_raster_schedule_extractor import GenericScheduleTableExtractor, ScheduleRow
 from pb_shadow_opening_count_gate import OPENING_COUNT_FAMILIES
+from pb_shadow_opening_evidence import (
+    assess_opening_schedule_authority,
+    derive_family_totals,
+    group_ocr_tokens_into_lines,
+    is_ambiguous_ocr_mark,
+    is_work_section_or_nrm_code,
+    make_shadow_ocr_engine,
+    native_tag_context_allowed,
+    nearby_word_text,
+    ocr_mark_is_usable,
+    page_is_opening_schedule_sheet,
+    page_looks_like_bill_or_nrm,
+    iter_complete_opening_schedule_rows,
+    schedule_line_is_authoritative,
+    viewport_is_opening_schedule_candidate,
+)
 from pb_viewport_segmentation import assign_bbox_to_viewport, segment_page_viewports
 
 
 PROVIDER_ENGINE_ID = "shadow_opening_count"
-PROVIDER_ENGINE_VERSION = "1.0.0"
+PROVIDER_ENGINE_VERSION = "1.1.0"
 FORMULA_VERSION = "1.0.0"
+RASTER_OCR_DPI = 150
 
 _DETAIL_OR_LEGEND = {
     DrawingViewType.DETAIL.value,
@@ -158,6 +175,10 @@ def resolve_opening_identity(
     context = f"{tag or ''} {evidence_text or ''}"
     if _NON_OPENING_CONTEXT_RE.search(context):
         return None
+    if is_work_section_or_nrm_code(tag, evidence_text):
+        return None
+    if is_ambiguous_ocr_mark(tag):
+        return None
     norm = normalize_opening_tag(tag)
     if norm is not None:
         return norm
@@ -252,10 +273,15 @@ class ShadowOpeningCountProvider:
         self,
         *,
         ocr_lines_by_page: Optional[Mapping[int, Sequence[Mapping[str, Any]]]] = None,
+        enable_raster_ocr: bool = True,
+        raster_ocr_dpi: int = RASTER_OCR_DPI,
     ) -> None:
         self._ocr_lines_by_page = {
             int(page): tuple(lines) for page, lines in (ocr_lines_by_page or {}).items()
         }
+        self._enable_raster_ocr = bool(enable_raster_ocr)
+        self._raster_ocr_dpi = int(raster_ocr_dpi)
+        self._ocr_engine: Any = None
 
     def extract_quantities(
         self,
@@ -301,6 +327,9 @@ class ShadowOpeningCountProvider:
         seen_physical: set[tuple[str, int, tuple[float, ...]]] = set()
         duplicate_holder = [0]
         schedule_bboxes: set[tuple[int, tuple[float, ...]]] = set()
+        viewport_ids_by_tag: dict[str, str] = {}
+        raster_pages: list[int] = []
+        raster_rejected: list[str] = []
 
         viewports_by_page: dict[int, list[Any]] = {}
         for pno in target:
@@ -322,7 +351,7 @@ class ShadowOpeningCountProvider:
                 continue
             viewports = viewports_by_page.get(row.source_page, [])
             page = doc[row.source_page - 1]
-            view_type, _view_id = _classify_page_view(page, row.source_page, row.bbox, viewports)
+            view_type, view_id = _classify_page_view(page, row.source_page, row.bbox, viewports)
             bbox = list(row.bbox) if row.bbox and _round_bbox(row.bbox) else None
             evidence_id = stable_contract_id(
                 "ev",
@@ -387,6 +416,8 @@ class ShadowOpeningCountProvider:
                 )
                 if _round_bbox(row.bbox):
                     schedule_bboxes.add((row.source_page, _round_bbox(row.bbox)))
+                if view_id:
+                    viewport_ids_by_tag.setdefault(norm.tag, view_id)
             elif view_type == DrawingViewType.FLOOR_PLAN.value and (row.quantity is None or row.quantity == 1):
                 self._add_physical_observation(
                     graph=graph,
@@ -421,7 +452,22 @@ class ShadowOpeningCountProvider:
                 graph=graph,
                 schedule_conflicts=schedule_conflicts,
                 duplicate_holder=duplicate_holder,
+                viewport_ids_by_tag=viewport_ids_by_tag,
+                ambiguous=ambiguous,
             )
+            raster_used = self._ingest_raster_schedule_viewports(
+                page,
+                page_number=page_number,
+                viewports=viewports,
+                graph=graph,
+                schedule_conflicts=schedule_conflicts,
+                duplicate_holder=duplicate_holder,
+                viewport_ids_by_tag=viewport_ids_by_tag,
+                ambiguous=ambiguous,
+                rejected=raster_rejected,
+            )
+            if raster_used:
+                raster_pages.append(page_number)
             self._note_ambiguous_marks(page, page_number, viewports, graph, ambiguous)
 
         conflicting_tags = {str(item["tag"]) for item in schedule_conflicts if item.get("tag")}
@@ -433,8 +479,24 @@ class ShadowOpeningCountProvider:
         suppressed = len(graph.suppressed_duplicates) + duplicate_holder[0]
 
         for tag, group in sorted(reconciled.items(), key=lambda item: item[0]):
-            visible_conflicts.extend(group.conflicts)
             evidence_ids = self._group_evidence_ids(group, graph)
+            plan_count = int(group.metadata.get("plan_count") or 0)
+            schedule_qty = group.metadata.get("schedule_count")
+            has_schedule = schedule_qty is not None
+            elev_only_mismatch = (
+                group.status == ReconciliationStatus.CONFLICT_MANUAL_REVIEW.value
+                and has_schedule
+                and plan_count == 0
+                and any(c.get("type") == "schedule_vs_plan_count_mismatch" for c in group.conflicts)
+            )
+            if elev_only_mismatch:
+                # Elevation/section appearances are supporting evidence, not a second count.
+                group.conflicts = [
+                    c for c in group.conflicts if c.get("type") != "schedule_vs_plan_count_mismatch"
+                ]
+                group.status = ReconciliationStatus.CONFIRMED.value
+                group.final_quantity = float(schedule_qty)
+            visible_conflicts.extend(group.conflicts)
             if tag in conflicting_tags:
                 quantities.append(
                     self._abstain(
@@ -492,10 +554,6 @@ class ShadowOpeningCountProvider:
                     )
                 )
                 continue
-
-            plan_count = int(group.metadata.get("plan_count") or 0)
-            schedule_qty = group.metadata.get("schedule_count")
-            has_schedule = schedule_qty is not None
             if has_schedule and plan_count == 0:
                 formula = "explicit_schedule_count"
                 authority = "schedule_extracted"
@@ -509,9 +567,16 @@ class ShadowOpeningCountProvider:
                 authority = "provisional"
                 status = "provisional"
             else:
-                formula = "elevation_tag_count"
-                authority = "provisional"
-                status = "provisional"
+                quantities.append(
+                    self._abstain(
+                        tag=tag,
+                        trade=group.trade_type,
+                        path=path,
+                        reasons=("supporting_view_only",),
+                        evidence_ids=evidence_ids,
+                    )
+                )
+                continue
 
             type_entity_id = stable_contract_id(
                 "ent",
@@ -635,7 +700,12 @@ class ShadowOpeningCountProvider:
                         "source_page": spec.source_page if spec else None,
                         "source_sheet": None,
                         "description": group.description,
-                        "viewport_id": None,
+                        "viewport_id": viewport_ids_by_tag.get(tag),
+                        "view_types": sorted(
+                            view
+                            for view, occs in group.occurrences_by_view.items()
+                            if occs
+                        ),
                     },
                 )
             )
@@ -652,6 +722,13 @@ class ShadowOpeningCountProvider:
             )
 
         quantities = self._prefer_abstention(tuple(quantities))
+        quantities = tuple(quantities) + derive_family_totals(
+            quantities,
+            formula_version=FORMULA_VERSION,
+        )
+        quantities = tuple(
+            sorted(quantities, key=lambda item: (item.family, item.semantic_key, item.quantity_id))
+        )
         return OpeningCountBundle(
             quantities=quantities,
             entity_evidence=tuple(entities),
@@ -668,6 +745,13 @@ class ShadowOpeningCountProvider:
                 "gold_consulted": False,
                 "pages_considered": target,
                 "type_count_is_not_physical_reconstruction": True,
+                "raster_schedule_pages": raster_pages,
+                "raster_authority_rejections": raster_rejected,
+                "family_aggregates_emitted": [
+                    item.semantic_key
+                    for item in quantities
+                    if item.metadata.get("count_kind") == "family_aggregate"
+                ],
             },
         )
 
@@ -687,6 +771,7 @@ class ShadowOpeningCountProvider:
         method: str,
         confidence: float = 1.0,
         legend: bool = False,
+        view_id: str = "",
     ) -> None:
         rounded = _round_bbox(bbox)
         for existing_tag, existing_page, existing_bbox in seen_physical:
@@ -700,21 +785,26 @@ class ShadowOpeningCountProvider:
             "ev",
             {"kind": "physical_tag", "tag": tag, "page": page_number, "bbox": rounded, "text": text},
         )
-        graph.add_observation(
-            EvidenceOccurrence(
-                occurrence_id=occ_id,
-                tag=tag,
-                trade_type=trade_type,
-                view_type=view_type,
-                source_page=page_number,
-                bounding_box=list(bbox) if bbox else None,
-                raw_text=text,
-                dimensions=dimensions,
-                is_legend_or_typical=legend,
-                confidence=confidence,
-                extraction_method=method,
-            ).to_observation()
-        )
+        observation = EvidenceOccurrence(
+            occurrence_id=occ_id,
+            tag=tag,
+            trade_type=trade_type,
+            view_type=view_type,
+            source_page=page_number,
+            bounding_box=list(bbox) if bbox else None,
+            raw_text=text,
+            dimensions=dimensions,
+            is_legend_or_typical=legend,
+            confidence=confidence,
+            extraction_method=method,
+        ).to_observation()
+        observation.view_id = view_id
+        observation.metadata = {
+            **dict(observation.metadata or {}),
+            "is_legend_or_typical": legend,
+            "viewport_id": view_id,
+        }
+        graph.add_observation(observation)
 
     def _ingest_explicit_tags(
         self,
@@ -736,11 +826,30 @@ class ShadowOpeningCountProvider:
             bbox = (float(word[0]), float(word[1]), float(word[2]), float(word[3]))
             if (page_number, _round_bbox(bbox)) in schedule_bboxes:
                 continue
-            view_type, _view_id = _classify_page_view(page, page_number, bbox, viewports)
+            view_type, view_id = _classify_page_view(page, page_number, bbox, viewports)
             if view_type == DrawingViewType.SCHEDULE.value:
                 continue
-            legend = view_type in _DETAIL_OR_LEGEND
+            nearby = nearby_word_text(
+                words,
+                ((bbox[0] + bbox[2]) / 2.0, (bbox[1] + bbox[3]) / 2.0),
+            )
+            if not native_tag_context_allowed(text, nearby):
+                continue
+            if view_type in _DETAIL_OR_LEGEND or view_type in {
+                DrawingViewType.SECTION.value,
+                DrawingViewType.UNKNOWN.value,
+                DrawingViewType.ADJACENT_SCOPE.value,
+            }:
+                continue
+            if view_type == DrawingViewType.ELEVATION.value:
+                role_view = DrawingViewType.ELEVATION.value
+            elif view_type in {DrawingViewType.FLOOR_PLAN.value, DrawingViewType.ROOF_PLAN.value}:
+                role_view = view_type
+            else:
+                continue
             for norm in tags:
+                if is_work_section_or_nrm_code(norm.tag, nearby):
+                    continue
                 self._add_physical_observation(
                     graph=graph,
                     seen_physical=seen_physical,
@@ -751,9 +860,10 @@ class ShadowOpeningCountProvider:
                     bbox=bbox,
                     text=text,
                     dimensions=None,
-                    view_type=view_type,
+                    view_type=role_view,
                     method="native",
-                    legend=legend,
+                    legend=False,
+                    view_id=view_id,
                 )
 
     def _ingest_ocr_lines(
@@ -763,74 +873,238 @@ class ShadowOpeningCountProvider:
         graph: EvidenceGraph,
         schedule_conflicts: list[dict[str, Any]],
         duplicate_holder: list[int],
+        viewport_ids_by_tag: dict[str, str],
+        ambiguous: list[str],
+        view_id: str = "",
     ) -> None:
-        for line in self._ocr_lines_by_page.get(page_number, ()):
-            text = str(line.get("text") or "")
-            bbox = line.get("bounding_box") or line.get("bbox")
-            record = DrawingEvidenceParser.parse_schedule_line(
-                text,
-                source_page=page_number,
-                bbox=list(bbox) if bbox else None,
-                confidence=float(line.get("confidence") or 0.8),
-                method=EvidenceMethod.RASTER_OCR.value,
+        raw_lines = list(self._ocr_lines_by_page.get(page_number, ()))
+        lines = group_ocr_tokens_into_lines(raw_lines) if raw_lines else []
+        if not lines:
+            lines = [dict(line) for line in raw_lines]
+        for line in lines:
+            self._ingest_one_ocr_schedule_line(
+                line,
+                page_number=page_number,
+                graph=graph,
+                schedule_conflicts=schedule_conflicts,
+                duplicate_holder=duplicate_holder,
+                viewport_ids_by_tag=viewport_ids_by_tag,
+                ambiguous=ambiguous,
+                view_id=view_id,
+                min_confidence=0.55,
             )
-            if record is None:
-                continue
-            norm = resolve_opening_identity(
-                record.tag,
-                evidence_text=text,
-                trade_type="windows" if str(record.tag).upper().startswith("W") else "doors",
-            )
-            if norm is None:
-                continue
-            existing = graph.schedule_specs.get(norm.tag)
-            if existing is not None:
-                if _specs_conflict(existing, record.quantity, record.dimensions):
-                    schedule_conflicts.append(
-                        {
-                            "type": "duplicate_schedule_conflict",
-                            "tag": norm.tag,
-                            "first": existing.scheduled_quantity,
-                            "second": record.quantity,
-                        }
-                    )
-                    continue
-                duplicate_holder[0] += 1
-                continue
-            if record.quantity is None and not record.dimensions:
-                continue
-            evidence_id = stable_contract_id(
-                "ev",
-                {"kind": "ocr_schedule", "tag": norm.tag, "page": page_number, "text": text},
-            )
-            graph.add_schedule_spec(
-                ScheduleSpecification(
-                    tag=norm.tag,
-                    trade_type=norm.trade_type,
-                    description=record.description,
-                    dimensions=record.dimensions,
-                    scheduled_quantity=record.quantity,
-                    source_page=page_number,
-                    bounding_box=record.bounding_box,
-                    confidence=record.confidence,
-                    extraction_method="ocr",
-                    evidence_id=evidence_id,
+
+    def _ingest_one_ocr_schedule_line(
+        self,
+        line: Mapping[str, Any],
+        *,
+        page_number: int,
+        graph: EvidenceGraph,
+        schedule_conflicts: list[dict[str, Any]],
+        duplicate_holder: list[int],
+        viewport_ids_by_tag: dict[str, str],
+        ambiguous: list[str],
+        view_id: str = "",
+        min_confidence: float = 0.55,
+    ) -> None:
+        text = str(line.get("text") or "")
+        if page_looks_like_bill_or_nrm(text):
+            return
+        bbox = line.get("bounding_box") or line.get("bbox")
+        confidence = float(line.get("confidence") or 0.8)
+        if confidence < min_confidence:
+            return
+        record = DrawingEvidenceParser.parse_schedule_line(
+            text,
+            source_page=page_number,
+            bbox=list(bbox) if bbox else None,
+            confidence=confidence,
+            method=EvidenceMethod.RASTER_OCR.value,
+        )
+        if record is None:
+            return
+        if is_ambiguous_ocr_mark(record.tag):
+            ambiguous.append(record.tag)
+            return
+        if not ocr_mark_is_usable(record.tag):
+            return
+        if not schedule_line_is_authoritative(text, tag=record.tag, quantity=record.quantity):
+            return
+        norm = resolve_opening_identity(
+            record.tag,
+            evidence_text=text,
+            trade_type="windows" if str(record.tag).upper().startswith("W") else "doors",
+        )
+        if norm is None:
+            return
+        existing = graph.schedule_specs.get(norm.tag)
+        if existing is not None:
+            if _specs_conflict(existing, record.quantity, record.dimensions):
+                schedule_conflicts.append(
+                    {
+                        "type": "duplicate_schedule_conflict",
+                        "tag": norm.tag,
+                        "first": existing.scheduled_quantity,
+                        "second": record.quantity,
+                    }
                 )
+                return
+            if existing.scheduled_quantity is not None:
+                duplicate_holder[0] += 1
+                return
+        if record.quantity is None:
+            return
+        evidence_id = stable_contract_id(
+            "ev",
+            {"kind": "ocr_schedule", "tag": norm.tag, "page": page_number, "text": text},
+        )
+        graph.add_schedule_spec(
+            ScheduleSpecification(
+                tag=norm.tag,
+                trade_type=norm.trade_type,
+                description=record.description,
+                dimensions=record.dimensions,
+                scheduled_quantity=record.quantity,
+                source_page=page_number,
+                bounding_box=record.bounding_box,
+                confidence=record.confidence,
+                extraction_method="ocr",
+                evidence_id=evidence_id,
             )
-            graph.add_observation(
-                EvidenceOccurrence(
-                    occurrence_id=evidence_id,
-                    tag=norm.tag,
-                    trade_type=norm.trade_type,
-                    view_type=DrawingViewType.SCHEDULE.value,
-                    source_page=page_number,
-                    bounding_box=record.bounding_box,
-                    raw_text=text,
-                    dimensions=record.dimensions,
-                    confidence=record.confidence,
-                    extraction_method="ocr",
-                ).to_observation()
+        )
+        observation = EvidenceOccurrence(
+            occurrence_id=evidence_id,
+            tag=norm.tag,
+            trade_type=norm.trade_type,
+            view_type=DrawingViewType.SCHEDULE.value,
+            source_page=page_number,
+            bounding_box=record.bounding_box,
+            raw_text=text,
+            dimensions=record.dimensions,
+            confidence=record.confidence,
+            extraction_method="ocr",
+        ).to_observation()
+        observation.view_id = view_id
+        observation.metadata = {**dict(observation.metadata or {}), "viewport_id": view_id}
+        graph.add_observation(observation)
+        if view_id:
+            viewport_ids_by_tag.setdefault(norm.tag, view_id)
+
+    def _shadow_ocr_engine(self) -> Any:
+        if self._ocr_engine is None:
+            self._ocr_engine = make_shadow_ocr_engine()
+        return self._ocr_engine
+
+    def _ingest_raster_schedule_viewports(
+        self,
+        page: fitz.Page,
+        *,
+        page_number: int,
+        viewports: Sequence[Any],
+        graph: EvidenceGraph,
+        schedule_conflicts: list[dict[str, Any]],
+        duplicate_holder: list[int],
+        viewport_ids_by_tag: dict[str, str],
+        ambiguous: list[str],
+        rejected: list[str],
+    ) -> bool:
+        if not self._enable_raster_ocr:
+            return False
+        page_text = page.get_text("text") or ""
+        if page_is_bill_of_quantities(page_text) or page_looks_like_bill_or_nrm(page_text):
+            return False
+        native_qty_on_page = any(
+            spec.source_page == page_number and spec.scheduled_quantity is not None
+            for spec in graph.schedule_specs.values()
+        )
+        if native_qty_on_page:
+            return False
+        candidates = [
+            viewport
+            for viewport in viewports
+            if viewport_is_opening_schedule_candidate(viewport, page_text)
+        ]
+        if not candidates and page_is_opening_schedule_sheet(page_text):
+            rect = page.rect
+            candidates = [
+                type(
+                    "WholePageSchedule",
+                    (),
+                    {
+                        "view_id": f"page_{page_number}_schedule",
+                        "view_type": DrawingViewType.SCHEDULE.value,
+                        "label": "WINDOW SCHEDULE" if "window" in page_text.lower() else "DOOR SCHEDULE",
+                        "title": "opening schedule",
+                        "bounding_box": (float(rect.x0), float(rect.y0), float(rect.x1), float(rect.y1)),
+                    },
+                )()
+            ]
+        if not candidates:
+            return False
+        used = False
+        engine = self._shadow_ocr_engine()
+        page_rect = page.rect
+        for viewport in candidates:
+            bbox = getattr(viewport, "bounding_box", None)
+            if not bbox or len(bbox) < 4:
+                bbox = (
+                    float(page_rect.x0),
+                    float(page_rect.y0),
+                    float(page_rect.x1),
+                    float(page_rect.y1),
+                )
+            try:
+                clip = fitz.Rect(bbox)
+                tokens = engine.recognize_page_rect(page, clip_rect=clip, dpi=self._raster_ocr_dpi)
+            except Exception:
+                rejected.append(f"{getattr(viewport, 'view_id', '')}:ocr_failed")
+                continue
+            lines = group_ocr_tokens_into_lines(tokens)
+            body = " ".join(str(line.get("text") or "") for line in lines)
+            title = str(getattr(viewport, "label", "") or getattr(viewport, "title", "") or "")
+            marks = re.findall(r"\b([WwDd])\s*[-_]?\s*(\d{1,3})\b", f"{title} {body}")
+            authority = assess_opening_schedule_authority(
+                title=title,
+                body_text=body,
+                mark_hits=len(marks),
+                distinct_marks=len({f"{a.upper()}{b}" for a, b in marks}),
             )
+            if not authority.accepted:
+                rejected.append(
+                    f"{getattr(viewport, 'view_id', 'viewport')}:{','.join(authority.reasons)}"
+                )
+                continue
+            view_id = str(getattr(viewport, "view_id", "") or "")
+            for line in lines:
+                self._ingest_one_ocr_schedule_line(
+                    line,
+                    page_number=page_number,
+                    graph=graph,
+                    schedule_conflicts=schedule_conflicts,
+                    duplicate_holder=duplicate_holder,
+                    viewport_ids_by_tag=viewport_ids_by_tag,
+                    ambiguous=ambiguous,
+                    view_id=view_id,
+                    min_confidence=0.30,
+                )
+            for row in iter_complete_opening_schedule_rows(body):
+                self._ingest_one_ocr_schedule_line(
+                    {
+                        "text": row["text"],
+                        "bbox": list(bbox),
+                        "confidence": 0.72,
+                    },
+                    page_number=page_number,
+                    graph=graph,
+                    schedule_conflicts=schedule_conflicts,
+                    duplicate_holder=duplicate_holder,
+                    viewport_ids_by_tag=viewport_ids_by_tag,
+                    ambiguous=ambiguous,
+                    view_id=view_id,
+                    min_confidence=0.30,
+                )
+            used = True
+        return used
 
     def _note_ambiguous_marks(
         self,
