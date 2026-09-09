@@ -319,6 +319,7 @@ class GenericPlanReaderExtractor:
         global_has_surface_bed = False
         global_level_markers: List[Any] = []  # List[LevelMarker], imported lazily below
         global_dimension_chains: List[Any] = []  # List[DimensionChain], imported lazily below
+        global_explicit_floor_area_evidence: List[Any] = []  # source-only figured FLOOR AREA evidence
 
         for p_idx in target_pages:
             if p_idx < 0 or p_idx >= len(doc):
@@ -327,6 +328,16 @@ class GenericPlanReaderExtractor:
             if not self.is_drawing_page(pg_txt):
                 continue
             norm_pg = re.sub(r"\s+", " ", pg_txt.lower())
+
+            # F.26: explicit figured overall FLOOR AREA on an actual plan sheet
+            # outranks a later coarse rectangle reconstruction. This reads
+            # drawing text only and fails closed on ambiguity.
+            from pb_explicit_floor_area_evidence import extract_explicit_floor_area_evidence
+            explicit_floor_area = extract_explicit_floor_area_evidence(
+                pg_txt, source_page=p_idx + 1
+            )
+            if explicit_floor_area is not None:
+                global_explicit_floor_area_evidence.append(explicit_floor_area)
 
             # Track verandah mention across drawings
             if any(k in norm_pg for k in ("verandah", "veranda")):
@@ -415,6 +426,14 @@ class GenericPlanReaderExtractor:
         # their existing external-area-proxy behaviour unchanged.
         from pb_dimension_chain_evidence_extractor import resolve_corroborated_wall_thickness_m
         global_resolved_wall_thickness_m: Optional[float] = resolve_corroborated_wall_thickness_m(global_dimension_chains)
+
+        # Resolve document-level explicit area only when every qualifying plan
+        # annotation agrees. Multi-plan packages with different floor areas
+        # therefore remain unresolved rather than silently choosing one.
+        from pb_explicit_floor_area_evidence import resolve_explicit_floor_area_evidence
+        global_resolved_explicit_floor_area = resolve_explicit_floor_area_evidence(
+            global_explicit_floor_area_evidence
+        )
 
         pred_dict: Dict[str, ExtractedPrediction] = {}
 
@@ -521,7 +540,18 @@ class GenericPlanReaderExtractor:
                     )
 
                 footprint_res = builder.build()
-                structural_bed_area_m2 = footprint_res.gross_floor_area_m2
+                derived_footprint_area_m2 = footprint_res.gross_floor_area_m2
+                explicit_floor_area_for_page = (
+                    global_resolved_explicit_floor_area
+                    if global_resolved_explicit_floor_area is not None
+                    and page_num in global_resolved_explicit_floor_area.source_pages
+                    else None
+                )
+                structural_bed_area_m2 = (
+                    explicit_floor_area_for_page.area_m2
+                    if explicit_floor_area_for_page is not None
+                    else derived_footprint_area_m2
+                )
                 total_floor_screed = structural_bed_area_m2
 
                 # F.22: an enclosed main room's floor finish is measured to
@@ -532,7 +562,10 @@ class GenericPlanReaderExtractor:
                 # unchanged. Structural slab/DPM/mesh area is preserved
                 # separately below.
                 floor_finish_geometry = None
-                if global_resolved_wall_thickness_m is not None:
+                if (
+                    global_resolved_wall_thickness_m is not None
+                    and explicit_floor_area_for_page is None
+                ):
                     from pb_component_floor_finish_geometry import (
                         derive_component_aware_floor_finish_area,
                     )
@@ -548,9 +581,26 @@ class GenericPlanReaderExtractor:
 
                 existing_area = pred_dict.get("floor_screed")
                 current_best_area = existing_area.quantity if existing_area else 0.0
+                existing_area_meta = (existing_area.metadata or {}) if existing_area else {}
+                existing_is_explicit = (
+                    existing_area_meta.get("area_authority") == "explicit_drawing_floor_area"
+                )
+                current_is_explicit = explicit_floor_area_for_page is not None
+                should_replace_area = (
+                    (current_is_explicit and not existing_is_explicit)
+                    or (
+                        current_is_explicit == existing_is_explicit
+                        and (total_floor_screed > current_best_area or current_best_area == 0)
+                    )
+                )
 
-                if total_floor_screed > current_best_area or current_best_area == 0:
-                    if global_verandah_width is not None and global_verandah_width > 0:
+                if should_replace_area:
+                    if explicit_floor_area_for_page is not None:
+                        desc_flr = (
+                            "Floor screed / finish ("
+                            f"{explicit_floor_area_for_page.area_m2} m2 explicit drawing FLOOR AREA)"
+                        )
+                    elif global_verandah_width is not None and global_verandah_width > 0:
                         desc_flr = f"Floor screed ({length_m}m x {width_m}m envelope + {length_m}m x {global_verandah_width}m verandah)"
                     else:
                         desc_flr = f"Floor screed ({length_m}m x {width_m}m envelope)"
@@ -597,6 +647,20 @@ class GenericPlanReaderExtractor:
                             "footprint_status": footprint_res.status,
                             "missing_components": footprint_res.missing_components,
                             "structural_bed_area_m2": structural_bed_area_m2,
+                            "derived_footprint_area_m2": derived_footprint_area_m2,
+                            **(
+                                {
+                                    "area_authority": explicit_floor_area_for_page.authority,
+                                    "explicit_floor_area_source_pages": list(
+                                        explicit_floor_area_for_page.source_pages
+                                    ),
+                                    "explicit_floor_area_raw_evidence": list(
+                                        explicit_floor_area_for_page.raw_evidence
+                                    ),
+                                }
+                                if explicit_floor_area_for_page is not None
+                                else {}
+                            ),
                             **(
                                 {
                                     "floor_finish_area_derivation": "component_clear_main_plus_evidenced_verandah",
