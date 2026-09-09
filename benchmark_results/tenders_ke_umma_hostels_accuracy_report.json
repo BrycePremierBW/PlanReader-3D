@@ -1,6 +1,6 @@
 {
   "benchmark_id": "tenders_ke_umma_hostels",
-  "timestamp": "2026-09-09T05:35:47.460466+00:00",
+  "timestamp": "2026-09-09T05:44:17.751056+00:00",
   "project_name": "Proposed Student Hostels for Umma University in Kajiado",
   "organization": "Umma University",
   "tender_reference": "UUT/02/2026",
@@ -10,20 +10,20 @@
   "source_pdf": "C:\\Users\\bryce\\Documents\\PB-PlanReader-3D\\benchmarks\\sources\\umma-university-hostels-builders-work.pdf",
   "summary": {
     "total_boq_items": 60,
-    "total_measurable_expected": 12,
+    "total_measurable_expected": 15,
     "total_items_compared": 15,
-    "exact_matches": 9,
+    "exact_matches": 12,
     "within_5_percent": 0,
     "within_10_percent": 0,
     "within_20_percent": 0,
     "gross_mismatches": 0,
     "missed_items": 3,
-    "hallucinated_items": 3,
+    "hallucinated_items": 0,
     "preliminaries_excluded": 0,
     "provisional_sums_excluded": 0,
     "non_architectural_excluded": 0,
-    "overall_accuracy_percentage": 60.0,
-    "strict_exact_accuracy_percentage": 60.0
+    "overall_accuracy_percentage": 80.0,
+    "strict_exact_accuracy_percentage": 80.0
   },
   "item_results": [
     {
@@ -117,6 +117,21 @@
       "notes": "Comparison evaluated against 308.0 NO"
     },
     {
+      "item_id": "UUH-D4",
+      "description": "D-04 single leaf, single swing semi-solid flush mahogany door, 900x2500mm high (Toilets)",
+      "category": "schedule_extractable",
+      "expected_quantity": 308.0,
+      "extracted_quantity": 308.0,
+      "unit": "NO",
+      "delta": 0.0,
+      "pct_error": 0.0,
+      "status": "exact_match",
+      "tolerance_tier": "exact",
+      "drawing_sheet": "TI-UUH/25/11 rev.02 (Window and Door Schedule)",
+      "drawing_page": 161,
+      "notes": "Comparison evaluated against 308.0 NO"
+    },
+    {
       "item_id": "UUH-D5",
       "description": "D-05 double leaf, single swing mild steel door, 1400x2500mm high (Ground floor locker room)",
       "category": "schedule_extractable",
@@ -177,6 +192,21 @@
       "notes": "Comparison evaluated against 6.0 NO"
     },
     {
+      "item_id": "UUH-D9",
+      "description": "D-09 double leaf, single swing mild steel door, 1000x2100mm high (First floor locker room)",
+      "category": "schedule_extractable",
+      "expected_quantity": 1.0,
+      "extracted_quantity": 1.0,
+      "unit": "NO",
+      "delta": 0.0,
+      "pct_error": 0.0,
+      "status": "exact_match",
+      "tolerance_tier": "exact",
+      "drawing_sheet": "TI-UUH/25/11 rev.02 (Window and Door Schedule)",
+      "drawing_page": 161,
+      "notes": "Comparison evaluated against 1.0 NO"
+    },
+    {
       "item_id": "UUH-D10",
       "description": "D-10 double leaf, single swing mild steel door, 1800x2250mm high (2nd-4th floors Locker rooms)",
       "category": "schedule_extractable",
@@ -192,6 +222,21 @@
       "notes": "Comparison evaluated against 3.0 NO"
     },
     {
+      "item_id": "UUH-D11",
+      "description": "D-11 double leaf, single swing mild steel door, 1200x2250mm high (Laundromart)",
+      "category": "schedule_extractable",
+      "expected_quantity": 1.0,
+      "extracted_quantity": 1.0,
+      "unit": "NO",
+      "delta": 0.0,
+      "pct_error": 0.0,
+      "status": "exact_match",
+      "tolerance_tier": "exact",
+      "drawing_sheet": "TI-UUH/25/11 rev.02 (Window and Door Schedule)",
+      "drawing_page": 162,
+      "notes": "Comparison evaluated against 1.0 NO"
+    },
+    {
       "item_id": "UUH-D12",
       "description": "D-12 double leaf, double mild steel door, 2000x2250mm high (Roof terrace)",
       "category": "schedule_extractable",
@@ -205,51 +250,6 @@
       "drawing_sheet": "TI-UUH/25/11 rev.02 (Window and Door Schedule)",
       "drawing_page": 162,
       "notes": "Comparison evaluated against 2.0 NO"
-    },
-    {
-      "item_id": "D4",
-      "description": "D - 04 card schedule, explicit Overall Quantity",
-      "category": "hallucinated",
-      "expected_quantity": null,
-      "extracted_quantity": 308.0,
-      "unit": "NO",
-      "delta": null,
-      "pct_error": null,
-      "status": "hallucinated_item",
-      "tolerance_tier": "hallucinated",
-      "drawing_sheet": null,
-      "drawing_page": 161,
-      "notes": "Item present in extraction but absent from verified BOQ ground truth"
-    },
-    {
-      "item_id": "D9",
-      "description": "D - 09 card schedule, explicit Overall Quantity",
-      "category": "hallucinated",
-      "expected_quantity": null,
-      "extracted_quantity": 1.0,
-      "unit": "NO",
-      "delta": null,
-      "pct_error": null,
-      "status": "hallucinated_item",
-      "tolerance_tier": "hallucinated",
-      "drawing_sheet": null,
-      "drawing_page": 161,
-      "notes": "Item present in extraction but absent from verified BOQ ground truth"
-    },
-    {
-      "item_id": "D11",
-      "description": "D - 11 card schedule, explicit Overall Quantity",
-      "category": "hallucinated",
-      "expected_quantity": null,
-      "extracted_quantity": 1.0,
-      "unit": "NO",
-      "delta": null,
-      "pct_error": null,
-      "status": "hallucinated_item",
-      "tolerance_tier": "hallucinated",
-      "drawing_sheet": null,
-      "drawing_page": 162,
-      "notes": "Item present in extraction but absent from verified BOQ ground truth"
     }
   ],
   "errors": []
