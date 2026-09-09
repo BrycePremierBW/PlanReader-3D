@@ -1,0 +1,59 @@
+name: F31 Candidate Debug
+
+on:
+  push:
+    branches: [feat/f31-raster-wall-network-evidence]
+
+permissions:
+  contents: read
+
+jobs:
+  debug:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pip install PyMuPDF==1.28.0 numpy==2.3.5 opencv-python-headless==4.14.0.94
+      - name: Print synthetic intermediate evidence
+        env:
+          PYTHONPATH: .
+        run: |
+          python - <<'PY'
+          import fitz
+          import pb_raster_wall_network_evidence as m
+
+          BLACK=(0,0,0)
+          def filled(page, rect): page.draw_rect(rect,color=BLACK,fill=BLACK,width=0.1,overlay=True)
+          doc=fitz.open(); page=doc.new_page(width=900,height=700)
+          x0=y0=100.0; ppm=40.0; t=8.0; x1=500.0; y1=340.0
+          filled(page,fitz.Rect(x0,y0,x1,y0+t)); filled(page,fitz.Rect(x0,y1-t,x1,y1)); filled(page,fitz.Rect(x0,y0,x0+t,y1)); filled(page,fitz.Rect(x1-t,y0,x1,y1))
+          vx0=300.0
+          filled(page,fitz.Rect(vx0,y0+t,vx0+t,y0+120.0)); filled(page,fitz.Rect(vx0,y0+160.0,vx0+t,y1-t))
+          hy0=220.0
+          filled(page,fitz.Rect(vx0+t,hy0,x0+300.0,hy0+t)); filled(page,fitz.Rect(x0+336.0,hy0,x1-t,hy0+t))
+          vx2=400.0; filled(page,fitz.Rect(vx2,y0+t,vx2+t,hy0))
+          for off in (44.0,80.0,120.0): filled(page,fitz.Rect(x0+off,y0+48.0,x0+off+t,y0+188.0))
+
+          binary=m._render_binary(page,3.0)
+          hs,vs=m._axis_line_groups(binary)
+          outer=m._select_unique_outer(m._outer_candidates(hs,vs,horizontal_span_m=10.0,vertical_span_m=6.0,wall_thickness_m=0.2))
+          print('OUTER',outer)
+          print('V GROUPS NEAR MAIN')
+          for g in vs:
+              if 870 <= g.coord <= 940:
+                  print(g)
+          pxpm=(outer.scale_x+outer.scale_y)/2.0
+          bands=m._candidate_internal_bands(hs,vs,outer,wall_thickness_m=0.2,px_per_m=pxpm)
+          print('BANDS',len(bands))
+          for b in bands:
+              print('BAND',b.orientation,'coord',round(b.coord,2),'edges',round(b.edge_a,2),round(b.edge_b,2),'start/end',round(b.start,2),round(b.end,2),'solid',round(b.solid,2),'gaps',b.gaps)
+          final=m._network_filter(bands,outer,px_per_m=pxpm,wall_thickness_m=0.2)
+          print('FINAL',len(final))
+          for b in final:
+              print('FINALBAND',b.orientation,'coord',round(b.coord,2),'start/end',round(b.start,2),round(b.end,2),'solid',round(b.solid,2),'gaps',b.gaps,'bc',b.boundary_connections,'j',b.junctions)
+          result=m.resolve_raster_wall_network(page,horizontal_span_m=10.0,vertical_span_m=6.0,wall_thickness_m=0.2)
+          print('RESULT',result)
+          doc.close()
+          PY
