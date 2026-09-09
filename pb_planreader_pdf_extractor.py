@@ -332,7 +332,24 @@ class GenericPlanReaderExtractor:
             if any(k in norm_pg for k in ("verandah", "veranda")):
                 global_has_verandah_mention = True
 
-            # Only record verandah width if an explicit dimension is figured in text
+            # Only record verandah width if an explicit dimension is figured in text.
+            # F.23: prefer same-viewport, adjacency-validated spatial evidence
+            # (a real dimension chain bound to the same F.07-resolved
+            # floor-plan viewport as the label itself) over the page-wide
+            # sentence regex below -- the regex is purely additive as a
+            # fallback for wording this stricter resolver does not (yet)
+            # anchor to a viewport, never a replacement for it.
+            if global_verandah_width is None:
+                from pb_secondary_footprint_evidence import (
+                    resolve_secondary_footprint_width_m,
+                )
+
+                spatial_evidence = resolve_secondary_footprint_width_m(
+                    doc[p_idx], page_num=p_idx + 1
+                )
+                if spatial_evidence is not None:
+                    global_verandah_width = spatial_evidence.width_m
+
             if global_verandah_width is None:
                 vm = re.search(r"(\d+(?:[,.]\d+)?)\s*(?:m|mm)?\s*wide\s*veranda", norm_pg)
                 if not vm:
