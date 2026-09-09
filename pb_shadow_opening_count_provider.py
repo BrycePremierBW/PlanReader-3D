@@ -76,6 +76,20 @@ _OPENING_PAGE_PROBE_RE = re.compile(
 _SCHEDULE_TITLE_RE = re.compile(
     r"(?i)(?:window\s+schedule|door\s+schedule|schedule\s+of\s+(?:doors|windows))"
 )
+_BILL_PAGE_RE = re.compile(
+    r"(?is)(?:\bbills?\s+of\s+quantities\b|"
+    r"\bbuilder'?s\s+work\b|"
+    r"\bitem\b.{0,160}\bdescription\b.{0,160}\b(?:qty|quantity)\b.{0,80}\bunit\b.{0,80}\brate\b|"
+    r"\bitem\b.{0,160}\bdescription\b.{0,160}\bunit\b.{0,160}\b(?:qty|quantity)\b.{0,80}\brate\b|"
+    r"\bref\.\s*.{0,80}\bdescription\b.{0,80}\bquantity\b.{0,80}\bunit\b.{0,80}\brate\b|"
+    r"\bparticular\s+preliminaries\b|"
+    r"\bpricing\s+preamble\b|"
+    r"\b[a-z]\d{2}\s+excavating\b)"
+)
+_NON_OPENING_CONTEXT_RE = re.compile(
+    r"(?i)(?:excavating\s+and\s+filling|in\s+situ\s+concrete|site\s+preparation|"
+    r"mechanical\s+works|hardcore)"
+)
 
 
 def _family_for_trade(trade_type: str) -> str:
@@ -109,13 +123,21 @@ def _bbox_near(
     )
 
 
+def page_is_bill_of_quantities(text: str) -> bool:
+    """Bill/BOQ pages are not drawing or opening-schedule evidence."""
+    return bool(_BILL_PAGE_RE.search(text or ""))
+
+
 def page_has_opening_evidence(text: str) -> bool:
-    """Cheap gold-free probe: skip pages with no opening-like text."""
-    return bool(_OPENING_PAGE_PROBE_RE.search(text or ""))
+    """Cheap gold-free probe: skip pages with no opening-like drawing text."""
+    raw = text or ""
+    if page_is_bill_of_quantities(raw):
+        return False
+    return bool(_OPENING_PAGE_PROBE_RE.search(raw))
 
 
 def probe_opening_evidence_pages(doc: fitz.Document, pages: Optional[Sequence[int]] = None) -> list[int]:
-    """Return 0-based page indexes that contain opening-like evidence text."""
+    """Return 0-based page indexes that contain opening-like drawing evidence."""
     target = list(pages) if pages is not None else list(range(len(doc)))
     found: list[int] = []
     for pno in target:
@@ -133,6 +155,9 @@ def resolve_opening_identity(
     trade_type: str = "",
 ) -> Optional[NormalizedOpeningTag]:
     """Normalize an explicit W/D mark. Accept F.28 WD{n} only when already window-resolved."""
+    context = f"{tag or ''} {evidence_text or ''}"
+    if _NON_OPENING_CONTEXT_RE.search(context):
+        return None
     norm = normalize_opening_tag(tag)
     if norm is not None:
         return norm

@@ -15,6 +15,7 @@ from pb_shadow_opening_count_gate import OPENING_COUNT_MIGRATION_GATE
 from pb_shadow_opening_count_provider import (
     ShadowOpeningCountProvider,
     page_has_opening_evidence,
+    page_is_bill_of_quantities,
     resolve_opening_identity,
 )
 
@@ -536,3 +537,37 @@ def test_legacy_extractor_source_was_not_edited_for_this_family() -> None:
 def test_page_probe_ignores_unrelated_notes() -> None:
     assert page_has_opening_evidence("WINDOW SCHEDULE\nW1 6 No")
     assert not page_has_opening_evidence("GENERAL PRELIMINARIES AND CONDITIONS OF CONTRACT")
+
+
+def test_bill_pages_are_not_drawing_opening_evidence(tmp_path: Path) -> None:
+    assert page_is_bill_of_quantities(
+        "GENERAL SCIENCE LAB\nBuilder's Work\nItem Description Unit Quantity Rate Amount\nWindow W1 2 No"
+    )
+    assert page_is_bill_of_quantities(
+        "Item\nDescription\nQuantity\nUnit\nRate\nAmount\nWindow W1 2 No"
+    )
+    assert page_is_bill_of_quantities(
+        "Ref. Description Quantity Unit Rate Kshs/Cts\nSUBSTRUCTURES (ALL PROVISIONAL)"
+    )
+    assert page_is_bill_of_quantities(
+        "ITEM DESCRIPTION QTY UNIT RATE AMOUNT\nELEMENT NO. 4 ROOFING"
+    )
+    assert page_is_bill_of_quantities("D20 EXCAVATING AND FILLING; SITE PREPARATION")
+    assert not page_is_bill_of_quantities("WINDOW SCHEDULE\nW - 07\nOverall Quantity: 6")
+    assert not page_has_opening_evidence(
+        "Builder's Work BW / 12\nItem Description Unit Quantity Rate Amount\nWindow W1 Overall size 1700 x 1200mm high - (2No. Side"
+    )
+    path = tmp_path / "boq.pdf"
+    doc = fitz.open()
+    page = doc.new_page(width=842, height=595)
+    page.insert_text((40, 40), "Builder's Work BW / 12", fontsize=12)
+    page.insert_text((40, 70), "Item  Description  Unit  Quantity  Rate  Amount", fontsize=9)
+    page.insert_text((40, 110), "Window W1 Overall size 1700 x 1200mm high - (2No. Side hung)", fontsize=9)
+    page.insert_text((40, 140), "D20 EXCAVATING AND FILLING; SITE PREPARATION", fontsize=9)
+    doc.save(path)
+    doc.close()
+    bundle = ShadowOpeningCountProvider().extract_bundle(path)
+    answered = _answered(bundle)
+    assert "W1" not in answered
+    assert "D20" not in answered
+    assert not any(item.semantic_key in {"W1", "D20"} and not item.abstained for item in bundle.quantities)
