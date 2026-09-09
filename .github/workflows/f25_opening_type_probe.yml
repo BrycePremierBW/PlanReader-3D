@@ -1,4 +1,4 @@
-name: F25 Opening Type Source Probe
+name: F25 Vent Population Source Probe
 
 on:
   push:
@@ -16,81 +16,42 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-      - name: Install source OCR dependencies
-        run: pip install PyMuPDF==1.28.0 Pillow==12.3.0 numpy==2.3.5 rapidocr==3.9.2 onnxruntime==1.29.0
+      - name: Install source dependency
+        run: pip install PyMuPDF==1.28.0
       - name: Download hash-verified Murera source
         run: |
           curl -fL --retry 3 --retry-delay 2 'https://tenders.go.ke/storage/Documents/1785347143869-bqs-drawings.pdf' -o /tmp/murera.pdf
           echo '84dec737ede7adfa32b02c6732d4289a6a2d25f7ae50cf07209428f1b4e0c94b  /tmp/murera.pdf' | sha256sum -c -
-      - name: Print OCR neighborhoods around page 228 W/D tags
+      - name: Print vent counts, titles and positions on drawing pages
         env:
           PYTHONUNBUFFERED: '1'
         run: |
           python - <<'PY'
           import re
-          import math
           import fitz
-          import numpy as np
-          from PIL import Image, ImageEnhance
-          from rapidocr import RapidOCR
 
-          tag_re = re.compile(r'^\s*[WD]\s*[-_.]?\s*\d{1,3}\s*$', re.I)
-          engine = RapidOCR()
-          doc = fitz.open('/tmp/murera.pdf')
-          page = doc[227]
-          rect = page.rect
-          cols = rows = 3
-          overlap = .06
-          tile_w = rect.width / cols
-          tile_h = rect.height / rows
-          detections=[]
-          for row in range(rows):
-              for col in range(cols):
-                  clip=fitz.Rect(
-                      max(rect.x0,rect.x0+col*tile_w-tile_w*overlap),
-                      max(rect.y0,rect.y0+row*tile_h-tile_h*overlap),
-                      min(rect.x1,rect.x0+(col+1)*tile_w+tile_w*overlap),
-                      min(rect.y1,rect.y0+(row+1)*tile_h+tile_h*overlap),
-                  )
-                  pix=page.get_pixmap(clip=clip,dpi=220,alpha=False)
-                  base=Image.frombytes('RGB',[pix.width,pix.height],pix.samples)
-                  for variant in (base,ImageEnhance.Contrast(base).enhance(1.35)):
-                      result=engine(np.asarray(variant))
-                      txts=getattr(result,'txts',None) or []
-                      scores=getattr(result,'scores',None) or []
-                      boxes=getattr(result,'boxes',None)
-                      if boxes is None: continue
-                      scale=72.0/220.0
-                      for idx,raw in enumerate(txts):
-                          text=' '.join(str(raw).split()).strip()
-                          conf=float(scores[idx]) if idx<len(scores) else 0.0
-                          if not text or conf < .55: continue
-                          pts=boxes[idx].tolist() if hasattr(boxes[idx],'tolist') else boxes[idx]
-                          xs=[float(p[0]) for p in pts]; ys=[float(p[1]) for p in pts]
-                          bb=(clip.x0+min(xs)*scale,clip.y0+min(ys)*scale,clip.x0+max(xs)*scale,clip.y0+max(ys)*scale)
-                          detections.append((text,conf,bb))
-          kept=[]
-          for text,conf,bb in sorted(detections,key=lambda x:-x[1]):
-              cx=(bb[0]+bb[2])/2; cy=(bb[1]+bb[3])/2
-              dup=False
-              for pt,pc,pb in kept:
-                  pcx=(pb[0]+pb[2])/2; pcy=(pb[1]+pb[3])/2
-                  if text.casefold()==pt.casefold() and abs(cx-pcx)<=6 and abs(cy-pcy)<=6:
-                      dup=True; break
-              if not dup: kept.append((text,conf,bb))
-          tags=[row for row in kept if tag_re.fullmatch(row[0]) and row[1]>=.80]
-          print('TAG_COUNT',len(tags))
-          for text,conf,bb in sorted(tags,key=lambda x:(x[2][1],x[2][0])):
-              cx=(bb[0]+bb[2])/2; cy=(bb[1]+bb[3])/2
-              neighbors=[]
-              for ot,oc,ob in kept:
-                  if (ot,oc,ob)==(text,conf,bb): continue
-                  ocx=(ob[0]+ob[2])/2; ocy=(ob[1]+ob[3])/2
-                  dist=math.hypot(ocx-cx,ocy-cy)
-                  if dist <= 105:
-                      neighbors.append((dist,oc,ot,ob))
-              print('\nTAG',text,round(conf,3),tuple(round(v,1) for v in bb))
-              for dist,oc,ot,ob in sorted(neighbors,key=lambda x:x[0])[:14]:
-                  print(' NEAR',round(dist,1),round(oc,3),tuple(round(v,1) for v in ob),ot)
+          doc=fitz.open('/tmp/murera.pdf')
+          pv_re=re.compile(r'\bPV\b|\bPermanent\s+Vent\b|\bBrick\s+Vent\b',re.I)
+          title_re=re.compile(r'(?:ELEVATION|ELEV\.?|FACADE|FAÇADE|SECTION)[^\n]{0,80}',re.I)
+          for page_no in range(219,239):
+              page=doc[page_no-1]
+              text=page.get_text('text') or ''
+              matches=list(pv_re.finditer(text))
+              titles=title_re.findall(text)
+              if matches or titles or 'elev' in text.lower():
+                  print(f'\nPAGE {page_no} native_PV={len(matches)}')
+                  print('TITLES',titles[:20])
+                  words=page.get_text('words') or []
+                  pv_words=[]
+                  for w in words:
+                      token=str(w[4]).strip()
+                      if re.fullmatch(r'P\.?V\.?',token,re.I) or re.search(r'Permanent\s*Vent|Brick\s*Vent',token,re.I):
+                          pv_words.append((round(float(w[0]),1),round(float(w[1]),1),round(float(w[2]),1),round(float(w[3]),1),token))
+                  print('PV_WORDS',pv_words)
+                  lines=[ln.strip() for ln in text.splitlines() if ln.strip()]
+                  for i,ln in enumerate(lines):
+                      if pv_re.search(ln) or re.search(r'elevation|facade|façade',ln,re.I):
+                          lo=max(0,i-2); hi=min(len(lines),i+3)
+                          print('CTX',' | '.join(lines[lo:hi]))
           doc.close()
           PY
