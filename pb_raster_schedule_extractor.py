@@ -593,6 +593,7 @@ class GenericScheduleTableExtractor:
             opening_groups.setdefault(norm.tag, []).append(candidate)
 
         conflicting_opening_tags = set()
+        resolved_opening_rows: Dict[str, ScheduleRow] = {}
         for tag, group in opening_groups.items():
             quantities = {float(r.quantity) for r in group if r.quantity is not None}
             dimensions = {
@@ -602,6 +603,26 @@ class GenericScheduleTableExtractor:
             }
             if len(quantities) > 1 or len(dimensions) > 1:
                 conflicting_opening_tags.add(tag)
+                continue
+
+            # Multiple generic detectors may observe the same explicit W/D row.
+            # Prefer the most complete agreeing evidence over raw confidence:
+            # a count-only note must never overwrite a lower-confidence row
+            # that carries the same count plus figured width/height.
+            resolved_opening_rows[tag] = max(
+                group,
+                key=lambda candidate: (
+                    int(
+                        candidate.quantity is not None
+                        and candidate.quantity > 0
+                        and candidate.dimensions is not None
+                        and len(candidate.dimensions) >= 2
+                    ),
+                    int(candidate.dimensions is not None and len(candidate.dimensions) >= 2),
+                    int(candidate.quantity is not None and candidate.quantity > 0),
+                    candidate.confidence,
+                ),
+            )
 
         for r in rows:
             if r.is_provisional:
@@ -612,6 +633,12 @@ class GenericScheduleTableExtractor:
                 r.tag = norm.tag
                 r.trade_type = norm.trade_type
                 if r.tag in conflicting_opening_tags:
+                    continue
+                # One canonical row per explicit opening identity.  Selecting
+                # it here prevents a second count-only detector result from
+                # surviving under a dimensionless key and later overwriting
+                # the complete schedule prediction in production.
+                if resolved_opening_rows.get(r.tag) is not r:
                     continue
 
             if r.tag == "brick_vents":
