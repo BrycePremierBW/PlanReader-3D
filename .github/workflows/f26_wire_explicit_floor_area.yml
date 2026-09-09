@@ -10,7 +10,6 @@ permissions:
 
 jobs:
   wire:
-    if: ${{ !contains(github.event.head_commit.message, 'feat(F26): wire explicit drawing floor-area authority') }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -36,7 +35,7 @@ jobs:
           new = '''            norm_pg = re.sub(r"\\s+", " ", pg_txt.lower())
 
             # F.26: explicit figured overall FLOOR AREA on an actual plan sheet
-            # outranks a later coarse rectangle reconstruction.  This reads
+            # outranks a later coarse rectangle reconstruction. This reads
             # drawing text only and fails closed on ambiguity.
             from pb_explicit_floor_area_evidence import extract_explicit_floor_area_evidence
             explicit_floor_area = extract_explicit_floor_area_evidence(
@@ -54,7 +53,7 @@ jobs:
           new = '''        global_resolved_wall_thickness_m: Optional[float] = resolve_corroborated_wall_thickness_m(global_dimension_chains)
 
         # Resolve document-level explicit area only when every qualifying plan
-        # annotation agrees.  Multi-plan packages with different floor areas
+        # annotation agrees. Multi-plan packages with different floor areas
         # therefore remain unresolved rather than silently choosing one.
         from pb_explicit_floor_area_evidence import resolve_explicit_floor_area_evidence
         global_resolved_explicit_floor_area = resolve_explicit_floor_area_evidence(
@@ -94,8 +93,6 @@ jobs:
                     and explicit_floor_area_for_page is None
                 ):
 '''
-          # This occurrence is the F.22 floor-finish branch immediately after
-          # floor_finish_geometry = None; guard that exact neighbourhood.
           marker = '                floor_finish_geometry = None\n' + old
           assert marker in text
           text = text.replace(marker, '                floor_finish_geometry = None\n' + new, 1)
