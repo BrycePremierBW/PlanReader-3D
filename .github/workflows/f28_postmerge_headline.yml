@@ -1,0 +1,108 @@
+name: F28 Post-Merge Headline Measurement
+
+on:
+  push:
+    branches:
+      - diag/f28-postmerge-headline
+
+permissions:
+  contents: write
+
+jobs:
+  measure:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    env:
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: diag/f28-postmerge-headline
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+      - name: Download and hash-verify four verified scored sources
+        run: |
+          curl -fL --retry 3 --retry-delay 2 'https://tenders.go.ke/storage/Documents/1727358888238-bq-nd-drawing.pdf' -o /tmp/kstvet.pdf
+          echo '6856bfa739aa136dd8e0bf17cb25fd43d0d31c9c3dfe3252525454f09d8fa4dc  /tmp/kstvet.pdf' | sha256sum -c -
+          curl -fL --retry 3 --retry-delay 2 'https://tenders.go.ke/storage/Documents/1785347143869-bqs-drawings.pdf' -o /tmp/murera.pdf
+          echo '84dec737ede7adfa32b02c6732d4289a6a2d25f7ae50cf07209428f1b4e0c94b  /tmp/murera.pdf' | sha256sum -c -
+          curl -fL --retry 3 --retry-delay 2 'https://tenders.go.ke/storage/Documents/1739211305954-tender-document-for-construction-of-science-laboratory-at-ghazi-primary-school.pdf' -o /tmp/ghazi.pdf
+          echo 'c8c001c9dadb791e7cb18b7bea19ce795eebba2f9b9eb7dec4844212da4d8f4f  /tmp/ghazi.pdf' | sha256sum -c -
+          curl -fL --retry 3 --retry-delay 2 'https://umma.ac.ke/wp-content/uploads/2026/06/Builders-work.pdf' -o /tmp/umma.pdf
+          echo 'f30711f69944e66ef993341180e35b49ccfcb36d6f402743284823ab588183af  /tmp/umma.pdf' | sha256sum -c -
+      - name: Run all four verified scored benchmarks
+        run: |
+          rm -rf /tmp/f28-headline-results
+          mkdir -p /tmp/f28-headline-results
+          python scripts/run_planreader_benchmarks.py --public-tender tenders_ke_kstvet_cbc_classroom --pdf /tmp/kstvet.pdf --results-dir /tmp/f28-headline-results/kstvet
+          python scripts/run_planreader_benchmarks.py --public-tender tenders_ke_murera_science_lab --pdf /tmp/murera.pdf --results-dir /tmp/f28-headline-results/murera
+          python scripts/run_planreader_benchmarks.py --public-tender tenders_ke_ghazi_science_lab --pdf /tmp/ghazi.pdf --results-dir /tmp/f28-headline-results/ghazi
+          python scripts/run_planreader_benchmarks.py --public-tender tenders_ke_umma_hostels --pdf /tmp/umma.pdf --results-dir /tmp/f28-headline-results/umma
+      - name: Build exact engine-equivalent headline summary
+        run: |
+          mkdir -p diagnostics
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          wanted = {
+              'tenders_ke_kstvet_cbc_classroom',
+              'tenders_ke_murera_science_lab',
+              'tenders_ke_ghazi_science_lab',
+              'tenders_ke_umma_hostels',
+          }
+          reports = {}
+          for candidate in Path('/tmp/f28-headline-results').rglob('*.json'):
+              try:
+                  data = json.loads(candidate.read_text(encoding='utf-8'))
+              except Exception:
+                  continue
+              bid = data.get('benchmark_id')
+              if bid in wanted and data.get('is_scored') and data.get('is_headline_eligible'):
+                  reports[bid] = data
+          missing = sorted(wanted - set(reports))
+          if missing:
+              raise SystemExit(f'missing scored reports: {missing}')
+          totals = {
+              'total_headline_benchmarks': len(reports),
+              'total_measurable_expected': 0,
+              'total_items_compared': 0,
+              'exact_matches': 0,
+              'within_5_percent': 0,
+              'within_10_percent': 0,
+              'within_20_percent': 0,
+              'gross_mismatches': 0,
+              'missed_items': 0,
+              'hallucinated_items': 0,
+          }
+          per_project = {}
+          for bid in sorted(reports):
+              s = reports[bid]['summary']
+              for key in list(totals):
+                  if key == 'total_headline_benchmarks':
+                      continue
+                  totals[key] += int(s.get(key, 0) or 0)
+              per_project[bid] = s
+          compared = totals['total_items_compared']
+          accepted = totals['exact_matches'] + totals['within_5_percent']
+          totals['overall_accuracy_percentage'] = round(accepted / compared * 100.0, 2) if compared else 0.0
+          totals['strict_exact_accuracy_percentage'] = round(totals['exact_matches'] / compared * 100.0, 2) if compared else 0.0
+          out = {
+              'main_commit_measured': '${{ github.sha }}',
+              'headline_metrics': totals,
+              'per_project': per_project,
+          }
+          Path('diagnostics/f28_postmerge_headline.json').write_text(json.dumps(out, indent=2) + '\n', encoding='utf-8')
+          print(json.dumps(out, indent=2))
+          PY
+      - name: Persist measured headline
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add diagnostics/f28_postmerge_headline.json
+          git commit -m 'diag(F28): persist post-merge headline measurement'
+          git push origin HEAD:diag/f28-postmerge-headline
