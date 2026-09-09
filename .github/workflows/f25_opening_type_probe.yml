@@ -1,0 +1,64 @@
+name: F25 Opening Type Source Probe
+
+on:
+  push:
+    branches:
+      - codex/f25-portable-raster-ocr-main
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install source OCR dependencies
+        run: pip install PyMuPDF==1.28.0 Pillow==12.3.0 numpy==2.3.5 rapidocr==3.9.2 onnxruntime==1.29.0
+      - name: Download hash-verified Murera source
+        run: |
+          curl -fL --retry 3 --retry-delay 2 'https://tenders.go.ke/storage/Documents/1785347143869-bqs-drawings.pdf' -o /tmp/murera.pdf
+          echo '84dec737ede7adfa32b02c6732d4289a6a2d25f7ae50cf07209428f1b4e0c94b  /tmp/murera.pdf' | sha256sum -c -
+      - name: Print native and OCR opening type evidence
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: |
+          python - <<'PY'
+          import re
+          import fitz
+          import numpy as np
+          from PIL import Image, ImageEnhance
+          from rapidocr import RapidOCR
+
+          interesting = re.compile(r'(?:\bW\s*[-_.]?\s*\d+\b|\bD\s*[-_.]?\s*\d+\b|window|door|casement|glaz|glass|louvr|vent|frame|fixed|openable)', re.I)
+          engine = RapidOCR()
+          doc = fitz.open('/tmp/murera.pdf')
+          for page_no in range(221, 231):
+              page = doc[page_no - 1]
+              native = [ln.strip() for ln in (page.get_text('text') or '').splitlines() if ln.strip() and interesting.search(ln)]
+              print(f'\n=== PAGE {page_no} native_chars={len(page.get_text("text") or "")} images={len(page.get_images(full=True))} ===')
+              for ln in native:
+                  print('NATIVE', ln)
+              pix = page.get_pixmap(dpi=220, alpha=False)
+              base = Image.frombytes('RGB', [pix.width, pix.height], pix.samples)
+              rows = []
+              for variant_name, variant in [('raw', base), ('contrast', ImageEnhance.Contrast(base).enhance(1.35))]:
+                  result = engine(np.asarray(variant))
+                  txts = getattr(result, 'txts', None) or []
+                  scores = getattr(result, 'scores', None) or []
+                  for idx, raw in enumerate(txts):
+                      text = ' '.join(str(raw).split()).strip()
+                      conf = float(scores[idx]) if idx < len(scores) else 0.0
+                      if conf >= .55 and interesting.search(text):
+                          rows.append((variant_name, conf, text))
+              seen=set()
+              for variant, conf, text in sorted(rows, key=lambda x:(x[2].casefold(), -x[1])):
+                  key=text.casefold()
+                  if key in seen: continue
+                  seen.add(key)
+                  print('OCR', round(conf,3), text)
+          doc.close()
+          PY
