@@ -320,6 +320,7 @@ class GenericPlanReaderExtractor:
         global_level_markers: List[Any] = []  # List[LevelMarker], imported lazily below
         global_dimension_chains: List[Any] = []  # List[DimensionChain], imported lazily below
         global_explicit_floor_area_evidence: List[Any] = []  # source-only figured FLOOR AREA evidence
+        global_secondary_area_support_evidence: List[Any] = []  # corroborated repeated-bay support evidence
 
         for p_idx in target_pages:
             if p_idx < 0 or p_idx >= len(doc):
@@ -405,9 +406,24 @@ class GenericPlanReaderExtractor:
             # dimension strings carry a genuine wall-span-wall bracket --
             # see pb_dimension_chain_evidence_extractor.
             from pb_dimension_chain_evidence_extractor import extract_dimension_chains_from_page
-            global_dimension_chains.extend(
-                extract_dimension_chains_from_page(doc[p_idx], page_num=p_idx + 1, view_id=f"page_{p_idx + 1}")
+            page_dimension_chains = extract_dimension_chains_from_page(
+                doc[p_idx], page_num=p_idx + 1, view_id=f"page_{p_idx + 1}"
             )
+            global_dimension_chains.extend(page_dimension_chains)
+
+            # F.29: count supports to a named secondary area only when two
+            # independent repeated-bay chains corroborate one another and
+            # spatially bind both the area label and an explicit support spec.
+            from pb_secondary_area_support_evidence import (
+                extract_secondary_area_support_evidence_from_page,
+            )
+            secondary_support_evidence = extract_secondary_area_support_evidence_from_page(
+                doc[p_idx],
+                source_page=p_idx + 1,
+                dimension_chains=page_dimension_chains,
+            )
+            if secondary_support_evidence is not None:
+                global_secondary_area_support_evidence.append(secondary_support_evidence)
 
         # Resolve wall height strictly from real level-datum evidence when
         # present; otherwise this stays None and every wall-height use below
@@ -435,7 +451,48 @@ class GenericPlanReaderExtractor:
             global_explicit_floor_area_evidence
         )
 
+        from pb_secondary_area_support_evidence import (
+            resolve_document_secondary_area_support_evidence,
+        )
+        global_resolved_secondary_support = resolve_document_secondary_area_support_evidence(
+            global_secondary_area_support_evidence
+        )
+
         pred_dict: Dict[str, ExtractedPrediction] = {}
+
+        if (
+            global_resolved_secondary_support is not None
+            and global_resolved_secondary_support.zone_type == "verandah"
+        ):
+            support_page = global_resolved_secondary_support.source_pages[0]
+            support_sheet_no = self.extract_sheet_number(
+                doc[support_page - 1].get_text("text"), support_page
+            )
+            pred_dict["verandah_pillars"] = ExtractedPrediction(
+                tag="verandah_pillars",
+                trade_type="structure",
+                description=(
+                    f"Verandah structural {global_resolved_secondary_support.support_kind}s "
+                    f"from {global_resolved_secondary_support.bay_count} corroborated "
+                    "repeated bay spans"
+                ),
+                quantity=float(global_resolved_secondary_support.support_count),
+                unit="NO",
+                confidence=global_resolved_secondary_support.confidence,
+                source_page=support_page,
+                sheet_number=support_sheet_no,
+                metadata={
+                    "derivation": "corroborated_secondary_area_bay_support_count",
+                    "zone_type": global_resolved_secondary_support.zone_type,
+                    "support_kind": global_resolved_secondary_support.support_kind,
+                    "bay_count": global_resolved_secondary_support.bay_count,
+                    "bay_spans_m": list(global_resolved_secondary_support.bay_spans_m),
+                    "source_pages": list(global_resolved_secondary_support.source_pages),
+                    "chain_ids": list(global_resolved_secondary_support.chain_ids),
+                    "zone_text": global_resolved_secondary_support.zone_text,
+                    "support_text": global_resolved_secondary_support.support_text,
+                },
+            )
 
         for pno in target_pages:
             if pno < 0 or pno >= len(doc):
