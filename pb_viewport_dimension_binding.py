@@ -2,21 +2,24 @@
 
 F.13 can read and bind figured dimensions, but page-wide binding cannot safely
 answer which view owns a vertical or mixed-scale dimension on a multi-viewport
-sheet.  F.07 supplies that missing spatial ownership.
+sheet. F.07 supplies that missing spatial ownership.
 
 This bridge scopes *raw* native words, vector segments, and OCR candidates to a
-viewport before F.13 performs anchor binding.  That ordering is intentional: a
+viewport before F.13 performs anchor binding. That ordering is intentional: a
 line from a neighbouring elevation must never make a plan dimension ambiguous,
 and an elevation dimension must never enter a plan chain merely because both
 occur on the same PDF page.
 
 Authority defaults are conservative. Only ``RESOLVED`` (vector-frame-backed)
 viewports are consumed unless ``allow_derived=True`` is explicitly requested.
+For authority-sensitive ownership, text bboxes must be fully contained and
+vector segments must have both endpoints inside the viewport; midpoint-only
+ownership is deliberately rejected for boundary-crossing evidence.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from typing import Any, Iterable, Optional, Sequence
+from typing import Any, Iterable, Sequence
 
 from pb_dimension_graph_constraint_engine import DimensionObservation
 from pb_figured_dimension_evidence import (
@@ -40,8 +43,13 @@ class ViewportDimensionBindingResult:
     unassigned_ocr_ids: list[str] = field(default_factory=list)
 
 
-def _bbox_center(bbox: Sequence[float]) -> tuple[float, float]:
-    return (float(bbox[0]) + float(bbox[2])) / 2.0, (float(bbox[1]) + float(bbox[3])) / 2.0
+def _bbox_fully_inside(inner: Sequence[float], outer: Sequence[float]) -> bool:
+    return (
+        float(inner[0]) >= float(outer[0])
+        and float(inner[1]) >= float(outer[1])
+        and float(inner[2]) <= float(outer[2])
+        and float(inner[3]) <= float(outer[3])
+    )
 
 
 def _point_in_bbox(point: tuple[float, float], bbox: Sequence[float]) -> bool:
@@ -49,12 +57,11 @@ def _point_in_bbox(point: tuple[float, float], bbox: Sequence[float]) -> bool:
 
 
 def _observation_in_viewport(observation: DimensionObservation, bbox: Sequence[float]) -> bool:
-    return observation.bbox is not None and _point_in_bbox(_bbox_center(observation.bbox), bbox)
+    return observation.bbox is not None and _bbox_fully_inside(observation.bbox, bbox)
 
 
 def _segment_in_viewport(segment: ObservedGeometrySegment, bbox: Sequence[float]) -> bool:
-    midpoint = ((segment.start[0] + segment.end[0]) / 2.0, (segment.start[1] + segment.end[1]) / 2.0)
-    return _point_in_bbox(midpoint, bbox)
+    return _point_in_bbox(segment.start, bbox) and _point_in_bbox(segment.end, bbox)
 
 
 def _eligible(viewport: SegmentedViewport, *, allow_derived: bool) -> bool:
@@ -120,14 +127,13 @@ def extract_dimension_evidence_by_viewport(
             if candidate.bbox is None or not _observation_in_viewport(candidate, bbox):
                 continue
             # Overlap safety: an OCR candidate may only be assigned when this
-            # viewport is the unique eligible owner of its centre.
-            center = _bbox_center(candidate.bbox)
+            # viewport is the unique eligible owner of its complete bbox.
             owners = [
                 other
                 for other in viewports
                 if _eligible(other, allow_derived=allow_derived)
                 and other.bounding_box is not None
-                and _point_in_bbox(center, other.bounding_box)
+                and _bbox_fully_inside(candidate.bbox, other.bounding_box)
             ]
             if len(owners) != 1 or owners[0].view_id != viewport.view_id:
                 continue
