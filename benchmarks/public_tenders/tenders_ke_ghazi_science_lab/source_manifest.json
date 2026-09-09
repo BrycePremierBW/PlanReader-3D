@@ -1,0 +1,23 @@
+{
+  "benchmark_id": "tenders_ke_ghazi_science_lab",
+  "project_name": "Proposed Construction of a Science Laboratory at Ghazi Primary School",
+  "project_number": "NG-CDF/VOI/GZ/34/2023-2024",
+  "client": "NG-CDF Voi Constituency",
+  "drawing_issue": "Tender Issue",
+  "drawing_date": "January 2017",
+  "source_pdf": "1739211305954-tender-document-for-construction-of-science-laboratory-at-ghazi-primary-school.pdf",
+  "source_takeoff": "1739211305954-tender-document-for-construction-of-science-laboratory-at-ghazi-primary-school.pdf",
+  "allowed_comparison_sources": [
+    "1739211305954-tender-document-for-construction-of-science-laboratory-at-ghazi-primary-school.pdf"
+  ],
+  "rejected_comparison_sources": [
+    "Premier_Brushworks_60-62_School_Rd_Maroochydore_Revised.xlsx",
+    "Premier_Brushworks_92-94_School_Rd_Full_Painting_Takeoff.xlsx",
+    "260617_004-LAGO-BRITINYA_ARCH-DRAWINGS_COMBINED 2.pdf",
+    "1727358888238-bq-nd-drawing.pdf",
+    "1785347143869-bqs-drawings.pdf"
+  ],
+  "status": "verified_scored_benchmark",
+  "retrieval_date": "2026-09-09",
+  "verification_notes": "Verified authentic public procurement package (NG-CDF standard tender document) containing both a real figured-dimension floor-plan drawing sheet and a full Bill of Quantities for the same physical building, retrieved from the Kenyan Government Public Procurement Portal (tenders.go.ke). SHA-256 of the downloaded file matches download_manifest.json. Only 1 of the 3 drawing sheets referenced by the title block ('Drawing No. 1 of 3') is present in this specific document; sheets 2-3 (elevations/sections) were not found appended."
+}

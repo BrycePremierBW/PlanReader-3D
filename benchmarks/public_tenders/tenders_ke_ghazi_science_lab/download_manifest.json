@@ -1,0 +1,36 @@
+{
+  "benchmark_id": "tenders_ke_ghazi_science_lab",
+  "tender_reference": "NG-CDF/VOI/GZ/34/2023-2024",
+  "publisher": "NG-CDF Voi Constituency / Ministry of Public Works",
+  "source_url": "https://tenders.go.ke/storage/Documents/1739211305954-tender-document-for-construction-of-science-laboratory-at-ghazi-primary-school.pdf",
+  "retrieval_date": "2026-09-09",
+  "documents": [
+    {
+      "filename": "1739211305954-tender-document-for-construction-of-science-laboratory-at-ghazi-primary-school.pdf",
+      "role": "architectural_drawings",
+      "description": "Standard tender document with a single design-scheme floor plan sheet (1 of 3) for a proposed standard laboratory, showing the full room layout, dimension chains, and stated floor area.",
+      "sha256": "c8c001c9dadb791e7cb18b7bea19ce795eebba2f9b9eb7dec4844212da4d8f4f",
+      "file_size_bytes": 4334338,
+      "expected_pages": 167,
+      "drawing_pages": [
+        167,
+        167
+      ],
+      "total_pages": 167
+    },
+    {
+      "filename": "1739211305954-tender-document-for-construction-of-science-laboratory-at-ghazi-primary-school.pdf",
+      "role": "bill_of_quantities",
+      "description": "Detailed Bill of Quantities: Substructure, Concrete Superstructure, Internal/External Walling, Roofing, Doors, Windows, External Finishes, Internal Finishes, science-lab fittings (fume chamber, worktops, stools).",
+      "sha256": "c8c001c9dadb791e7cb18b7bea19ce795eebba2f9b9eb7dec4844212da4d8f4f",
+      "file_size_bytes": 4334338,
+      "expected_pages": 167,
+      "boq_pages": [
+        127,
+        150
+      ],
+      "total_pages": 167
+    }
+  ],
+  "download_notes": "Direct open download from tenders.go.ke storage. Computed SHA-256 matches downloaded file."
+}
