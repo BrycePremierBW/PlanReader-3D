@@ -1,0 +1,137 @@
+name: F24C KSTVET Explicit Opening Evidence
+
+on:
+  push:
+    branches:
+      - diag/f24c-kstvet-explicit-opening-results
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: diag/f24c-kstvet-explicit-opening-results
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install probe dependencies
+        run: pip install PyMuPDF==1.28.0 Pillow==12.3.0 numpy==2.3.5 rapidocr==3.9.2 onnxruntime==1.29.0
+      - name: Download and verify development source
+        run: |
+          curl -fL --retry 3 --retry-delay 2 'https://tenders.go.ke/storage/Documents/1727358888238-bq-nd-drawing.pdf' -o /tmp/kstvet.pdf
+          echo '6856bfa739aa136dd8e0bf17cb25fd43d0d31c9c3dfe3252525454f09d8fa4dc  /tmp/kstvet.pdf' | sha256sum -c -
+      - name: Persist native and OCR opening evidence
+        run: |
+          mkdir -p diagnostics
+          python - <<'PY'
+          import json, re
+          import fitz
+          import numpy as np
+          from PIL import Image, ImageEnhance
+          from rapidocr import RapidOCR
+          from pb_opening_tag_normalization import find_explicit_opening_tags
+          from pb_raster_schedule_extractor import GenericScheduleTableExtractor
+
+          source='/tmp/kstvet.pdf'
+          doc=fitz.open(source)
+          page=doc[53]
+          report={
+              'source_sha256':'6856bfa739aa136dd8e0bf17cb25fd43d0d31c9c3dfe3252525454f09d8fa4dc',
+              'source_page':54,
+              'native_explicit_tags':[],
+              'native_opening_blocks':[],
+              'current_extractor_rows':[],
+              'ocr_explicit_tags':[],
+              'ocr_opening_text':[],
+          }
+
+          native_text=page.get_text('text') or ''
+          report['native_explicit_tags']=[
+              {'tag':t.tag,'trade_type':t.trade_type,'raw_text':t.raw_text}
+              for t in find_explicit_opening_tags(native_text)
+          ]
+          opening_re=re.compile(r'window|door|casement|batten|glaz',re.I)
+          tag_re=re.compile(r'^\s*(?:W|D)\s*[-_.]?\s*\d{1,3}\s*$',re.I)
+          for b in page.get_text('blocks') or []:
+              txt=' '.join(str(b[4]).split()).strip()
+              if txt and (opening_re.search(txt) or tag_re.fullmatch(txt)):
+                  report['native_opening_blocks'].append({
+                      'text':txt,
+                      'bbox':[round(float(x),2) for x in b[:4]],
+                  })
+
+          ex=GenericScheduleTableExtractor()
+          for row in ex.extract_from_page(page,54):
+              if row.trade_type in ('windows','doors'):
+                  report['current_extractor_rows'].append(row.to_dict())
+
+          engine=RapidOCR()
+          dpi=220; r=page.rect; cols=rows=3; ov=.06; tw=r.width/cols; th=r.height/rows
+          detections=[]
+          for iy in range(rows):
+              for ix in range(cols):
+                  clip=fitz.Rect(max(r.x0,r.x0+ix*tw-tw*ov),max(r.y0,r.y0+iy*th-th*ov),min(r.x1,r.x0+(ix+1)*tw+tw*ov),min(r.y1,r.y0+(iy+1)*th+th*ov))
+                  pix=page.get_pixmap(clip=clip,dpi=dpi,alpha=False)
+                  base=Image.frombytes('RGB',[pix.width,pix.height],pix.samples)
+                  for variant_name,variant in (('raw',base),('contrast',ImageEnhance.Contrast(base).enhance(1.35))):
+                      result=engine(np.asarray(variant))
+                      txts=getattr(result,'txts',None) or []
+                      scores=getattr(result,'scores',None) or []
+                      boxes=getattr(result,'boxes',None)
+                      if boxes is None: continue
+                      scale=72.0/dpi
+                      for i,raw in enumerate(txts):
+                          text=' '.join(str(raw).split()).strip()
+                          if not text: continue
+                          pts=boxes[i].tolist() if hasattr(boxes[i],'tolist') else boxes[i]
+                          xs=[float(p[0]) for p in pts]; ys=[float(p[1]) for p in pts]
+                          bbox=(clip.x0+min(xs)*scale,clip.y0+min(ys)*scale,clip.x0+max(xs)*scale,clip.y0+max(ys)*scale)
+                          detections.append((text,float(scores[i]) if i<len(scores) else 0.0,bbox,variant_name))
+
+          kept=[]
+          for text,conf,bbox,variant in sorted(detections,key=lambda x:-x[1]):
+              cx=(bbox[0]+bbox[2])/2; cy=(bbox[1]+bbox[3])/2
+              duplicate=False
+              for pt,pc,pb,pv in kept:
+                  if text.casefold()!=pt.casefold(): continue
+                  pcx=(pb[0]+pb[2])/2; pcy=(pb[1]+pb[3])/2
+                  if abs(cx-pcx)<=6 and abs(cy-pcy)<=6:
+                      duplicate=True; break
+              if not duplicate:
+                  kept.append((text,conf,bbox,variant))
+
+          for text,conf,bbox,variant in kept:
+              rec={'text':text,'confidence':round(conf,4),'bbox':[round(float(v),2) for v in bbox],'variant':variant}
+              if tag_re.fullmatch(text) and conf>=.70:
+                  near=[]
+                  cx=(bbox[0]+bbox[2])/2; cy=(bbox[1]+bbox[3])/2
+                  for text2,conf2,bbox2,var2 in kept:
+                      if text2==text and bbox2==bbox: continue
+                      cx2=(bbox2[0]+bbox2[2])/2; cy2=(bbox2[1]+bbox2[3])/2
+                      if abs(cx2-cx)<=180 and abs(cy2-cy)<=70 and conf2>=.55:
+                          near.append({'text':text2,'confidence':round(conf2,4),'bbox':[round(float(v),2) for v in bbox2],'distance':round(((cx2-cx)**2+(cy2-cy)**2)**0.5,2)})
+                  rec['nearby']=sorted(near,key=lambda x:x['distance'])[:30]
+                  report['ocr_explicit_tags'].append(rec)
+              if opening_re.search(text) and conf>=.65:
+                  report['ocr_opening_text'].append(rec)
+
+          report['ocr_explicit_tags'].sort(key=lambda x:(x['bbox'][1],x['bbox'][0]))
+          report['ocr_opening_text'].sort(key=lambda x:(x['bbox'][1],x['bbox'][0]))
+          with open('diagnostics/f24c_kstvet_explicit_opening_evidence.json','w',encoding='utf-8') as f:
+              json.dump(report,f,indent=2,ensure_ascii=False)
+              f.write('\n')
+          doc.close()
+          PY
+      - name: Commit diagnostic result
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add diagnostics/f24c_kstvet_explicit_opening_evidence.json
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'diag(F24C): persist KSTVET explicit opening OCR evidence'
+          git push origin HEAD:diag/f24c-kstvet-explicit-opening-results
