@@ -28,7 +28,7 @@ jobs:
             tests/benchmarks/test_mutation_generic_opening_binding_wiring.py \
             tests/benchmarks/test_mutation_raster_cad_schedules.py \
             tests/benchmarks/test_mutation_drawing_evidence_binding.py \
-            tests/benchmarks/test_mutation_opening_tag_context_wiring.py
+            tests/benchmarks/test_mutation_contextual_opening_tags.py
           ! grep -Ei 'tenders_ke|kstvet|murera|expected_boq|benchmark_results' pb_opening_tag_normalization.py
           ! grep -E 'sched_spec_w1|sched_spec_w2|sched_spec_d1|w1_occs|w2_occs|d1_occs' pb_planreader_pdf_extractor.py
       - name: Download verified public benchmark sources
