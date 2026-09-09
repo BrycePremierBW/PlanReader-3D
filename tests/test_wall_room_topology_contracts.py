@@ -37,23 +37,32 @@ def _single_line_wall(**overrides) -> WallCandidate:
     return WallCandidate(**defaults)
 
 
+def _junction(**overrides) -> JunctionCandidate:
+    defaults = dict(
+        node_id="n1",
+        document_id="doc_1",
+        page_id="p1",
+        viewport_id="vp_1",
+        position_pt=(5.0, 5.0),
+        junction_type=JunctionType.T_JUNCTION,
+        incident_wall_candidate_ids=("wall_1", "wall_2", "wall_3"),
+        incident_angles_deg=(0.0, 90.0, 180.0),
+        status=EvidenceResolutionStatus.CANDIDATE,
+        confidence=0.9,
+    )
+    defaults.update(overrides)
+    return JunctionCandidate(**defaults)
+
+
 class TestJunctionCandidate:
     def test_valid_t_junction_round_trips(self) -> None:
-        junction = JunctionCandidate(
-            node_id="n1",
-            position_pt=(5.0, 5.0),
-            junction_type=JunctionType.T_JUNCTION,
-            incident_wall_candidate_ids=("wall_1", "wall_2", "wall_3"),
-            incident_angles_deg=(0.0, 90.0, 180.0),
-            confidence=0.9,
-        )
+        junction = _junction()
         assert junction.to_dict()["junction_type"] == "t_junction"
+        assert junction.to_dict()["status"] == "candidate"
 
     def test_rejects_mismatched_incident_lists(self) -> None:
         with pytest.raises(ValueError, match="equal length"):
-            JunctionCandidate(
-                node_id="n1",
-                position_pt=(0.0, 0.0),
+            _junction(
                 junction_type=JunctionType.L_CORNER,
                 incident_wall_candidate_ids=("wall_1", "wall_2"),
                 incident_angles_deg=(0.0,),
@@ -61,10 +70,8 @@ class TestJunctionCandidate:
             )
 
     def test_classified_junction_requires_incident_walls(self) -> None:
-        with pytest.raises(ValueError, match="at least one incident wall"):
-            JunctionCandidate(
-                node_id="n1",
-                position_pt=(0.0, 0.0),
+        with pytest.raises(ValueError, match="at least one incident"):
+            _junction(
                 junction_type=JunctionType.L_CORNER,
                 incident_wall_candidate_ids=(),
                 incident_angles_deg=(),
@@ -72,16 +79,37 @@ class TestJunctionCandidate:
             )
 
     def test_unresolved_junction_may_have_no_incident_walls(self) -> None:
-        junction = JunctionCandidate(
-            node_id="n1",
-            position_pt=(0.0, 0.0),
+        junction = _junction(
             junction_type=JunctionType.UNRESOLVED,
             incident_wall_candidate_ids=(),
             incident_angles_deg=(),
+            status=EvidenceResolutionStatus.ABSTAINED,
             confidence=0.0,
             reason_codes=("irregular_five_way_meeting",),
         )
         assert junction.junction_type is JunctionType.UNRESOLVED
+
+    def test_conflict_status_requires_conflict_evidence_ids(self) -> None:
+        with pytest.raises(ValueError, match="CONFLICT status requires"):
+            _junction(status=EvidenceResolutionStatus.CONFLICT)
+
+    def test_corroborated_status_rejects_unresolved_conflicts(self) -> None:
+        with pytest.raises(ValueError, match="cannot retain unresolved conflicts"):
+            _junction(
+                status=EvidenceResolutionStatus.CORROBORATED,
+                conflict_evidence_ids=("ev_1",),
+            )
+
+    def test_new_junction_types_are_constructible(self) -> None:
+        for jt in (
+            JunctionType.MULTI_WAY,
+            JunctionType.AMBIGUOUS,
+            JunctionType.NEAR_JUNCTION_REVIEW,
+            JunctionType.REJECTED_NON_WALL_CROSSING,
+            JunctionType.COLLINEAR_CONTINUATION,
+        ):
+            junction = _junction(junction_type=jt, incident_wall_candidate_ids=("e1",), incident_angles_deg=(0.0,))
+            assert junction.junction_type is jt
 
 
 class TestWallCandidate:
