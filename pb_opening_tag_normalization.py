@@ -77,3 +77,6 @@ def find_explicit_opening_tags(text: str) -> list[NormalizedOpeningTag]:
 def opening_trade_from_tag(text: str) -> Optional[str]:
     norm = normalize_opening_tag(text)
     return norm.trade_type if norm else None
+
+
+# Keep normalization evidence-only; geometry is never an identity source.
