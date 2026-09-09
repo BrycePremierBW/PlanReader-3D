@@ -159,7 +159,7 @@ def test_windows_compatibility_facade_precedes_recovered_fcntl_import():
     assert "from _pb_benchmark_report_set_impl import *" in source
 
 
-def test_current_four_benchmark_suite_materializes_one_report_run(tmp_path: Path):
+def test_current_headline_benchmark_suite_materializes_one_report_run(tmp_path: Path):
     output = tmp_path / "reports"
     engine = BenchmarkAccuracyEngine(output_dir=output)
     dashboard = engine.evaluate_suite(
@@ -169,7 +169,7 @@ def test_current_four_benchmark_suite_materializes_one_report_run(tmp_path: Path
         require_local_gold=False,
     )
 
-    assert dashboard.total_headline_benchmarks == 4
+    assert dashboard.total_headline_benchmarks == 5
     current = load_and_validate_current_report_set(output)
     run_id = current["manifest"]["run_id"]
     dashboard_json = json.loads(

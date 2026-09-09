@@ -1,0 +1,36 @@
+{
+  "benchmark_id": "tenders_ke_lamu_ishakani_ecd_classrooms",
+  "tender_reference": "N/A (no tender reference number printed on this document)",
+  "publisher": "The County Government of Lamu, Lands, Physical Planning, Infrastructure, Urban Development and Energy",
+  "source_url": "https://lamu.go.ke/wp-content/uploads/2018/11/Bill-of-Quantities-ECD-2No-Classrooms-and-Twin-Toilets-Ishakani.pdf",
+  "retrieval_date": "2026-09-09",
+  "documents": [
+    {
+      "filename": "lamu-ishakani-ecd-classrooms-boq.pdf",
+      "role": "architectural_drawings",
+      "description": "Ground floor plan (2No. classrooms with veranda), 3 elevations, structural general notes, and a separate twin-VIP-toilet-block plan with its own section S01-S01, all with figured dimension chains.",
+      "sha256": "fa53c9b72fd35189f11848f9a26ccc3512c8c03b5316e78cad6a4d55c09330f2",
+      "file_size_bytes": 1380622,
+      "expected_pages": 45,
+      "drawing_pages": [
+        41,
+        45
+      ],
+      "total_pages": 45
+    },
+    {
+      "filename": "lamu-ishakani-ecd-classrooms-boq.pdf",
+      "role": "bill_of_quantities",
+      "description": "Priced Bill of Quantities: Substructures, Superstructure, Walling, Roofing, Doors, Windows, and Finishes for the 2No. classroom block; a separate identical bill structure for the twin-toilet block; PC/Provisional sums; grand summary.",
+      "sha256": "fa53c9b72fd35189f11848f9a26ccc3512c8c03b5316e78cad6a4d55c09330f2",
+      "file_size_bytes": 1380622,
+      "expected_pages": 45,
+      "boq_pages": [
+        7,
+        40
+      ],
+      "total_pages": 45
+    }
+  ],
+  "download_notes": "Direct open download from lamu.go.ke (Lamu County's own procurement portal, not the tenders.go.ke national aggregator). Computed SHA-256 matches downloaded file."
+}

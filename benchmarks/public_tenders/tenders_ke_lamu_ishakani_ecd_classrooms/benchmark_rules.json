@@ -1,0 +1,29 @@
+{
+  "benchmark_id": "tenders_ke_lamu_ishakani_ecd_classrooms",
+  "identity_match_required": true,
+  "match_keys": [
+    "project_name",
+    "organization"
+  ],
+  "comparison_rules": {
+    "ignore_preliminaries_in_accuracy": true,
+    "require_drawing_trace_for_measurable": true,
+    "provisional_sums_counted_as_provisional": true,
+    "rate_only_excluded_from_quantities": true
+  },
+  "tolerances": {
+    "wall_area_pct": 5.0,
+    "floor_finish_area_pct": 5.0,
+    "internal_plaster_area_pct": 5.0
+  },
+  "item_mappings": {
+    "LMU-E3-A": "perimeter_walling",
+    "LMU-E3-B": "damp_proof_course",
+    "LMU-E3-C": "substructure_bed_dpm",
+    "LMU-E5-A": "D1",
+    "LMU-E7-A": "internal_plaster",
+    "LMU-E7-C": "internal_paint",
+    "LMU-E7-D": "chalkboard",
+    "LMU-E7-E": "floor_screed"
+  }
+}

@@ -1,6 +1,6 @@
 {
   "benchmark_id": "tenders_ke_ghazi_science_lab",
-  "timestamp": "2026-09-09T05:19:39.094072+00:00",
+  "timestamp": "2026-09-09T18:41:28.024546+00:00",
   "project_name": "Proposed Construction of a Science Laboratory at Ghazi Primary School",
   "organization": "NG-CDF Voi Constituency / Ministry of Public Works",
   "tender_reference": "NG-CDF/VOI/GZ/34/2023-2024",
@@ -12,18 +12,18 @@
     "total_boq_items": 70,
     "total_measurable_expected": 13,
     "total_items_compared": 13,
-    "exact_matches": 0,
+    "exact_matches": 1,
     "within_5_percent": 2,
     "within_10_percent": 0,
     "within_20_percent": 0,
     "gross_mismatches": 1,
-    "missed_items": 10,
+    "missed_items": 9,
     "hallucinated_items": 0,
     "preliminaries_excluded": 0,
     "provisional_sums_excluded": 0,
     "non_architectural_excluded": 0,
-    "overall_accuracy_percentage": 15.38,
-    "strict_exact_accuracy_percentage": 0.0
+    "overall_accuracy_percentage": 23.08,
+    "strict_exact_accuracy_percentage": 7.69
   },
   "item_results": [
     {
@@ -61,10 +61,10 @@
       "description": "Approved coral block walling in 200mm thick walling externally",
       "category": "measurable_from_drawings",
       "expected_quantity": 109.0,
-      "extracted_quantity": 151.2,
+      "extracted_quantity": 135.24,
       "unit": "SM",
-      "delta": 42.2,
-      "pct_error": 38.72,
+      "delta": 26.24,
+      "pct_error": 24.07,
       "status": "gross_mismatch",
       "tolerance_tier": "gross",
       "drawing_sheet": "Design Scheme (Plan) 1 of 3",
@@ -106,15 +106,15 @@
       "description": "75mm diameter G.I column not exceeding 3000mm long",
       "category": "measurable_from_drawings",
       "expected_quantity": 8.0,
-      "extracted_quantity": null,
+      "extracted_quantity": 8.0,
       "unit": "NO",
-      "delta": null,
-      "pct_error": null,
-      "status": "missed_in_extraction",
-      "tolerance_tier": "missed",
+      "delta": 0.0,
+      "pct_error": 0.0,
+      "status": "exact_match",
+      "tolerance_tier": "exact",
       "drawing_sheet": "Design Scheme (Plan) 1 of 3",
       "drawing_page": 167,
-      "notes": "Item present in BOQ but absent from extraction predictions"
+      "notes": "Comparison evaluated against 8.0 NO"
     },
     {
       "item_id": "GZ-E5-A",
@@ -222,5 +222,11 @@
       "notes": "Item present in BOQ but absent from extraction predictions"
     }
   ],
-  "errors": []
+  "errors": [],
+  "run_id": "b9c67eed9f814546846daa3d36281083",
+  "evaluated_commit_sha": "cb9ba9af5eba8341c88f60ee327a5ec1f697d1bb",
+  "scoring_policy_identifier": "public_tender_exact_or_within_5pct_v1",
+  "schema_version": "1.0.0",
+  "evaluator_version": "pb_benchmark_accuracy_engine.v1",
+  "generated_at": "2026-09-09T18:41:38.833093+00:00"
 }

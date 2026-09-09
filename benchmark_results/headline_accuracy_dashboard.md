@@ -1,25 +1,25 @@
 # PlanReader Public Tender Benchmark — Executive Headline Accuracy Dashboard
 
-**Generated**: `2026-09-09T06:06:59.954163+00:00`
+**Generated**: `2026-09-09T18:40:54.738454+00:00`
 
-> **Official Headline Accuracy**: **`34.6%`** across `4` headline-verified public tender benchmark(s).  
-> **Strict Exact Accuracy** (zero-tolerance): **`26.9%`**.
+> **Official Headline Accuracy**: **`39.3%`** across `5` headline-verified public tender benchmark(s).  
+> **Strict Exact Accuracy** (zero-tolerance): **`29.5%`**.
 
 ## 1. Executive Headline Metrics (1:1 Material Scope Packages)
 
 | Metric | Value | Description |
 | :--- | :--- | :--- |
-| **Headline Overall Accuracy (<= 5% tol)** | **`34.6%`** | Combined exact matches and <= 5% tolerance across headline benchmarks |
-| **Headline Strict Exact Accuracy** | **`26.9%`** | Zero-tolerance exact numerical matches across headline benchmarks |
-| Scored Headline Benchmarks | `4` | Verified packages with 1:1 physical drawing-to-BOQ scope match |
-| Measurable Items Evaluated | `51` | Total expected architectural takeoff items |
-| Total Items Compared (Denominator) | `52` | Expected items + hallucinated extra predictions across packages |
-| Exact Matches | `14` | Exactly matched quantities |
-| Within 5% Tolerance | `4` | Minor variations within 5% tolerance |
+| **Headline Overall Accuracy (<= 5% tol)** | **`39.3%`** | Combined exact matches and <= 5% tolerance across headline benchmarks |
+| **Headline Strict Exact Accuracy** | **`29.5%`** | Zero-tolerance exact numerical matches across headline benchmarks |
+| Scored Headline Benchmarks | `5` | Verified packages with 1:1 physical drawing-to-BOQ scope match |
+| Measurable Items Evaluated | `60` | Total expected architectural takeoff items |
+| Total Items Compared (Denominator) | `61` | Expected items + hallucinated extra predictions across packages |
+| Exact Matches | `18` | Exactly matched quantities |
+| Within 5% Tolerance | `6` | Minor variations within 5% tolerance |
 | Within 10% Tolerance | `0` | Minor variations (5% to 10%) |
 | Within 20% Tolerance | `0` | Moderate variations (10% to 20%) |
-| Gross Mismatches (> 20%) | `12` | Discrepancies exceeding 20% |
-| Missed in Extraction | `21` | BOQ items missing from drawing predictions |
+| Gross Mismatches (> 20%) | `13` | Discrepancies exceeding 20% |
+| Missed in Extraction | `23` | BOQ items missing from drawing predictions |
 | Hallucinated Extra Predictions | `1` | Predictions with no counterpart in BOQ |
 
 ## 2. Headline Benchmark Breakdown (1:1 Physical Scope Match)
@@ -28,8 +28,9 @@
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | `tenders_ke_kstvet_cbc_classroom` | Proposed Construction of CBC Classroom and Integrated Resource Center | 1:1 Match | `13` | `13` | `1` | `2` | `5` | `5` | `0` | **`23.1%`** | `7.7%` | `verified_scored_benchmark` |
 | `tenders_ke_murera_science_lab` | Proposed Construction of a Science Laboratory at Murera Senior School | 1:1 Match | `10` | `11` | `1` | `0` | `6` | `3` | `1` | **`9.1%`** | `9.1%` | `verified_scored_benchmark` |
-| `tenders_ke_ghazi_science_lab` | Proposed Construction of a Science Laboratory at Ghazi Primary School | 1:1 Match | `13` | `13` | `0` | `2` | `1` | `10` | `0` | **`15.4%`** | `0.0%` | `verified_scored_benchmark` |
-| `tenders_ke_umma_hostels` | Proposed Student Hostels for Umma University in Kajiado | 1:1 Match | `15` | `15` | `12` | `0` | `0` | `3` | `0` | **`80.0%`** | `80.0%` | `verified_scored_benchmark` |
+| `tenders_ke_ghazi_science_lab` | Proposed Construction of a Science Laboratory at Ghazi Primary School | 1:1 Match | `13` | `13` | `1` | `2` | `1` | `9` | `0` | **`23.1%`** | `7.7%` | `verified_scored_benchmark` |
+| `tenders_ke_umma_hostels` | Proposed Student Hostels for Umma University in Kajiado | 1:1 Match | `15` | `15` | `15` | `0` | `0` | `0` | `0` | **`100.0%`** | `100.0%` | `verified_scored_benchmark` |
+| `tenders_ke_lamu_ishakani_ecd_classrooms` | Proposed Construction of 2No. ECD Classrooms and 2 Doors VIP Toilets at Ishakani Primary School | 1:1 Match | `9` | `9` | `0` | `2` | `1` | `6` | `0` | **`22.2%`** | `0.0%` | `verified_scored_benchmark` |
 
 ## 3. Real-World Scope Divergence Stress Tests (Excluded from Headline)
 
