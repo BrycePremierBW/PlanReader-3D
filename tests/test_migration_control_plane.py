@@ -589,7 +589,9 @@ def test_27_frozen_before_gold_evaluation(tmp_path: Path) -> None:
         eligible_keys=("W1",) * 24,
         frozen_new=frozen.quantities,
         exact_among_answered=1.0,
+        exact_correct_count=1,
         precision=1.0,
+        precision_correct_count=1,
         hallucinations=0,
         gold_joined_after_freeze=True,
         gate_decision="HOLD",
@@ -861,7 +863,9 @@ def test_production_eligibility_before_answers_and_not_gold() -> None:
         eligible_keys=(),
         frozen_new=(_qty("W1", 6),),
         exact_among_answered=1.0,
+        exact_correct_count=1,
         precision=1.0,
+        precision_correct_count=1,
         gate_decision="HOLD",
         gate_reasons=("remain_new_shadow",),
     )
@@ -1214,8 +1218,11 @@ def test_migration_report_formulas() -> None:
         eligible_keys=(),
         frozen_new=answered,
         exact_among_answered=1.0,
+        exact_correct_count=15,
         precision=1.0,
+        precision_correct_count=15,
         recall=15 / 24,
+        recall_correct_count=15,
         hallucinations=0,
         conflicts=0,
         duplicates=0,
@@ -1232,7 +1239,8 @@ def test_migration_report_formulas() -> None:
     assert accuracy["exact_correctness_among_answered"] == 1.0
     assert accuracy["precision"] == 1.0
     assert accuracy["recall"] == pytest.approx(15 / 24)
-    assert integrity["provenance_completeness"] is True
+    assert integrity["provenance_completeness"] == pytest.approx(1.0)
+    assert integrity["fully_traced_answered"] == 15
     incomplete = build_migration_report(
         family="opening_count",
         descriptor=_descriptor(),
@@ -1247,7 +1255,8 @@ def test_migration_report_formulas() -> None:
         gate_decision="HOLD",
         gate_reasons=("missing_provenance",),
     )
-    assert incomplete.payload["integrity"]["provenance_completeness"] is False
+    assert incomplete.payload["integrity"]["provenance_completeness"] == pytest.approx(13 / 15)
+    assert incomplete.payload["integrity"]["fully_traced_answered"] == 13
     assert incomplete.payload["integrity"]["missing_provenance"] == 2
     assert incomplete.payload["benchmark_integrity"]["holdout_status"] == "NOT_RUN"
 

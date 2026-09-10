@@ -14,7 +14,7 @@ from pb_migration_family_router import RoutingResult
 from pb_migration_provider_envelope import ProviderDescriptor, fingerprint_payload
 
 
-REPORT_SCHEMA_VERSION = "1.0.1"
+REPORT_SCHEMA_VERSION = "1.0.2"
 
 
 class MigrationReportError(ValueError):
@@ -32,8 +32,16 @@ def _reject_or_compute(
     denominator: int,
     label: str,
 ) -> Optional[float]:
+    """Compute a derived metric from counts. Ratios without numerators are rejected.
+
+    Zero-denominator policy: the computed ratio is ``0.0``.
+    """
+    if claimed is None and numerator is None:
+        return None
     if numerator is None:
-        return claimed
+        raise MigrationReportError(
+            f"{label} requires count evidence; numerator is missing"
+        )
     computed = _ratio(int(numerator), denominator)
     if claimed is not None and not math.isclose(float(claimed), computed, rel_tol=0.0, abs_tol=1e-12):
         raise MigrationReportError(
@@ -124,6 +132,15 @@ def build_migration_report(
         denominator=eligible,
         label="recall_among_eligible",
     )
+    if missing_provenance < 0:
+        raise MigrationReportError("missing_provenance cannot be negative")
+    if missing_provenance > len(answered):
+        raise MigrationReportError(
+            "missing_provenance exceeds answered count; provenance completeness is undefined"
+        )
+    fully_traced_answered = len(answered) - missing_provenance
+    # Zero answered → 0.0; abstentions are not in this denominator.
+    provenance_completeness = _ratio(fully_traced_answered, len(answered))
     agree = sum(1 for row in comparisons if row.status == "agree")
     legacy_only = sum(1 for row in comparisons if row.status == "legacy_only")
     new_only = sum(1 for row in comparisons if row.status == "new_only")
@@ -170,12 +187,16 @@ def build_migration_report(
             "exact_denominator": "answered",
             "precision_denominator": "answered",
             "recall_denominator": "evaluation_eligible_includes_abstentions",
+            "zero_denominator_policy": "ratio_is_0.0",
             "not_canonical_benchmark_accuracy": True,
         },
         "integrity": {
             "conflicts": conflicts,
             "duplicates": duplicates,
-            "provenance_completeness": missing_provenance == 0,
+            "provenance_completeness": provenance_completeness,
+            "fully_traced_answered": fully_traced_answered,
+            "answered": len(answered),
+            "provenance_denominator": "answered",
             "missing_provenance": missing_provenance,
             "deterministic_replay": True,
         },
