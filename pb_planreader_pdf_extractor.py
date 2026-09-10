@@ -1412,6 +1412,40 @@ class GenericPlanReaderExtractor:
             pass
 
         # ------------------------------------------------------------------
+        # Sole unlabeled floor-plan door swing (native quarter-circle cubic)
+        # ------------------------------------------------------------------
+        try:
+            from pb_plan_door_swing_geometry import (
+                extract_sole_plan_door_swing,
+                should_emit_sole_unlabeled_door,
+            )
+
+            dwg_pages = [
+                p for p in target_pages
+                if 0 <= p < len(doc) and self.is_drawing_page(doc[p].get_text("text"), doc[p])
+            ]
+            sole = extract_sole_plan_door_swing(doc, dwg_pages)
+            if (
+                sole is not None
+                and should_emit_sole_unlabeled_door(sole.count, pred_dict.keys())
+            ):
+                pred_dict["D1"] = ExtractedPrediction(
+                    tag="D1",
+                    trade_type="doors",
+                    description="Door complete (1 No from unique plan door swing)",
+                    quantity=1.0,
+                    unit="NO",
+                    confidence=0.84,
+                    source_page=sole.source_page,
+                    metadata={
+                        "derivation": "plan_door_swing_cubic",
+                        "raw_evidence_ref": sole.evidence_text,
+                    },
+                )
+        except Exception:
+            pass
+
+        # ------------------------------------------------------------------
         # Generic Drawing Vision / OCR Evidence Layer (Phase F.10)
         # ------------------------------------------------------------------
         try:
