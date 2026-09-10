@@ -192,38 +192,69 @@ def bind_multi_source_provenance(
             pages = [int(p) for p in raw_pages]
         elif meta.get("source_page") not in (None, ""):
             pages = [int(meta["source_page"])]
-    if pages:
-        _assert_pages_owned(context, pages)
-    viewports = [str(item).strip() for item in contributing_viewports if item]
+    viewports: list[Optional[str]] = []
+    for item in contributing_viewports:
+        text = str(item).strip() if item is not None else ""
+        viewports.append(text or None)
+    evidence_ids = list(quantity.evidence_ids)
+    if viewports and pages and len(viewports) != len(pages):
+        raise SourceTraceBindingError(
+            "contributor viewport/page cardinality mismatch; extra viewport is not owned"
+        )
+    if viewports and not pages:
+        raise SourceTraceBindingError("extra viewport beyond pages is not owned")
+    if evidence_ids and pages and len(evidence_ids) != len(pages):
+        raise SourceTraceBindingError(
+            "contributor evidence/page cardinality mismatch; extra evidence is not owned"
+        )
+    if evidence_ids and viewports and len(evidence_ids) != len(viewports):
+        raise SourceTraceBindingError("contributor evidence/viewport cardinality mismatch")
+
     primary_page = pages[0] if pages else None
     primary_viewport = viewports[0] if viewports else None
-    for index, page in enumerate(pages):
-        viewport = viewports[index] if index < len(viewports) else primary_viewport
-        _assert_viewport_owned(context, viewport, page)
-    primary = bind_commercial_source_trace(
-        quantity,
-        context,
-        primary_page=primary_page,
-        primary_viewport_id=primary_viewport,
-    )
     contributors: list[ContributingSource] = []
-    evidence_ids = list(quantity.evidence_ids)
-    for index, evidence_id in enumerate(evidence_ids):
+    if evidence_ids:
+        sequence = evidence_ids
+    elif pages:
+        sequence = [quantity.quantity_id] * len(pages)
+    else:
+        sequence = []
+    for index, evidence_id in enumerate(sequence):
+        page = pages[index] if index < len(pages) else None
+        viewport = viewports[index] if index < len(viewports) else None
+        if page is None:
+            raise SourceTraceBindingError(
+                "extra evidence contributor carries an unvalidated page/viewport"
+            )
         contributors.append(
             ContributingSource(
-                page=pages[index] if index < len(pages) else primary_page,
-                viewport_id=viewports[index] if index < len(viewports) else primary_viewport,
+                page=int(page),
+                viewport_id=viewport,
                 evidence_id=evidence_id,
             )
         )
     if not contributors and primary_page is not None:
         contributors.append(
             ContributingSource(
-                page=primary_page,
+                page=int(primary_page),
                 viewport_id=primary_viewport,
                 evidence_id=quantity.quantity_id,
             )
         )
+
+    _reject_untrusted_document_claim(context, quantity)
+    for item in contributors:
+        if item.page is None:
+            raise SourceTraceBindingError("contributor is missing a trusted page")
+        _assert_pages_owned(context, (int(item.page),))
+        _assert_viewport_owned(context, item.viewport_id, item.page)
+
+    primary = bind_commercial_source_trace(
+        quantity,
+        context,
+        primary_page=primary_page,
+        primary_viewport_id=primary_viewport,
+    )
     fingerprint = fingerprint_payload(
         {
             "primary_page": primary.source_page,
