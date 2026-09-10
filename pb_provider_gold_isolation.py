@@ -135,6 +135,34 @@ def _forbidden_path_reason(path: Path) -> Optional[str]:
     return None
 
 
+def _containing_package(current_module: str) -> str:
+    """Package that executes relative imports for ``current_module``.
+
+    ``pkg/__init__.py`` is the package itself, so ``from .helper`` resolves to
+    ``pkg.helper``.  A module ``pkg.mod`` resolves ``from .helper`` to
+    ``pkg.helper``.
+    """
+    path = _module_path(current_module)
+    if path is not None and path.name == "__init__.py":
+        return current_module
+    if "." not in current_module:
+        return ""
+    return current_module.rsplit(".", 1)[0]
+
+
+def _resolve_relative_import(current_module: str, level: int, module: Optional[str]) -> str:
+    package = _containing_package(current_module)
+    parts = [part for part in package.split(".") if part]
+    up = max(int(level) - 1, 0)
+    if up > len(parts):
+        parent = ""
+    elif up:
+        parent = ".".join(parts[:-up])
+    else:
+        parent = package
+    return ".".join(part for part in (parent, module or "") if part)
+
+
 def _imported_names(source: str, *, current_module: str) -> tuple[str, ...]:
     tree = ast.parse(source)
     names: list[str] = []
@@ -143,12 +171,7 @@ def _imported_names(source: str, *, current_module: str) -> tuple[str, ...]:
             names.extend(alias.name for alias in node.names if alias.name)
         elif isinstance(node, ast.ImportFrom):
             if node.level and current_module:
-                base_parts = current_module.split(".")
-                if node.level > len(base_parts):
-                    parent = ""
-                else:
-                    parent = ".".join(base_parts[: -node.level] if node.level else base_parts)
-                imported = ".".join(part for part in (parent, node.module or "") if part)
+                imported = _resolve_relative_import(current_module, node.level, node.module)
             else:
                 imported = node.module or ""
             if imported:
@@ -173,8 +196,18 @@ def _imported_names(source: str, *, current_module: str) -> tuple[str, ...]:
     return tuple(dict.fromkeys(names))
 
 
+def _ancestor_packages(module_name: str) -> tuple[str, ...]:
+    """Parent packages whose ``__init__.py`` runs when ``module_name`` is imported."""
+    parts = [part for part in str(module_name or "").split(".") if part]
+    return tuple(".".join(parts[:index]) for index in range(1, len(parts)))
+
+
 def walk_local_import_graph(root_module: str) -> tuple[tuple[str, ...], tuple[ImportGraphFinding, ...]]:
-    """Return (visited modules, forbidden findings) for one local root."""
+    """Return (visited modules, forbidden findings) for one local root.
+
+    Parent package ``__init__.py`` files are part of the closure: importing
+    ``pkg.leaf`` executes ``pkg/__init__.py``.
+    """
     visited: list[str] = []
     findings: list[ImportGraphFinding] = []
     stack: list[tuple[str, tuple[str, ...]]] = [(root_module, (root_module,))]
@@ -186,6 +219,9 @@ def walk_local_import_graph(root_module: str) -> tuple[tuple[str, ...], tuple[Im
             continue
         seen.add(module)
         visited.append(module)
+        for parent in _ancestor_packages(module):
+            if parent not in seen and _module_path(parent) is not None:
+                stack.append((parent, via + (parent,)))
         reason = _forbidden_reason(module)
         if reason:
             findings.append(ImportGraphFinding(module=module, via=via, reason=reason))
