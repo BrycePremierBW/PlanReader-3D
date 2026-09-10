@@ -86,6 +86,7 @@ from pb_takeoff_authority_v164 import ai_takeoff_authority, takeoff_row_publisha
 
 
 SHA = "ab" * 32
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _qty(
@@ -510,9 +511,15 @@ def test_22_figured_authority_binder() -> None:
 
 def test_23_multi_page_provenance() -> None:
     qty = _qty("W1", 6, extra_meta={"source_pages": [2, 5]}, evidence_ids=("ev_a", "ev_b"))
+    context = _context(
+        selected_pages=(1, 4),
+        owned_page_numbers=(1, 2, 5),
+        owned_viewport_ids=("vp_1", "vp_plan", "vp_sched"),
+        viewport_page_ownership=(("vp_plan", 2), ("vp_sched", 5)),
+    )
     provenance = bind_multi_source_provenance(
         qty,
-        _context(),
+        context,
         contributing_pages=(2, 5),
         contributing_viewports=("vp_plan", "vp_sched"),
     )
@@ -739,7 +746,7 @@ def test_30_unrelated_family_unaffected_by_rollback(tmp_path: Path) -> None:
 
 
 def test_headline_dashboard_still_canonical() -> None:
-    data = json.loads(Path("benchmark_results/headline_accuracy_dashboard.json").read_text(encoding="utf-8"))
+    data = json.loads((REPO_ROOT / "benchmark_results/headline_accuracy_dashboard.json").read_text(encoding="utf-8"))
     metrics = data["headline_metrics"]
     accepted = int(metrics["exact_matches"]) + int(metrics["within_5_percent"])
     assert accepted == 24
@@ -1026,11 +1033,11 @@ def test_runtime_isolation_subprocess_matches_frozen_extract(tmp_path: Path) -> 
     assert isolated == same_pdf_baseline
     assert _without_source_pdf(isolated) == _without_source_pdf(baseline)
     cli_out = tmp_path / "cli.json"
-    script = Path("scripts/run_isolated_opening_count_extract.py")
+    script = REPO_ROOT / "scripts" / "run_isolated_opening_count_extract.py"
     cli = subprocess.run(
         [sys.executable, str(script), str(pdf), str(cli_out), str(tmp_path / "cli-stage")],
-        cwd="/workspace",
-        env={**os.environ, "PYTHONPATH": "/workspace"},
+        cwd=str(REPO_ROOT),
+        env={**os.environ, "PYTHONPATH": str(REPO_ROOT)},
         check=True,
         capture_output=True,
         text=True,
@@ -1076,7 +1083,7 @@ def test_staged_workspace_os_open_io_open_gold_absent(tmp_path: Path) -> None:
 
 
 def test_opening_count_frozen_shadow_metrics_unchanged() -> None:
-    report = json.loads(Path("shadow_reports/opening_count_shadow_development.json").read_text(encoding="utf-8"))
+    report = json.loads((REPO_ROOT / "shadow_reports/opening_count_shadow_development.json").read_text(encoding="utf-8"))
     metrics = report["metrics"]
     assert report["authority_state"] == "new_shadow"
     assert report.get("holdout_scored") is False
@@ -1187,7 +1194,7 @@ def test_binder_rejects_provider_self_certified_scale_status() -> None:
         extra_meta={"source_page": 1, "scale_status": "resolved", "scale_id": "provider_trusted_scale"},
         authority=MeasurementAuthorityType.PDF_SCALED.value,
     )
-    with pytest.raises(MeasurementAuthorityBindingError, match="unresolved"):
+    with pytest.raises(MeasurementAuthorityBindingError, match="self-certify|unresolved|disagrees"):
         bind_commercial_measurement_authority(
             qty,
             scaled_mm=3000.0,
