@@ -3,9 +3,11 @@ from __future__ import annotations
 import ast
 import inspect
 from pathlib import Path
+import shutil
 
 import fitz
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
+import pytest
 
 from pb_shadow_opening_count_eval import EligibleOpeningItem, score_frozen_quantities
 from pb_shadow_opening_count_provider import ShadowOpeningCountProvider
@@ -370,6 +372,9 @@ def test_repeated_headers_and_irrelevant_adjacent_table(tmp_path: Path) -> None:
 
 
 def test_raster_opening_schedule_is_read_and_raster_boq_is_rejected(tmp_path: Path) -> None:
+    pytest.importorskip("pytesseract")
+    if shutil.which("tesseract") is None:
+        pytest.skip("optional Tesseract OCR runtime is not installed")
     opening = _raster_page_pdf(
         tmp_path,
         "raster_opening.pdf",
