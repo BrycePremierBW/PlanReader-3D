@@ -339,12 +339,16 @@ def extract_marks_from_page(page: fitz.Page, page_num: int) -> List[PlanInstance
             )
         )
 
-    try:
-        pix = page.get_pixmap(dpi=240)
-        rgb = _rgb_from_pixmap(pix)
-    except Exception:
-        rgb = None
-    if rgb is not None:
+    # Two render scales recover marks that a single downsample drops
+    # (a neighbouring W-3 / W-1 pair is a typical example).
+    for dpi in (200, 240):
+        try:
+            pix = page.get_pixmap(dpi=dpi)
+            rgb = _rgb_from_pixmap(pix)
+        except Exception:
+            rgb = None
+        if rgb is None:
+            continue
         scale_x = page.rect.width / max(rgb.shape[1], 1)
         scale_y = page.rect.height / max(rgb.shape[0], 1)
         hits.extend(
