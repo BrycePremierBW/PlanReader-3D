@@ -178,14 +178,19 @@ def _validate_ownership(
     return tuple(reasons)
 
 
-def _scale_binding_reasons(
+def validate_scale_binding(
     *,
     context: ProviderContext,
     viewport: ViewportEvidence,
     page_no: int,
     calibration: ScaleCalibration,
 ) -> tuple[tuple[str, ...], ScaleCalibration, str]:
-    """Validate freshness, FIRM authority and page/viewport ownership for scale."""
+    """Validate one existing page-scale calibration for one owned viewport.
+
+    Returns ``(blocking_reasons, freshness_checked_calibration, fingerprint)``.
+    This is the shared scale-binding seam for all measurement families; it does
+    not create or resolve a new scale authority.
+    """
     fresh = check_calibration_freshness(calibration, context.current_revision_id)
     scale_fp = scale_calibration_fingerprint(fresh)
     reasons: list[str] = []
@@ -199,8 +204,6 @@ def _scale_binding_reasons(
     if not math.isfinite(float(fresh.px_per_m)) or fresh.px_per_m <= 0.0:
         reasons.append("invalid_scale_factor")
 
-    # A page-level scale can safely bind an unlabelled viewport only where the
-    # control-plane ownership map has at most one viewport for that page.
     same_page_viewports = {
         str(vp)
         for vp, owned_page in context.viewport_page_ownership
@@ -286,20 +289,15 @@ def resolve_linear_measurement_input(
         trusted_scaled_mm: Optional[float] = None
         scale_fp: Optional[str] = None
         if scaled_length_page_units is not None and scale_calibration is not None:
-            if (
-                math.isfinite(float(scaled_length_page_units))
-                and float(scaled_length_page_units) > 0.0
-            ):
-                scale_reasons, fresh, candidate_fp = _scale_binding_reasons(
+            if math.isfinite(float(scaled_length_page_units)) and float(scaled_length_page_units) > 0.0:
+                scale_reasons, fresh, candidate_fp = validate_scale_binding(
                     context=context,
                     viewport=viewport,
                     page_no=page_no,
                     calibration=scale_calibration,
                 )
                 if not scale_reasons:
-                    trusted_scaled_mm = (
-                        float(scaled_length_page_units) / fresh.px_per_m * 1000.0
-                    )
+                    trusted_scaled_mm = float(scaled_length_page_units) / fresh.px_per_m * 1000.0
                     scale_fp = candidate_fp
 
         result = resolve_measurement_authority(
@@ -307,17 +305,13 @@ def resolve_linear_measurement_input(
             figured_text=figured_evidence.raw_text or None,
             figured_mm=(
                 figured_evidence.normalized_value
-                if figured_evidence.normalized_value is not None
-                and not figured_evidence.raw_text
+                if figured_evidence.normalized_value is not None and not figured_evidence.raw_text
                 else None
             ),
             scale_reliable=trusted_scaled_mm is not None,
             max_delta_ratio=max_delta_ratio,
         )
-        if (
-            result.authority_status != AuthorityStatus.FIRM.value
-            or result.value_m is None
-        ):
+        if result.authority_status != AuthorityStatus.FIRM.value or result.value_m is None:
             return _blocked(
                 context=context,
                 document=document,
@@ -358,10 +352,7 @@ def resolve_linear_measurement_input(
             reasons=("no_authoritative_measurement_input",),
             source_type=MeasurementAuthorityType.PDF_SCALED.value,
         )
-    if (
-        not math.isfinite(float(scaled_length_page_units))
-        or float(scaled_length_page_units) <= 0.0
-    ):
+    if not math.isfinite(float(scaled_length_page_units)) or float(scaled_length_page_units) <= 0.0:
         return _blocked(
             context=context,
             document=document,
@@ -373,7 +364,7 @@ def resolve_linear_measurement_input(
             source_type=MeasurementAuthorityType.PDF_SCALED.value,
         )
 
-    scale_reasons, fresh, scale_fp = _scale_binding_reasons(
+    scale_reasons, fresh, scale_fp = validate_scale_binding(
         context=context,
         viewport=viewport,
         page_no=page_no,
