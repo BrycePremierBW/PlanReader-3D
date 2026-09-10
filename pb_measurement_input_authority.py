@@ -194,8 +194,6 @@ def _scale_binding_reasons(
         reasons.append("scale_page_mismatch")
     if fresh.revision_id is None:
         reasons.append("scale_revision_unbound")
-    elif context.current_revision_id is None or fresh.revision_id != context.current_revision_id:
-        reasons.append("scale_revision_mismatch")
     if measurement_authority_for_page_scale(fresh) != AuthorityStatus.FIRM.value:
         reasons.append("scale_not_firm")
     if not math.isfinite(float(fresh.px_per_m)) or fresh.px_per_m <= 0.0:
