@@ -1,14 +1,14 @@
 """Fail CI when benchmark-defining files and production code change together.
 
 Development benchmarks may need legitimate administrative corrections, but those
-corrections must be reviewed independently from extractor/evaluation changes.  A
+corrections must be reviewed independently from extractor/evaluation changes. A
 single PR must not be able to observe a score outcome, change production logic,
 and then alter benchmark-defining metadata to sanitize that outcome.
 
-The guard deliberately allows tests and documentation to accompany a benchmark
-maintenance change.  It also allows production-only changes.  It rejects only
-the risky mixed class: benchmark-defining public-tender metadata + production
-code in one change set.
+The guard deliberately allows tests, documentation, download/provenance metadata,
+and generated benchmark outputs to accompany a benchmark maintenance change. It
+also allows production-only changes. It rejects only the risky mixed class:
+benchmark-defining assets + production code in one change set.
 """
 from __future__ import annotations
 
@@ -17,12 +17,15 @@ import sys
 from typing import Iterable, Sequence
 
 
-_BENCHMARK_ROOT = "benchmarks/public_tenders/"
+_BENCHMARK_ROOTS = (
+    "benchmarks/public_tenders/",
+    "benchmarks/plans/",
+)
 _BENCHMARK_DEFINING_FILENAMES = {
     "source_manifest.json",
     "benchmark_rules.json",
-    "expected_project.json",
-    "expected_boq_summary.json",
+    "tolerances.json",
+    "manifest.json",
 }
 _PRODUCTION_SUFFIXES = {".py", ".js", ".html"}
 _PRODUCTION_EXCLUDED_PREFIXES = (
@@ -31,16 +34,22 @@ _PRODUCTION_EXCLUDED_PREFIXES = (
 )
 
 
+def _normalize(path: str) -> str:
+    return path.replace("\\", "/").lstrip("./")
+
+
 def is_benchmark_defining_file(path: str) -> bool:
-    normalized = path.replace("\\", "/").lstrip("./")
-    return (
-        normalized.startswith(_BENCHMARK_ROOT)
-        and PurePosixPath(normalized).name in _BENCHMARK_DEFINING_FILENAMES
-    )
+    normalized = _normalize(path)
+    if not normalized.startswith(_BENCHMARK_ROOTS):
+        return False
+    name = PurePosixPath(normalized).name
+    if name.startswith("expected_") and name.endswith(".json"):
+        return True
+    return name in _BENCHMARK_DEFINING_FILENAMES
 
 
 def is_production_code_file(path: str) -> bool:
-    normalized = path.replace("\\", "/").lstrip("./")
+    normalized = _normalize(path)
     if normalized.startswith(_PRODUCTION_EXCLUDED_PREFIXES):
         return False
     return PurePosixPath(normalized).suffix.lower() in _PRODUCTION_SUFFIXES
@@ -61,7 +70,7 @@ def check_paths(changed_paths: Sequence[str]) -> None:
 
     details = [
         "Benchmark-integrity separation gate failed.",
-        "Benchmark-defining public-tender files and production code must be changed in separate PRs.",
+        "Benchmark-defining files and production code must be changed in separate PRs.",
         "This prevents post-score benchmark/gold edits from being bundled with extractor or evaluation changes.",
         "",
         "Benchmark-defining files:",
