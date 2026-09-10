@@ -149,14 +149,18 @@ class MockJobHubBridge:
         self.job_status = "Draft"
         self.fail_on = fail_on or set()
         self.next_pkg_id = 501
+        # Serialize access to the shared in-memory package state so this mock
+        # models the transaction-level exclusion provided by real JobHub DBs.
+        self._transaction_lock = threading.RLock()
 
     @contextmanager
     def connect(self):
-        conn = sqlite3.connect(":memory:", check_same_thread=False)
-        try:
-            yield conn
-        finally:
-            conn.close()
+        with self._transaction_lock:
+            conn = sqlite3.connect(":memory:", check_same_thread=False)
+            try:
+                yield conn
+            finally:
+                conn.close()
 
     def execute(self, sql, params=(), returning=False, conn=None):
         str_params = str(params)
