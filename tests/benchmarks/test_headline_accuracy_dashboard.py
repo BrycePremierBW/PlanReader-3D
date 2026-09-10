@@ -183,12 +183,14 @@ def test_save_dashboard_generates_files(tmp_path: Path):
     assert m_path.stat().st_size > 0
 
 
-def test_cli_all_execution():
+def test_cli_all_execution(tmp_path: Path):
     """Executing CLI with --all flag exits code 0 and prints headline dashboard."""
     cmd = [
         sys.executable,
         str(REPO_ROOT / "pb_benchmark_accuracy_engine.py"),
         "--all",
+        "--output-dir",
+        str(tmp_path),
     ]
     res = subprocess.run(cmd, capture_output=True, text=True, cwd=str(REPO_ROOT))
     assert res.returncode == 0
