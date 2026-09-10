@@ -212,6 +212,17 @@ def merge_collinear_degree_two_nodes(
     def incident_edge_indices(node_idx: int) -> List[int]:
         return [i for i, e in enumerate(edges) if e.get("_removed") is not True and (e["a"] == node_idx or e["b"] == node_idx)]
 
+    # Tracks, for an edge id that later gets superseded by a further merge
+    # (a chain of 3+ collinear fragments merges pairwise, so an intermediate
+    # merged edge can itself be merged again), what it was replaced by. A
+    # node whose "merged_into_edge" was set to an id that is later
+    # superseded must have that reference redirected to the FINAL surviving
+    # edge id at the end -- otherwise it points to an edge this function
+    # itself already removed from its own output, which is not resolvable
+    # by any caller. See docs/planreader_wall_room_topology_spec.md's W4
+    # notes for the real 3-fragment case this was found against.
+    redirect: Dict[str, str] = {}
+
     changed = True
     safety_cap = len(edges) + 1
     iterations = 0
@@ -265,6 +276,8 @@ def merge_collinear_degree_two_nodes(
             edges.append(merged_edge)
             node["degree"] = 0
             node["merged_into_edge"] = merged_id
+            redirect[str(e1.get("id", e1_idx))] = merged_id
+            redirect[str(e2.get("id", e2_idx))] = merged_id
             changed = True
             break  # restart the node scan against the updated edge list
 
@@ -276,6 +289,18 @@ def merge_collinear_degree_two_nodes(
     for node in nodes:
         if not node.get("merged_into_edge"):
             node["degree"] = len(adjacency[node["id"]])
+            continue
+        # Resolve through the redirect chain to the final surviving edge --
+        # a node's own recorded target may itself have been superseded by a
+        # later merge round (see the "redirect" comment above).
+        target = node["merged_into_edge"]
+        seen_targets = {target}
+        while target in redirect:
+            target = redirect[target]
+            if target in seen_targets:
+                break  # defensive: never spin on a malformed redirect cycle
+            seen_targets.add(target)
+        node["merged_into_edge"] = target
 
     return {"nodes": nodes, "edges": final_edges, "adjacency": adjacency}
 
