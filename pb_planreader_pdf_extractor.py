@@ -128,6 +128,21 @@ class GenericPlanReaderExtractor:
         )
 
     @staticmethod
+    def _has_dpc_specification(page_text: str) -> bool:
+        """Return whether drawing text explicitly specifies a damp-proof course.
+
+        "DPC" is a standard architectural abbreviation commonly written with
+        or without periods/spacing ("D.P.C.", "d.p.c", "DPC", "d p c") --
+        mirrors ``_has_dpm_specification``'s flexible-punctuation pattern so
+        this does not depend on any one drawing's particular formatting.
+        """
+        normalized = re.sub(r"\s+", " ", page_text.lower())
+        return bool(
+            re.search(r"\bd\s*\.?\s*p\s*\.?\s*c\s*\.?\b", normalized)
+            or re.search(r"\bdamp[\s-]*proof\s+course\b", normalized)
+        )
+
+    @staticmethod
     def _has_surface_bed_specification(page_text: str) -> bool:
         """Return whether drawing text explicitly specifies a substructure
         surface bed / ground-bearing slab -- the same floor area that
@@ -377,7 +392,7 @@ class GenericPlanReaderExtractor:
                     global_roof_pitch_deg = float(pm.group(1))
 
             # Material specification mentions
-            if "d.p.c" in norm_pg or "damp proof course" in norm_pg:
+            if self._has_dpc_specification(norm_pg):
                 global_has_dpc = True
             if self._has_dpm_specification(norm_pg):
                 global_has_dpm = True
