@@ -463,7 +463,25 @@ class RoomCandidate:
     scale_source: str
     calibration_confidence: float
     has_voids: bool
-    status: str
+
+    # --- provenance fields added in W5: the original W1 schema had no
+    # document/viewport ownership at all (only the bare `source_page` int
+    # inherited from RoomFace) -- added here, matching the same
+    # document_id/viewport_id convention already established on
+    # WallCandidate/JunctionCandidate, rather than leaving RoomCandidate as
+    # the one contract in this family without it. ---
+    document_id: str
+    viewport_id: str
+
+    # `status` also migrated from a bare, RoomFace-inherited free-text string
+    # ("Measured"/"Provisional measured"/"Review") to the one
+    # EvidenceResolutionStatus enum already used by WallCandidate and
+    # JunctionCandidate -- RoomCandidate was new and unused anywhere else
+    # before W5, so this is a safe, one-time consistency correction, not a
+    # breaking change to any real consumer; a second status vocabulary
+    # living on just this one contract would itself have been the kind of
+    # duplicate system this whole workstream is instructed to avoid.
+    status: EvidenceResolutionStatus
 
     # --- new topology fields ---
     bounding_wall_candidate_ids: Tuple[str, ...] = ()
@@ -474,10 +492,17 @@ class RoomCandidate:
     area_conflict: Optional[Mapping[str, float]] = None
     level_id: Optional[str] = None
     building_component_id: str = ""
+    # Added in W5 alongside the provenance/status fields above -- RoomCandidate
+    # was the only contract in this family with no reason-code channel at all,
+    # despite the whole workstream's convention of never leaving a
+    # non-CANDIDATE status unexplained.
+    reason_codes: Tuple[str, ...] = ()
     schema_version: str = TOPOLOGY_CONTRACT_SCHEMA_VERSION
 
     def __post_init__(self) -> None:
         _require_nonempty(self.room_ref, "room_ref")
+        _require_nonempty(self.document_id, "document_id")
+        _require_nonempty(self.viewport_id, "viewport_id")
         object.__setattr__(
             self,
             "polygon_pdf_pts",
@@ -518,10 +543,17 @@ class RoomCandidate:
                 value = float(self.area_conflict[key])
                 if not math.isfinite(value) or value < 0.0:
                     raise ValueError(f"area_conflict['{key}'] must be finite and non-negative")
+        if self.status == EvidenceResolutionStatus.CONFLICT:
+            raise ValueError(
+                "RoomCandidate has no conflict_evidence_ids field yet -- CONFLICT status is "
+                "not usable until a future stage adds one; use ABSTAINED for now"
+            )
 
     def to_dict(self) -> dict:
         return {
             "room_ref": self.room_ref,
+            "document_id": self.document_id,
+            "viewport_id": self.viewport_id,
             "label": self.label,
             "polygon_pdf_pts": [list(p) for p in self.polygon_pdf_pts],
             "polygon_m": [list(p) for p in self.polygon_m] if self.polygon_m else None,
@@ -535,7 +567,7 @@ class RoomCandidate:
             "scale_source": self.scale_source,
             "calibration_confidence": self.calibration_confidence,
             "has_voids": self.has_voids,
-            "status": self.status,
+            "status": self.status.value,
             "bounding_wall_candidate_ids": list(self.bounding_wall_candidate_ids),
             "adjacent_room_refs": list(self.adjacent_room_refs),
             "opening_refs": list(self.opening_refs),
@@ -544,6 +576,7 @@ class RoomCandidate:
             "area_conflict": dict(self.area_conflict) if self.area_conflict else None,
             "level_id": self.level_id,
             "building_component_id": self.building_component_id,
+            "reason_codes": list(self.reason_codes),
             "schema_version": self.schema_version,
         }
 

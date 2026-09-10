@@ -218,6 +218,8 @@ class TestRoomCandidate:
     def _room(self, **overrides) -> RoomCandidate:
         defaults = dict(
             room_ref="R01",
+            document_id="doc_1",
+            viewport_id="vp_1",
             label="Classroom 1",
             polygon_pdf_pts=((0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)),
             polygon_m=None,
@@ -231,7 +233,7 @@ class TestRoomCandidate:
             scale_source="figured_dimension",
             calibration_confidence=0.9,
             has_voids=False,
-            status="Measured",
+            status=EvidenceResolutionStatus.CANDIDATE,
         )
         defaults.update(overrides)
         return RoomCandidate(**defaults)
