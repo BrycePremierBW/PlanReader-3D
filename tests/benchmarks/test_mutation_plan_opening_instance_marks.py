@@ -10,6 +10,7 @@ from pb_plan_opening_instance_marks import (
     PlanInstanceOpeningTotals,
     _assemble,
     _nms,
+    _normalize_mark_token,
     package_documents_casement_windows,
     should_emit_casement_window_total,
 )
@@ -128,6 +129,57 @@ def test_raster_plan_stamps_emit_casement_total_and_mutate(tmp_path: Path) -> No
     assert "W2" not in first
     assert "W3" not in first
     assert "W4" not in first
+
+
+def test_normalize_mark_token_strips_pv_glue() -> None:
+    assert _normalize_mark_token("PVD-2") == "D-2"
+    assert _normalize_mark_token("D-1PV") == "D-1"
+    assert _normalize_mark_token("W-4") == "W-4"
+    assert _normalize_mark_token("PV") is None
+    assert _normalize_mark_token("D") == "D"
+
+
+def test_assemble_accepts_hyphenated_door_glued_to_vent_letters() -> None:
+    parts = [
+        {"t": "PVD-2", "conf": 80, "x": 10, "y": 10, "w": 40, "h": 16},
+    ]
+    normalized = [
+        {**part, "t": _normalize_mark_token(part["t"]) or part["t"]}
+        for part in parts
+    ]
+    marks = _assemble(normalized, origin_x=0, origin_y=0, scale_x=1, scale_y=1, page=1)
+    assert any(mark.tag == "D2" and mark.complete for mark in marks)
+
+
+def test_orange_fill_does_not_erase_dark_door_stamp(tmp_path: Path) -> None:
+    image = Image.new("RGB", (900, 240), "white")
+    draw = ImageDraw.Draw(image)
+    draw.pieslice((40, 40, 200, 200), start=180, end=270, fill=(230, 120, 40))
+    font = _font(28)
+    draw.text((70, 110), "D-2", fill=(20, 20, 20), font=font)
+    draw.text((260, 50), "W-1", fill=(20, 20, 20), font=font)
+    draw.text((400, 50), "W-2", fill=(20, 20, 20), font=font)
+    draw.text((540, 50), "W-3", fill=(20, 20, 20), font=font)
+    raster = tmp_path / "orange_d2.png"
+    image.save(raster)
+    pdf = tmp_path / "orange_d2.pdf"
+    doc = fitz.open()
+    page = doc.new_page(width=842, height=595)
+    page.insert_text((40, 36), "GROUND FLOOR PLAN  SCALE 1:100", fontsize=11)
+    page.insert_text((40, 54), "Steel casement frames with 4mm thick glass.", fontsize=10)
+    page.insert_image(fitz.Rect(40, 90, 520, 250), filename=str(raster))
+    doc.save(pdf)
+    doc.close()
+
+    from pb_plan_opening_instance_marks import extract_marks_from_page
+
+    opened = fitz.open(pdf)
+    marks = extract_marks_from_page(opened[0], 1)
+    opened.close()
+    doors = [mark for mark in marks if mark.trade == "doors"]
+    windows = [mark for mark in marks if mark.trade == "windows"]
+    assert any(mark.tag == "D2" and mark.complete for mark in doors)
+    assert len(windows) >= 3
 
 
 def test_untagged_casement_callouts_still_do_not_mint_identities(tmp_path: Path) -> None:

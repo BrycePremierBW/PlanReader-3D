@@ -1735,6 +1735,23 @@ class GenericPlanReaderExtractor:
             pass
 
         # ------------------------------------------------------------------
+        # Unique door WxH callout → already identified dimensionless D#
+        # ------------------------------------------------------------------
+        try:
+            from pb_opening_callout_dimension_binder import (
+                bind_unique_door_callout_dimensions,
+            )
+
+            dwg_texts = [
+                doc[p].get_text("text") or ""
+                for p in target_pages
+                if 0 <= p < len(doc)
+            ]
+            bind_unique_door_callout_dimensions(list(pred_dict.values()), dwg_texts)
+        except Exception:
+            pass
+
+        # ------------------------------------------------------------------
         # Generic Opening Deduction Pipeline (Phase F.9)
         # ------------------------------------------------------------------
         try:

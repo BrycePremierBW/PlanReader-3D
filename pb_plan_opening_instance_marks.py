@@ -6,7 +6,10 @@ sheets because the labels live in the raster overlay.
 
 This module:
 
-- Isolates dark, non-chromatic ink so hatch and service colour do not OCR.
+- Isolates dark, non-chromatic ink so hatch and service colour do not OCR,
+  then re-reads dark luminance so black/brown stamps on orange door-swings
+  are not deleted with the fill.
+- Accepts hyphenated marks glued to a neighbouring ``PV`` token (``PVD-2``).
 - Accepts only hyphenated marks (``W-1``), so grid letters plus grid numbers
   cannot become ``D1``.
 - Assembles a nearby ``W-`` + digit fragment. A lone ``-N`` is promoted to
@@ -39,6 +42,8 @@ from pb_opening_tag_normalization import normalize_opening_tag
 
 _FULL_RE = re.compile(r"^([WD])-([0-9]{1,2})$")
 _FRAG_RE = re.compile(r"^(?:[WD]|[WD]-|-[0-9]{1,2}|[0-9]{1,2}|-)$")
+_EMBEDDED_RE = re.compile(r"([WD])-([0-9]{1,2})")
+_OCR_WHITELIST = "PVWD-0123456789"
 _CASEMENT_RE = re.compile(
     r"\bcasement\b|\bwindows?\s+complete\b|\bsteel\s+casement\b",
     re.I,
@@ -100,6 +105,34 @@ def _isolate_ink(rgb: np.ndarray, dark: int = 130, sat: int = 32) -> np.ndarray:
     )
 
 
+def _isolate_dark_luma(rgb: np.ndarray, dark: int = 150) -> np.ndarray:
+    """Keep dark pixels even when they sit on chromatic annotation fills.
+
+    Black/brown ``D-2`` stamps are often drawn on orange door-swing arcs.
+    Dropping every chromatic pixel removes the glyph; luminance keeps the
+    letter while still discarding bright orange fill.
+    """
+    red = rgb[:, :, 0].astype(np.float32)
+    green = rgb[:, :, 1].astype(np.float32)
+    blue = rgb[:, :, 2].astype(np.float32)
+    luma = 0.30 * red + 0.59 * green + 0.11 * blue
+    canvas = np.full(red.shape, 255, np.uint8)
+    canvas[luma < dark] = 0
+    return 255 - cv2.morphologyEx(
+        255 - canvas, cv2.MORPH_CLOSE, np.ones((2, 2), np.uint8)
+    )
+
+
+def _normalize_mark_token(token: str) -> Optional[str]:
+    """Return a hyphenated W/D token, including OCR glue such as ``PVD-2``."""
+    if _FULL_RE.fullmatch(token) or _FRAG_RE.fullmatch(token):
+        return token
+    embedded = _EMBEDDED_RE.search(token)
+    if not embedded:
+        return None
+    return f"{embedded.group(1).upper()}-{int(embedded.group(2))}"
+
+
 def _rgb_from_pixmap(pix: fitz.Pixmap) -> Optional[np.ndarray]:
     try:
         if pix.n - pix.alpha > 3:
@@ -114,17 +147,16 @@ def _rgb_from_pixmap(pix: fitz.Pixmap) -> Optional[np.ndarray]:
         return None
 
 
-def _ocr_parts(rgb: np.ndarray, min_conf: float = 20.0) -> List[dict]:
-    ink = _isolate_ink(rgb)
+def _ocr_parts_from_ink(ink: np.ndarray, min_conf: float = 20.0) -> List[dict]:
     data = pytesseract.image_to_data(
         Image.fromarray(ink),
         output_type=pytesseract.Output.DICT,
-        config="--psm 11 -c tessedit_char_whitelist=WD-0123456789",
+        config=f"--psm 11 -c tessedit_char_whitelist={_OCR_WHITELIST}",
     )
     parts: List[dict] = []
     for i, raw in enumerate(data["text"]):
-        token = (raw or "").strip()
-        if not token or not (_FULL_RE.fullmatch(token) or _FRAG_RE.fullmatch(token)):
+        token = _normalize_mark_token((raw or "").strip())
+        if not token:
             continue
         try:
             conf = float(data["conf"][i])
@@ -142,6 +174,13 @@ def _ocr_parts(rgb: np.ndarray, min_conf: float = 20.0) -> List[dict]:
                 "h": float(data["height"][i]),
             }
         )
+    return parts
+
+
+def _ocr_parts(rgb: np.ndarray, min_conf: float = 20.0) -> List[dict]:
+    """OCR dark non-chromatic ink and dark luminance (labels on coloured fills)."""
+    parts = _ocr_parts_from_ink(_isolate_ink(rgb), min_conf=min_conf)
+    parts.extend(_ocr_parts_from_ink(_isolate_dark_luma(rgb), min_conf=min_conf))
     return parts
 
 
