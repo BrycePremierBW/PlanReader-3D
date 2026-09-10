@@ -35,6 +35,8 @@ from pb_migration_provider_envelope import (
     ProviderContext,
     ProviderDescriptor,
     ProviderResult,
+    ProviderResultBindingError,
+    assert_provider_result_binding,
 )
 from pb_provider_gold_isolation import assert_provider_gold_free
 
@@ -190,6 +192,16 @@ class FamilyAuthorityRouter:
         cache_key = (family, context.project_id, context.revision_id or "")
         registration = self.registry.get(family)
         new_ran = False
+        if new_result is not None:
+            if str(new_result.descriptor.family) != str(family):
+                raise FamilyRouterError(
+                    f"provider result family {new_result.descriptor.family!r} "
+                    f"does not match routed family {family!r}"
+                )
+            try:
+                assert_provider_result_binding(new_result, new_result.descriptor, context)
+            except ProviderResultBindingError as exc:
+                raise FamilyRouterError(str(exc)) from exc
         if state == MigrationAuthorityState.LEGACY_AUTHORITATIVE.value:
             execute_new = False
         if registration is not None and execute_new and new_result is not None:
