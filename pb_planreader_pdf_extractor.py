@@ -1372,6 +1372,46 @@ class GenericPlanReaderExtractor:
             pass
 
         # ------------------------------------------------------------------
+        # Plan instance marks (hyphenated W-# / D-# stamps on scanned plans)
+        # ------------------------------------------------------------------
+        try:
+            from pb_plan_opening_instance_marks import (
+                extract_plan_instance_opening_totals,
+                package_documents_casement_windows,
+                should_emit_casement_window_total,
+            )
+
+            dwg_pages = [
+                p for p in target_pages
+                if 0 <= p < len(doc) and self.is_drawing_page(doc[p].get_text("text"), doc[p])
+            ]
+            drawing_texts = [doc[p].get_text("text") or "" for p in dwg_pages]
+            if package_documents_casement_windows(drawing_texts):
+                totals = extract_plan_instance_opening_totals(doc, dwg_pages)
+                if totals is not None and should_emit_casement_window_total(
+                    totals, pred_dict.keys()
+                ):
+                    pred_dict["steel_casement_windows"] = ExtractedPrediction(
+                        tag="steel_casement_windows",
+                        trade_type="windows",
+                        description=(
+                            "Steel casement windows complete "
+                            f"({totals.window_count} No from plan instance marks)"
+                        ),
+                        quantity=float(totals.window_count),
+                        unit="NO",
+                        confidence=0.86,
+                        source_page=totals.source_page,
+                        metadata={
+                            "derivation": "plan_instance_opening_marks",
+                            "window_types": list(totals.window_types),
+                            "raw_evidence_ref": totals.evidence_text,
+                        },
+                    )
+        except Exception:
+            pass
+
+        # ------------------------------------------------------------------
         # Generic Drawing Vision / OCR Evidence Layer (Phase F.10)
         # ------------------------------------------------------------------
         try:
