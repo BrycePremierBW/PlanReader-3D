@@ -60,6 +60,56 @@ def _workspace_record_id(context: ProviderContext) -> int:
     return value
 
 
+def _trusted_pages(context: ProviderContext) -> frozenset[int]:
+    pages = context.trusted_page_numbers()
+    if not pages:
+        raise SourceTraceBindingError(
+            "trusted page ownership is required from control-plane context"
+        )
+    return pages
+
+
+def _assert_pages_owned(context: ProviderContext, pages: Sequence[int]) -> None:
+    trusted = _trusted_pages(context)
+    invented = sorted({int(page) for page in pages if int(page) not in trusted})
+    if invented:
+        raise SourceTraceBindingError(
+            f"page(s) {invented} are not owned by this document/view "
+            f"(trusted={sorted(trusted)})"
+        )
+
+
+def _assert_viewport_owned(
+    context: ProviderContext,
+    viewport: Optional[str],
+    page: Optional[int],
+) -> None:
+    if not viewport:
+        return
+    trusted = context.trusted_viewport_ids()
+    if not trusted:
+        raise SourceTraceBindingError(
+            "trusted viewport ownership is required from control-plane context"
+        )
+    if viewport not in trusted:
+        raise SourceTraceBindingError(
+            f"viewport {viewport!r} is not owned by this document/view"
+        )
+    owned_page = context.page_for_viewport(viewport)
+    if owned_page is not None and page is not None and int(page) != int(owned_page):
+        raise SourceTraceBindingError(
+            f"viewport {viewport!r} is owned by page {owned_page}, not {page}"
+        )
+
+
+def _reject_untrusted_document_claim(context: ProviderContext, quantity: QuantityEvidence) -> None:
+    claimed = str(_meta(quantity).get("document_id") or "").strip()
+    if claimed and claimed != str(context.document_id):
+        raise SourceTraceBindingError(
+            "provider document_id does not match trusted control-plane document ownership"
+        )
+
+
 def bind_commercial_source_trace(
     quantity: QuantityEvidence,
     context: ProviderContext,
@@ -85,12 +135,14 @@ def bind_commercial_source_trace(
         raise SourceTraceBindingError("stale revision: measurement revision is not current")
     if provider_revision and provider_revision != context.current_revision_id:
         raise SourceTraceBindingError("provider revision is stale relative to current revision")
+    _reject_untrusted_document_claim(context, quantity)
 
     page = primary_page
     if page is None:
         page = _optional_int(meta.get("source_page") or meta.get("page"))
     if page is None:
         raise SourceTraceBindingError("source page is required for commercial source trace")
+    _assert_pages_owned(context, (int(page),))
     viewport = (
         primary_viewport_id
         or str(meta.get("viewport_id") or "").strip()
@@ -98,6 +150,7 @@ def bind_commercial_source_trace(
     )
     if not viewport:
         raise SourceTraceBindingError("viewport is required for commercial source trace")
+    _assert_viewport_owned(context, viewport, int(page))
 
     try:
         return CommercialTakeoffSourceTrace(
@@ -139,9 +192,14 @@ def bind_multi_source_provenance(
             pages = [int(p) for p in raw_pages]
         elif meta.get("source_page") not in (None, ""):
             pages = [int(meta["source_page"])]
+    if pages:
+        _assert_pages_owned(context, pages)
+    viewports = [str(item).strip() for item in contributing_viewports if item]
     primary_page = pages[0] if pages else None
-    viewports = list(contributing_viewports)
     primary_viewport = viewports[0] if viewports else None
+    for index, page in enumerate(pages):
+        viewport = viewports[index] if index < len(viewports) else primary_viewport
+        _assert_viewport_owned(context, viewport, page)
     primary = bind_commercial_source_trace(
         quantity,
         context,
