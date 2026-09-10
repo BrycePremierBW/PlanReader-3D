@@ -1446,6 +1446,44 @@ class GenericPlanReaderExtractor:
             pass
 
         # ------------------------------------------------------------------
+        # Interior unlabeled door swings on inverted CAD floor-plan rasters
+        # ------------------------------------------------------------------
+        try:
+            from pb_plan_raster_door_swings import (
+                extract_interior_plan_door_swings,
+                should_emit_interior_door_total,
+            )
+
+            dwg_pages = [
+                p for p in target_pages
+                if 0 <= p < len(doc) and self.is_drawing_page(doc[p].get_text("text"), doc[p])
+            ]
+            interior = extract_interior_plan_door_swings(doc, dwg_pages)
+            if interior is not None and should_emit_interior_door_total(
+                interior.count,
+                interior.radii,
+                pred_dict.keys(),
+            ):
+                pred_dict["D2"] = ExtractedPrediction(
+                    tag="D2",
+                    trade_type="doors",
+                    description=(
+                        "Interior doors complete "
+                        f"({interior.count} No from inverted-CAD door swings)"
+                    ),
+                    quantity=float(interior.count),
+                    unit="NO",
+                    confidence=0.83,
+                    source_page=interior.source_page,
+                    metadata={
+                        "derivation": "plan_raster_interior_door_swings",
+                        "raw_evidence_ref": interior.evidence_text,
+                    },
+                )
+        except Exception:
+            pass
+
+        # ------------------------------------------------------------------
         # Generic Drawing Vision / OCR Evidence Layer (Phase F.10)
         # ------------------------------------------------------------------
         try:
