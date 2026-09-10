@@ -264,6 +264,18 @@ class TopologyRelationshipType(str, Enum):
     INTERSECTS = "intersects"
     BRANCHES_FROM = "branches_from"
 
+    # Added in W6 for room<->wall and room<->room relationships. Reuses this
+    # SAME enum (rather than a second relationship-type vocabulary) because
+    # these are still "deterministic peer relationships" in the same sense
+    # as the five above -- only the SHAPE of the relationship record differs
+    # (see RoomTopologyRelationship below: there is no junction node between
+    # a room and its bounding wall, so TopologyRelationship's required
+    # via_junction_id field genuinely does not fit here).
+    BOUNDED_BY = "bounded_by"
+    BOUNDS = "bounds"
+    ADJACENT_TO = "adjacent_to"
+    SEPARATES = "separates"
+
 
 @dataclass(frozen=True)
 class TopologyRelationship:
@@ -303,6 +315,80 @@ class TopologyRelationship:
             "to_edge_id": self.to_edge_id,
             "relationship_type": self.relationship_type.value,
             "via_junction_id": self.via_junction_id,
+            "confidence": self.confidence,
+            "reason_codes": list(self.reason_codes),
+            "schema_version": self.schema_version,
+        }
+
+
+@dataclass(frozen=True)
+class RoomTopologyRelationship:
+    """One deterministic relationship between a room and a wall, or between
+    two rooms (W6).
+
+    Deliberately a separate, smaller dataclass from ``TopologyRelationship``
+    rather than a forced reuse of that shape: ``TopologyRelationship`` was
+    designed around a physical junction NODE connecting two wall edges
+    (``via_junction_id`` is required there), and no such node exists between
+    a room and its bounding wall, or between two adjacent rooms -- reusing
+    that field here would mean either making it optional (weakening an
+    invariant every existing W3/W4 caller of that dataclass already relies
+    on) or populating it with a meaningless placeholder. The relationship
+    *type vocabulary* (``TopologyRelationshipType``) IS reused unchanged, and
+    every other convention (content-derived id, confidence, reason_codes,
+    schema_version) is identical -- this is the smallest shape genuinely
+    required, not a second relationship system.
+
+    ``subject_ref``/``object_ref`` are room_ref or wall_candidate_id values
+    depending on ``relationship_type``:
+
+    - BOUNDED_BY: subject=room_ref, object=wall_candidate_id
+    - BOUNDS: subject=wall_candidate_id, object=room_ref
+    - ADJACENT_TO: subject=room_ref, object=room_ref (the other room)
+    - SEPARATES: subject=wall_candidate_id, object=room_ref (one of the two
+      rooms on either side); the OTHER room's ref is carried in
+      ``reason_codes`` as ``"other_side_room_ref:<ref>"`` rather than adding
+      a third generic reference field for what is otherwise a binary-shaped
+      relationship record throughout this contract family.
+    """
+
+    relationship_id: str
+    subject_ref: str
+    object_ref: str
+    relationship_type: TopologyRelationshipType
+    confidence: float
+    reason_codes: Tuple[str, ...] = ()
+    schema_version: str = TOPOLOGY_CONTRACT_SCHEMA_VERSION
+
+    _ROOM_WALL_TYPES = frozenset(
+        {
+            TopologyRelationshipType.BOUNDED_BY,
+            TopologyRelationshipType.BOUNDS,
+            TopologyRelationshipType.ADJACENT_TO,
+            TopologyRelationshipType.SEPARATES,
+        }
+    )
+
+    def __post_init__(self) -> None:
+        _require_nonempty(self.relationship_id, "relationship_id")
+        _require_nonempty(self.subject_ref, "subject_ref")
+        _require_nonempty(self.object_ref, "object_ref")
+        _require_confidence(self.confidence)
+        if self.relationship_type not in self._ROOM_WALL_TYPES:
+            raise ValueError(
+                f"RoomTopologyRelationship does not support relationship_type="
+                f"{self.relationship_type.value!r} -- use TopologyRelationship for "
+                "wall-to-wall relationship types"
+            )
+        if self.subject_ref == self.object_ref:
+            raise ValueError("a room/wall cannot relate to itself")
+
+    def to_dict(self) -> dict:
+        return {
+            "relationship_id": self.relationship_id,
+            "subject_ref": self.subject_ref,
+            "object_ref": self.object_ref,
+            "relationship_type": self.relationship_type.value,
             "confidence": self.confidence,
             "reason_codes": list(self.reason_codes),
             "schema_version": self.schema_version,
