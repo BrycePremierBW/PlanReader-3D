@@ -92,6 +92,11 @@ def bind_commercial_measurement_authority(
             raise MeasurementAuthorityBindingError(
                 "scaled geometry requires resolved/verified/calibrated scale; unresolved scale fails closed"
             )
+        if measured != AuthorityStatus.FIRM.value:
+            raise MeasurementAuthorityBindingError(
+                "scaled geometry requires FIRM measurement authority; "
+                f"{measured} fails closed"
+            )
         emitted_status = (
             scale_status.lower()
             if scale_status.lower() in _RESOLVED_SCALE
