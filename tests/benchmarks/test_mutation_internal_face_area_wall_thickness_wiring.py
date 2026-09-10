@@ -5,9 +5,11 @@ pb_dimension_chain_evidence_extractor's corroborated wall-thickness
 resolution into internal_plaster/internal_paint: these must switch from
 the external-wall-area proxy to a genuine internal-face-area derivation
 only when wall-thickness evidence is corroborated, must fall back to the
-unchanged proxy behaviour otherwise, and must never change
-external_key_pointing (a genuinely external-face finish). Every
-dimension value is synthetic and invented for this test.
+unchanged proxy behaviour otherwise, and must never let wall-thickness
+resolution manufacture a separate external key-pointing quantity. A
+keyword-only pointing note has no measured extent and therefore remains
+absent in both paths. Every dimension value is synthetic and invented for
+this test.
 """
 from __future__ import annotations
 
@@ -81,10 +83,10 @@ class TestInternalFaceAreaWiring:
         assert plaster.quantity < wall.quantity
         assert paint.quantity == plaster.quantity
 
-    def test_external_key_pointing_is_never_affected_by_internal_face_area(self, tmp_path: Path) -> None:
+    def test_keyword_only_external_key_pointing_stays_absent_across_internal_face_paths(self, tmp_path: Path) -> None:
         pred_map_without = _extract(tmp_path, with_wall_thickness_evidence=False)
         pred_map_with = _extract(tmp_path, with_wall_thickness_evidence=True)
-        kp_without = pred_map_without["external_key_pointing"]
-        kp_with = pred_map_with["external_key_pointing"]
-        assert kp_without.quantity == kp_with.quantity
-        assert kp_with.quantity == pred_map_with["perimeter_walling"].quantity
+        assert "external_key_pointing" not in pred_map_without
+        assert "external_key_pointing" not in pred_map_with
+        assert "perimeter_walling" in pred_map_without
+        assert "perimeter_walling" in pred_map_with
