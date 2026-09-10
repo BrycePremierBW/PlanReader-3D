@@ -1,29 +1,14 @@
 """tests/benchmarks/test_mutation_wall_derived_finish_confidence.py
 
-Mutation/red-team suite for a generic fail-closed fix in
-GenericPlanReaderExtractor.extract_from_pdf(): internal_plaster,
-internal_paint, and external_key_pointing are keyword-triggered and copy
-their quantity verbatim from perimeter_walling's own (independently,
-geometrically measured) net wall area -- this extractor has no
-wall-thickness evidence, so it cannot compute a true internal-face area
-distinct from the external one. Presenting a blind copy at the same
-confidence as an independent measurement is an honesty failure, not merely
-an accuracy one: it lets a "derived, unverified" quantity masquerade as
-equally authoritative as a directly measured one.
+Mutation/red-team suite for GenericPlanReaderExtractor's wall-derived finish
+behaviour. Internal plaster/paint may still use the explicitly flagged external
+wall-area proxy when no independent internal-face geometry resolves, but an
+external key-pointing keyword alone must not create a measured quantity at all.
+A finish label can establish scope; it cannot establish extent.
 
-Root-cause evidence (from running the real extractor against a real, if
-diagnostic-only, benchmark PDF during development): perimeter_walling,
-internal_plaster, internal_paint, and external_key_pointing all reported
-the identical opening-deducted net wall area at confidence 0.82-0.88, with
-no signal anywhere that three of those four numbers were unverified
-copies rather than independent measurements. This suite locks in the fix:
-confidence is reduced and a `derivation` + `note` metadata pair explains
-why, for every one of the copied predictions -- while the source
-prediction (perimeter_walling) and any independently-measured prediction
-(floor_screed) keep their original confidence untouched. No specific
-project's expected quantities are read or asserted anywhere in this file;
-every dimension used is synthetic and chosen only to exercise this code
-path validly.
+Every dimension used here is synthetic and chosen only to exercise the generic
+production path. No benchmark expected quantity, tolerance, scorer, project ID,
+or project-specific constant is read or asserted by this file.
 """
 from __future__ import annotations
 
@@ -87,23 +72,17 @@ class TestDerivedFinishQuantitiesAreHonestlyLowConfidence:
             assert pred.metadata["derivation"] == "external_wall_area_proxy_no_internal_face_evidence"
             assert "internal face area" in pred.metadata["note"]
 
-    def test_external_key_pointing_is_marked_as_keyword_triggered(self, tmp_path: Path) -> None:
+    def test_external_key_pointing_keyword_without_extent_fails_closed(self, tmp_path: Path) -> None:
         pred_map = _extract(tmp_path, include_plaster=False, include_key_pointing=True)
-        assert "external_key_pointing" in pred_map
-        pred = pred_map["external_key_pointing"]
-        assert pred.confidence == 0.5
-        assert pred.confidence < pred_map["perimeter_walling"].confidence
-        assert pred.metadata["derivation"] == "external_wall_area_copy_keyword_triggered"
+        assert "perimeter_walling" in pred_map
+        assert "external_key_pointing" not in pred_map
 
-    def test_derived_quantities_still_equal_the_source_wall_area_unchanged(self, tmp_path: Path) -> None:
-        # The fix must only ever change confidence/metadata honesty, never
-        # the quantity itself -- benchmark scoring must be byte-for-byte
-        # unaffected by this change.
+    def test_supported_proxy_quantities_still_equal_the_source_wall_area(self, tmp_path: Path) -> None:
         pred_map = _extract(tmp_path, include_plaster=True, include_key_pointing=True)
         wall_qty = pred_map["perimeter_walling"].quantity
         assert pred_map["internal_plaster"].quantity == wall_qty
         assert pred_map["internal_paint"].quantity == wall_qty
-        assert pred_map["external_key_pointing"].quantity == wall_qty
+        assert "external_key_pointing" not in pred_map
 
     def test_neither_finish_keyword_present_emits_no_derived_predictions(self, tmp_path: Path) -> None:
         pred_map = _extract(tmp_path, include_plaster=False, include_key_pointing=False)
