@@ -24,6 +24,8 @@ from pb_migration_claim_arbiter import (
     arbitrate_claims,
     assert_exactly_one_selected,
     claim_key,
+    is_accepted_quantity,
+    is_blocked_quantity,
 )
 from pb_migration_contracts import MigrationAuthorityState, QuantityEvidence
 from pb_migration_decision_ledger import (
@@ -51,6 +53,7 @@ class FamilyRegistration:
     provider_id: str
     provider_module: str
     default_state: str = MigrationAuthorityState.NEW_SHADOW.value
+    trusted_descriptor: Optional[ProviderDescriptor] = None
 
 
 @dataclass(frozen=True)
@@ -146,6 +149,32 @@ class FamilyAuthorityRouter:
         self.invalidate_cache(family)
         return new_state
 
+    def registered_provider_descriptor(self, family: str) -> ProviderDescriptor:
+        """Return the trusted production descriptor from the existing family registry."""
+        registration = self.registry.get(family)
+        if registration is None:
+            raise FamilyRouterError(f"family {family!r} is not registered")
+        if registration.trusted_descriptor is not None:
+            descriptor = registration.trusted_descriptor
+        elif family == "opening_count" and registration.provider_id == "shadow_opening_count":
+            from pb_opening_count_control_adapter import opening_count_descriptor
+
+            descriptor = opening_count_descriptor()
+        else:
+            raise FamilyRouterError(
+                f"registered family {family!r} has no trusted production descriptor"
+            )
+        if str(descriptor.family) != str(family):
+            raise FamilyRouterError(
+                f"registered descriptor family {descriptor.family!r} does not match {family!r}"
+            )
+        if str(descriptor.provider_id) != str(registration.provider_id):
+            raise FamilyRouterError(
+                f"registered descriptor provider {descriptor.provider_id!r} "
+                f"does not match registry {registration.provider_id!r}"
+            )
+        return descriptor
+
     def rollback(
         self,
         family: str,
@@ -193,13 +222,14 @@ class FamilyAuthorityRouter:
         registration = self.registry.get(family)
         new_ran = False
         if new_result is not None:
+            trusted_descriptor = self.registered_provider_descriptor(family)
             if str(new_result.descriptor.family) != str(family):
                 raise FamilyRouterError(
                     f"provider result family {new_result.descriptor.family!r} "
                     f"does not match routed family {family!r}"
                 )
             try:
-                assert_provider_result_binding(new_result, new_result.descriptor, context)
+                assert_provider_result_binding(new_result, trusted_descriptor, context)
             except ProviderResultBindingError as exc:
                 raise FamilyRouterError(str(exc)) from exc
         if state == MigrationAuthorityState.LEGACY_AUTHORITATIVE.value:
@@ -211,12 +241,15 @@ class FamilyAuthorityRouter:
         legacy_by_key = {item.semantic_key: item for item in legacy_quantities if not item.abstained}
         new_by_key: dict[str, QuantityEvidence] = {}
         new_abstentions: dict[str, QuantityEvidence] = {}
+        new_blocked: dict[str, QuantityEvidence] = {}
         for item in new_quantities:
             if item.family != family and item.family not in {"window_count", "door_count", "opening_count"}:
                 continue
             if item.abstained:
                 new_abstentions[item.semantic_key] = item
-            else:
+            elif is_blocked_quantity(item):
+                new_blocked[item.semantic_key] = item
+            elif is_accepted_quantity(item):
                 new_by_key.setdefault(item.semantic_key, item)
 
         arbitration = arbitrate_claims(
@@ -229,12 +262,19 @@ class FamilyAuthorityRouter:
         conflict_keys = {
             item.claim.semantic_key
             for item in arbitration.findings
-            if item.kind in {"duplicate_new_claim", "conflicting_new_claims"}
+            if item.kind
+            in {"duplicate_new_claim", "conflicting_new_claims", "unresolved_mixed_claim"}
         }
 
         eligible_keys = set(eligibility.eligible_semantic_keys) if eligibility is not None else set()
         family_eligible = True if eligibility is None else eligibility.eligible
-        all_keys = sorted(set(legacy_by_key) | set(new_by_key) | set(new_abstentions) | eligible_keys)
+        all_keys = sorted(
+            set(legacy_by_key)
+            | set(new_by_key)
+            | set(new_abstentions)
+            | set(new_blocked)
+            | eligible_keys
+        )
 
         selected: list[SelectedClaim] = []
         for key in all_keys:
@@ -247,6 +287,8 @@ class FamilyAuthorityRouter:
             legacy_row = legacy_by_key.get(key)
             new_row = new_by_key.get(key)
             abstained = new_abstentions.get(key)
+            blocked = new_blocked.get(key)
+            mixed = (new_row is not None and (abstained is not None or blocked is not None))
             claim_eligible = family_eligible and (not eligible_keys or key in eligible_keys)
             selected.append(
                 self._select_one(
@@ -256,7 +298,8 @@ class FamilyAuthorityRouter:
                     legacy_row=legacy_row,
                     new_row=new_row,
                     abstained=abstained,
-                    conflict=key in conflict_keys,
+                    blocked=blocked,
+                    conflict=key in conflict_keys or mixed,
                 )
             )
             self._record_claim(
@@ -293,8 +336,9 @@ class FamilyAuthorityRouter:
         new_row: Optional[QuantityEvidence],
         abstained: Optional[QuantityEvidence],
         conflict: bool,
+        blocked: Optional[QuantityEvidence] = None,
     ) -> SelectedClaim:
-        diagnostic = new_row or abstained
+        diagnostic = new_row or abstained or blocked
         if state in {
             MigrationAuthorityState.LEGACY_AUTHORITATIVE.value,
             MigrationAuthorityState.NEW_SHADOW.value,
@@ -315,6 +359,8 @@ class FamilyAuthorityRouter:
                 return SelectedClaim(claim, "legacy", legacy_row, diagnostic, "unresolved_authority_conflict", ("conflicting_new_claims",))
             if abstained is not None and new_row is None:
                 return SelectedClaim(claim, "legacy", legacy_row, abstained, "new_abstention_fallback", abstained.blocking_reasons)
+            if blocked is not None and new_row is None:
+                return SelectedClaim(claim, "legacy", legacy_row, blocked, "new_blocked_fallback", blocked.blocking_reasons)
             if new_row is not None:
                 return SelectedClaim(claim, "new", new_row, new_row, "", ())
             return SelectedClaim(claim, "legacy", legacy_row, diagnostic, "new_missing_fallback", ())
@@ -337,6 +383,15 @@ class FamilyAuthorityRouter:
                     abstained,
                     "authoritative_abstention_no_legacy_substitution",
                     abstained.blocking_reasons,
+                )
+            if blocked is not None and new_row is None:
+                return SelectedClaim(
+                    claim,
+                    "new_authoritative_abstention",
+                    None,
+                    blocked,
+                    "authoritative_blocked_no_legacy_substitution",
+                    blocked.blocking_reasons,
                 )
             if new_row is not None:
                 return SelectedClaim(claim, "new", new_row, new_row, "", ())

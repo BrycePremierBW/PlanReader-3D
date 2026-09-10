@@ -91,12 +91,13 @@ def _qty(
 
 
 def _descriptor(**overrides) -> ProviderDescriptor:
+    base = opening_count_descriptor()
     payload = dict(
-        provider_id="shadow_opening_count",
-        family="opening_count",
-        provider_version="test",
-        output_schema_version="1.0.0",
-        code_fingerprint="a" * 64,
+        provider_id=base.provider_id,
+        family=base.family,
+        provider_version=base.provider_version,
+        output_schema_version=base.output_schema_version,
+        code_fingerprint=base.code_fingerprint,
     )
     payload.update(overrides)
     return ProviderDescriptor(**payload)
