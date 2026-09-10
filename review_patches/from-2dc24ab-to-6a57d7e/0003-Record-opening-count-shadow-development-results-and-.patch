@@ -1,0 +1,567 @@
+From 062140ddada844e7241b989eecfc76a85bfae4d3 Mon Sep 17 00:00:00 2001
+From: Cursor Agent <cursoragent@cursor.com>
+Date: Wed, 9 Sep 2026 22:53:58 +0000
+Subject: [PATCH 03/10] Record opening-count shadow development results and
+ keep the family in shadow.
+
+Evaluator gold-join happens only after QuantityEvidence is frozen. The
+predeclared gate fails because no development items were answered.
+---
+ pb_shadow_opening_count_eval.py               |  10 +-
+ .../opening_count_shadow_development.json     | 494 ++++++++++++++++++
+ tests/test_shadow_opening_count_eval.py       |  17 +
+ 3 files changed, 519 insertions(+), 2 deletions(-)
+ create mode 100644 shadow_reports/opening_count_shadow_development.json
+
+diff --git a/pb_shadow_opening_count_eval.py b/pb_shadow_opening_count_eval.py
+index 2e4dd46..c3b05e0 100644
+--- a/pb_shadow_opening_count_eval.py
++++ b/pb_shadow_opening_count_eval.py
+@@ -178,8 +178,14 @@ def score_frozen_quantities(
+     recall = (exact_n / eligible_n) if eligible_n else 0.0
+     coverage = (answered_n / eligible_n) if eligible_n else 0.0
+ 
+-    agree = sum(1 for row in comparisons if row.get("status") == "agree")
+-    compared = len(comparisons)
++    opening_comparisons = [
++        row
++        for row in comparisons
++        if _is_opening_identity(str(row.get("semantic_key") or ""))
++        or str(row.get("family") or "") in OPENING_COUNT_FAMILIES
++    ]
++    agree = sum(1 for row in opening_comparisons if row.get("status") == "agree")
++    compared = len(opening_comparisons)
+     by_authority: dict[str, int] = {}
+     by_formula: dict[str, int] = {}
+     for item in answered:
+diff --git a/shadow_reports/opening_count_shadow_development.json b/shadow_reports/opening_count_shadow_development.json
+new file mode 100644
+index 0000000..4eca6ea
+--- /dev/null
++++ b/shadow_reports/opening_count_shadow_development.json
+@@ -0,0 +1,494 @@
++{
++  "authoritative_engine": "legacy",
++  "authority_state": "new_shadow",
++  "family": "opening_count",
++  "gold_joined_after_freeze": true,
++  "holdout_scored": false,
++  "metrics": {
++    "abstained": 0,
++    "accepted_answered_count": 0,
++    "accepted_missing_provenance": 0,
++    "ambiguous_identities": 0,
++    "answered": 0,
++    "by_authority": {},
++    "by_formula": {},
++    "by_project": {
++      "tenders_ke_ghazi_science_lab": {
++        "abstained": 0,
++        "abstained_keys": [],
++        "accepted_answered_count": 0,
++        "accepted_missing_provenance": 0,
++        "ambiguous_identities": 0,
++        "answered": 0,
++        "answered_keys": [],
++        "benchmark_id": "tenders_ke_ghazi_science_lab",
++        "by_authority": {},
++        "by_formula": {},
++        "conflict_not_fail_closed": 0,
++        "conflicts": 0,
++        "coverage": 0.0,
++        "critical_duplicate_counts": 0,
++        "dimension_derived_fake_identities": 0,
++        "duplicate_counts": 0,
++        "duplicate_observations_suppressed": 0,
++        "eligible_keys": [
++          "D1",
++          "D2",
++          "W1"
++        ],
++        "eligible_opening_count_items": 3,
++        "exact_correctness_on_answered_counts": 0.0,
++        "exact_keys": [],
++        "hallucinated_keys": [],
++        "hallucinations": 0,
++        "legacy_new_agreement": {
++          "agree": 0,
++          "compared": 0,
++          "rate": null
++        },
++        "precision_on_answered_identities": 0.0,
++        "recall": 0.0,
++        "source_status": "ok"
++      },
++      "tenders_ke_kstvet_cbc_classroom": {
++        "abstained": 0,
++        "abstained_keys": [],
++        "accepted_answered_count": 0,
++        "accepted_missing_provenance": 0,
++        "ambiguous_identities": 0,
++        "answered": 0,
++        "answered_keys": [],
++        "benchmark_id": "tenders_ke_kstvet_cbc_classroom",
++        "by_authority": {},
++        "by_formula": {},
++        "conflict_not_fail_closed": 0,
++        "conflicts": 0,
++        "coverage": 0.0,
++        "critical_duplicate_counts": 0,
++        "dimension_derived_fake_identities": 0,
++        "duplicate_counts": 0,
++        "duplicate_observations_suppressed": 0,
++        "eligible_keys": [
++          "W1",
++          "W2",
++          "D1"
++        ],
++        "eligible_opening_count_items": 3,
++        "exact_correctness_on_answered_counts": 0.0,
++        "exact_keys": [],
++        "hallucinated_keys": [],
++        "hallucinations": 0,
++        "legacy_new_agreement": {
++          "agree": 0,
++          "compared": 0,
++          "rate": null
++        },
++        "precision_on_answered_identities": 0.0,
++        "recall": 0.0,
++        "source_status": "SOURCE_UNAVAILABLE"
++      },
++      "tenders_ke_lamu_ishakani_ecd_classrooms": {
++        "abstained": 0,
++        "abstained_keys": [],
++        "accepted_answered_count": 0,
++        "accepted_missing_provenance": 0,
++        "ambiguous_identities": 0,
++        "answered": 0,
++        "answered_keys": [],
++        "benchmark_id": "tenders_ke_lamu_ishakani_ecd_classrooms",
++        "by_authority": {},
++        "by_formula": {},
++        "conflict_not_fail_closed": 0,
++        "conflicts": 0,
++        "coverage": 0.0,
++        "critical_duplicate_counts": 0,
++        "dimension_derived_fake_identities": 0,
++        "duplicate_counts": 0,
++        "duplicate_observations_suppressed": 0,
++        "eligible_keys": [
++          "D1"
++        ],
++        "eligible_opening_count_items": 1,
++        "exact_correctness_on_answered_counts": 0.0,
++        "exact_keys": [],
++        "hallucinated_keys": [],
++        "hallucinations": 0,
++        "legacy_new_agreement": {
++          "agree": 0,
++          "compared": 0,
++          "rate": null
++        },
++        "precision_on_answered_identities": 0.0,
++        "recall": 0.0,
++        "source_status": "SOURCE_UNAVAILABLE"
++      },
++      "tenders_ke_murera_science_lab": {
++        "abstained": 0,
++        "abstained_keys": [],
++        "accepted_answered_count": 0,
++        "accepted_missing_provenance": 0,
++        "ambiguous_identities": 0,
++        "answered": 0,
++        "answered_keys": [],
++        "benchmark_id": "tenders_ke_murera_science_lab",
++        "by_authority": {},
++        "by_formula": {},
++        "conflict_not_fail_closed": 0,
++        "conflicts": 0,
++        "coverage": 0.0,
++        "critical_duplicate_counts": 0,
++        "dimension_derived_fake_identities": 0,
++        "duplicate_counts": 0,
++        "duplicate_observations_suppressed": 0,
++        "eligible_keys": [
++          "steel_casement_windows",
++          "doors_complete"
++        ],
++        "eligible_opening_count_items": 2,
++        "exact_correctness_on_answered_counts": 0.0,
++        "exact_keys": [],
++        "hallucinated_keys": [],
++        "hallucinations": 0,
++        "legacy_new_agreement": {
++          "agree": 0,
++          "compared": 0,
++          "rate": null
++        },
++        "precision_on_answered_identities": 0.0,
++        "recall": 0.0,
++        "source_status": "SOURCE_UNAVAILABLE"
++      },
++      "tenders_ke_umma_hostels": {
++        "abstained": 0,
++        "abstained_keys": [],
++        "accepted_answered_count": 0,
++        "accepted_missing_provenance": 0,
++        "ambiguous_identities": 0,
++        "answered": 0,
++        "answered_keys": [],
++        "benchmark_id": "tenders_ke_umma_hostels",
++        "by_authority": {},
++        "by_formula": {},
++        "conflict_not_fail_closed": 0,
++        "conflicts": 0,
++        "coverage": 0.0,
++        "critical_duplicate_counts": 0,
++        "dimension_derived_fake_identities": 0,
++        "duplicate_counts": 0,
++        "duplicate_observations_suppressed": 0,
++        "eligible_keys": [
++          "WD1",
++          "WD2",
++          "WD3",
++          "D1",
++          "D2",
++          "D3",
++          "D4",
++          "D5",
++          "D6",
++          "D7",
++          "D8",
++          "D9",
++          "D10",
++          "D11",
++          "D12"
++        ],
++        "eligible_opening_count_items": 15,
++        "exact_correctness_on_answered_counts": 0.0,
++        "exact_keys": [],
++        "hallucinated_keys": [],
++        "hallucinations": 0,
++        "legacy_new_agreement": {
++          "agree": 0,
++          "compared": 0,
++          "rate": null
++        },
++        "precision_on_answered_identities": 0.0,
++        "recall": 0.0,
++        "source_status": "SOURCE_UNAVAILABLE"
++      }
++    },
++    "conflict_not_fail_closed": 0,
++    "conflicts": 0,
++    "coverage": 0.0,
++    "critical_duplicate_counts": 0,
++    "dimension_derived_fake_identities": 0,
++    "duplicate_counts": 0,
++    "eligible_opening_count_items": 24,
++    "exact_correctness_on_answered_counts": 0.0,
++    "hallucinations": 0,
++    "legacy_new_agreement": {
++      "agree": 0,
++      "compared": 0,
++      "rate": null
++    },
++    "precision_on_answered_identities": 0.0,
++    "recall": 0.0
++  },
++  "migration_gate": {
++    "authority_recommendation": "remain_new_shadow",
++    "checks": {
++      "complete_provenance_on_accepted": true,
++      "conflicts_fail_closed_or_review": true,
++      "exact_correctness_on_answered_counts": false,
++      "precision_on_answered_identities": false,
++      "zero_critical_duplicate_counts": true,
++      "zero_dimension_derived_fake_identities": true
++    },
++    "coverage_is_not_a_gate_input": true,
++    "decision": "FAIL",
++    "gate": {
++      "conflicts_must_fail_closed_or_review": true,
++      "max_critical_duplicate_counts": 0,
++      "max_dimension_derived_fake_identities": 0,
++      "min_exact_correctness_on_answered_counts": 0.99,
++      "min_precision_on_answered_identities": 0.99,
++      "require_complete_provenance_on_accepted": true
++    }
++  },
++  "projects": [
++    {
++      "benchmark_id": "tenders_ke_kstvet_cbc_classroom",
++      "frozen_quantities": [],
++      "metrics": {
++        "abstained": 0,
++        "abstained_keys": [],
++        "accepted_answered_count": 0,
++        "accepted_missing_provenance": 0,
++        "ambiguous_identities": 0,
++        "answered": 0,
++        "answered_keys": [],
++        "benchmark_id": "tenders_ke_kstvet_cbc_classroom",
++        "by_authority": {},
++        "by_formula": {},
++        "conflict_not_fail_closed": 0,
++        "conflicts": 0,
++        "coverage": 0.0,
++        "critical_duplicate_counts": 0,
++        "dimension_derived_fake_identities": 0,
++        "duplicate_counts": 0,
++        "duplicate_observations_suppressed": 0,
++        "eligible_keys": [
++          "W1",
++          "W2",
++          "D1"
++        ],
++        "eligible_opening_count_items": 3,
++        "exact_correctness_on_answered_counts": 0.0,
++        "exact_keys": [],
++        "hallucinated_keys": [],
++        "hallucinations": 0,
++        "legacy_new_agreement": {
++          "agree": 0,
++          "compared": 0,
++          "rate": null
++        },
++        "precision_on_answered_identities": 0.0,
++        "recall": 0.0,
++        "source_status": "SOURCE_UNAVAILABLE"
++      },
++      "source_status": "SOURCE_UNAVAILABLE"
++    },
++    {
++      "benchmark_id": "tenders_ke_murera_science_lab",
++      "frozen_quantities": [],
++      "metrics": {
++        "abstained": 0,
++        "abstained_keys": [],
++        "accepted_answered_count": 0,
++        "accepted_missing_provenance": 0,
++        "ambiguous_identities": 0,
++        "answered": 0,
++        "answered_keys": [],
++        "benchmark_id": "tenders_ke_murera_science_lab",
++        "by_authority": {},
++        "by_formula": {},
++        "conflict_not_fail_closed": 0,
++        "conflicts": 0,
++        "coverage": 0.0,
++        "critical_duplicate_counts": 0,
++        "dimension_derived_fake_identities": 0,
++        "duplicate_counts": 0,
++        "duplicate_observations_suppressed": 0,
++        "eligible_keys": [
++          "steel_casement_windows",
++          "doors_complete"
++        ],
++        "eligible_opening_count_items": 2,
++        "exact_correctness_on_answered_counts": 0.0,
++        "exact_keys": [],
++        "hallucinated_keys": [],
++        "hallucinations": 0,
++        "legacy_new_agreement": {
++          "agree": 0,
++          "compared": 0,
++          "rate": null
++        },
++        "precision_on_answered_identities": 0.0,
++        "recall": 0.0,
++        "source_status": "SOURCE_UNAVAILABLE"
++      },
++      "source_status": "SOURCE_UNAVAILABLE"
++    },
++    {
++      "benchmark_id": "tenders_ke_ghazi_science_lab",
++      "canonical_openings": [],
++      "diagnostics": {
++        "authoritative": false,
++        "authority_state": "new_shadow",
++        "engine_id": "shadow_opening_count",
++        "engine_version": "1.0.0",
++        "families": [
++          "door_count",
++          "opening_count",
++          "window_count"
++        ],
++        "gold_consulted": false,
++        "pages_considered": [
++          166
++        ],
++        "type_count_is_not_physical_reconstruction": true
++      },
++      "entity_evidence": [],
++      "frozen_quantities": [],
++      "metrics": {
++        "abstained": 0,
++        "abstained_keys": [],
++        "accepted_answered_count": 0,
++        "accepted_missing_provenance": 0,
++        "ambiguous_identities": 0,
++        "answered": 0,
++        "answered_keys": [],
++        "benchmark_id": "tenders_ke_ghazi_science_lab",
++        "by_authority": {},
++        "by_formula": {},
++        "conflict_not_fail_closed": 0,
++        "conflicts": 0,
++        "coverage": 0.0,
++        "critical_duplicate_counts": 0,
++        "dimension_derived_fake_identities": 0,
++        "duplicate_counts": 0,
++        "duplicate_observations_suppressed": 0,
++        "eligible_keys": [
++          "D1",
++          "D2",
++          "W1"
++        ],
++        "eligible_opening_count_items": 3,
++        "exact_correctness_on_answered_counts": 0.0,
++        "exact_keys": [],
++        "hallucinated_keys": [],
++        "hallucinations": 0,
++        "legacy_new_agreement": {
++          "agree": 0,
++          "compared": 0,
++          "rate": null
++        },
++        "precision_on_answered_identities": 0.0,
++        "recall": 0.0,
++        "source_status": "ok"
++      },
++      "pages": [
++        166
++      ],
++      "shadow_result_id": "shadow_run_f2873a71cdebf19c9e47",
++      "source_pdf": "/workspace/benchmarks/sources/1739211305954-tender-document-for-construction-of-science-laboratory-at-ghazi-primary-school.pdf",
++      "source_status": "ok"
++    },
++    {
++      "benchmark_id": "tenders_ke_umma_hostels",
++      "frozen_quantities": [],
++      "metrics": {
++        "abstained": 0,
++        "abstained_keys": [],
++        "accepted_answered_count": 0,
++        "accepted_missing_provenance": 0,
++        "ambiguous_identities": 0,
++        "answered": 0,
++        "answered_keys": [],
++        "benchmark_id": "tenders_ke_umma_hostels",
++        "by_authority": {},
++        "by_formula": {},
++        "conflict_not_fail_closed": 0,
++        "conflicts": 0,
++        "coverage": 0.0,
++        "critical_duplicate_counts": 0,
++        "dimension_derived_fake_identities": 0,
++        "duplicate_counts": 0,
++        "duplicate_observations_suppressed": 0,
++        "eligible_keys": [
++          "WD1",
++          "WD2",
++          "WD3",
++          "D1",
++          "D2",
++          "D3",
++          "D4",
++          "D5",
++          "D6",
++          "D7",
++          "D8",
++          "D9",
++          "D10",
++          "D11",
++          "D12"
++        ],
++        "eligible_opening_count_items": 15,
++        "exact_correctness_on_answered_counts": 0.0,
++        "exact_keys": [],
++        "hallucinated_keys": [],
++        "hallucinations": 0,
++        "legacy_new_agreement": {
++          "agree": 0,
++          "compared": 0,
++          "rate": null
++        },
++        "precision_on_answered_identities": 0.0,
++        "recall": 0.0,
++        "source_status": "SOURCE_UNAVAILABLE"
++      },
++      "source_status": "SOURCE_UNAVAILABLE"
++    },
++    {
++      "benchmark_id": "tenders_ke_lamu_ishakani_ecd_classrooms",
++      "frozen_quantities": [],
++      "metrics": {
++        "abstained": 0,
++        "abstained_keys": [],
++        "accepted_answered_count": 0,
++        "accepted_missing_provenance": 0,
++        "ambiguous_identities": 0,
++        "answered": 0,
++        "answered_keys": [],
++        "benchmark_id": "tenders_ke_lamu_ishakani_ecd_classrooms",
++        "by_authority": {},
++        "by_formula": {},
++        "conflict_not_fail_closed": 0,
++        "conflicts": 0,
++        "coverage": 0.0,
++        "critical_duplicate_counts": 0,
++        "dimension_derived_fake_identities": 0,
++        "duplicate_counts": 0,
++        "duplicate_observations_suppressed": 0,
++        "eligible_keys": [
++          "D1"
++        ],
++        "eligible_opening_count_items": 1,
++        "exact_correctness_on_answered_counts": 0.0,
++        "exact_keys": [],
++        "hallucinated_keys": [],
++        "hallucinations": 0,
++        "legacy_new_agreement": {
++          "agree": 0,
++          "compared": 0,
++          "rate": null
++        },
++        "precision_on_answered_identities": 0.0,
++        "recall": 0.0,
++        "source_status": "SOURCE_UNAVAILABLE"
++      },
++      "source_status": "SOURCE_UNAVAILABLE"
++    }
++  ],
++  "recommendation": "remain_new_shadow"
++}
+diff --git a/tests/test_shadow_opening_count_eval.py b/tests/test_shadow_opening_count_eval.py
+index ee95d03..9852988 100644
+--- a/tests/test_shadow_opening_count_eval.py
++++ b/tests/test_shadow_opening_count_eval.py
+@@ -48,6 +48,23 @@ def test_evaluator_scores_frozen_outputs_without_reextracting() -> None:
+     assert "W99" in metrics["hallucinated_keys"]
+ 
+ 
++def test_legacy_new_agreement_ignores_non_opening_legacy_keys() -> None:
++    eligible = (
++        EligibleOpeningItem("demo", "I1", "W1", 6.0, "NO", "Window W1", "schedule_extractable"),
++    )
++    metrics = score_frozen_quantities(
++        benchmark_id="demo",
++        frozen_quantities=(),
++        eligible=eligible,
++        comparisons=(
++            {"semantic_key": "perimeter_walling", "family": "walls", "status": "legacy_only"},
++            {"semantic_key": "W1", "family": "window_count", "status": "legacy_only"},
++        ),
++    )
++    assert metrics["legacy_new_agreement"]["compared"] == 1
++    assert metrics["legacy_new_agreement"]["agree"] == 0
++
++
+ def test_gate_is_applied_to_aggregated_metrics_without_changing_thresholds() -> None:
+     rows = [
+         {
+-- 
+2.43.0
+

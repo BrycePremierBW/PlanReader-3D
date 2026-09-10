@@ -1,0 +1,58 @@
+From 059da4d0329f5c0a7de96b3de1dfb27df49fdbcc Mon Sep 17 00:00:00 2001
+From: Cursor Agent <cursoragent@cursor.com>
+Date: Wed, 9 Sep 2026 22:53:19 +0000
+Subject: [PATCH 02/10] Keep complete schedule quantities when weaker rows
+ repeat a mark.
+
+Do not let a missing-count column observation overwrite an explicit
+type total, and count same-block plan tags by word location.
+---
+ pb_shadow_opening_count_provider.py | 21 +++++++--------------
+ 1 file changed, 7 insertions(+), 14 deletions(-)
+
+diff --git a/pb_shadow_opening_count_provider.py b/pb_shadow_opening_count_provider.py
+index 3fb2e2b..1afcff8 100644
+--- a/pb_shadow_opening_count_provider.py
++++ b/pb_shadow_opening_count_provider.py
+@@ -323,6 +323,9 @@ class ShadowOpeningCountProvider:
+                             }
+                         )
+                         continue
++                    if existing.scheduled_quantity is not None and row.quantity is None:
++                        duplicate_holder[0] += 1
++                        continue
+                     if (
+                         existing.scheduled_quantity == row.quantity
+                         and (existing.dimensions == row.dimensions or not row.dimensions or not existing.dimensions)
+@@ -700,24 +703,14 @@ class ShadowOpeningCountProvider:
+         duplicate_holder: list[int],
+     ) -> None:
+         words = page.get_text("words") or []
+-        blocks: dict[int, list[Any]] = {}
+         for word in words:
+-            blocks.setdefault(int(word[5]), []).append(word)
+-        for block_words in blocks.values():
+-            if not block_words:
+-                continue
+-            text = " ".join(str(w[4]) for w in sorted(block_words, key=lambda item: (item[6], item[7])))
+-            bbox = (
+-                min(w[0] for w in block_words),
+-                min(w[1] for w in block_words),
+-                max(w[2] for w in block_words),
+-                max(w[3] for w in block_words),
+-            )
+-            if (page_number, _round_bbox(bbox)) in schedule_bboxes:
+-                continue
++            text = str(word[4])
+             tags = find_explicit_opening_tags(text)
+             if not tags:
+                 continue
++            bbox = (float(word[0]), float(word[1]), float(word[2]), float(word[3]))
++            if (page_number, _round_bbox(bbox)) in schedule_bboxes:
++                continue
+             view_type, _view_id = _classify_page_view(page, page_number, bbox, viewports)
+             if view_type == DrawingViewType.SCHEDULE.value:
+                 continue
+-- 
+2.43.0
+

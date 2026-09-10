@@ -102,6 +102,8 @@ The new engine must first operate in shadow. Its result is compared to the legac
 
 The shadow comparison contract deliberately has no expected/gold field. Development benchmark expected quantities may be joined only by the evaluator after legacy and new outputs have been frozen.
 
+The first quantity-family shadow provider (door/window opening counts) is frozen at `NEW_SHADOW`. See `docs/shadow_opening_count_provider_contract.md`. Do not activate `NEW_SELECTIVE` or `NEW_AUTHORITATIVE` from the passed development gate alone.
+
 ## Anti-leakage boundary
 
 Production evidence/graph/quantity code must not depend on benchmark IDs, expected BOQ quantities, benchmark item mappings, benchmark-result artifacts, or holdout gold.

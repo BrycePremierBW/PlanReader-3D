@@ -1,0 +1,2489 @@
+From 6a57d7ed2cba341711d7a2344725d08400e24673 Mon Sep 17 00:00:00 2001
+From: Cursor Agent <cursoragent@cursor.com>
+Date: Wed, 9 Sep 2026 23:58:50 +0000
+Subject: [PATCH 10/10] Harden the migration control plane on current main
+ without promotion.
+
+Rebase onto W3 main, reuse the canonical M5 takeoff adapter instead of a
+forked commercial projection, complete gold-isolation import-shape proofs,
+add Python-layer runtime gold denial, lock production vs evaluation
+eligibility, and make selection/state/audit writes transactional.
+Opening-count extraction and the 24/61 headline stay unchanged.
+---
+ pb_migration_decision_ledger.py               | 188 ++++-
+ pb_migration_eligibility.py                   | 183 +++++
+ pb_migration_gold_join_boundary.py            | 123 ++++
+ pb_migration_measurement_authority_binder.py  | 102 ++-
+ pb_migration_provider_envelope.py             |   2 +
+ pb_migration_report.py                        |   3 +
+ pb_migration_source_trace_binder.py           |  94 ++-
+ pb_opening_count_control_adapter.py           |  31 +-
+ pb_provider_gold_isolation.py                 |  12 +
+ pb_provider_runtime_isolation.py              | 124 ++++
+ pb_quantity_commercial_adapter.py             | 684 +-----------------
+ scripts/run_isolated_opening_count_extract.py |  45 ++
+ .../alias_dirty_provider.py                   |   6 +
+ .../class_dirty_provider.py                   |  11 +
+ .../migration_isolation/clean_cycle_a.py      |   5 +
+ .../migration_isolation/clean_cycle_b.py      |   5 +
+ tests/fixtures/migration_isolation/cycle_a.py |   5 +
+ tests/fixtures/migration_isolation/cycle_b.py |   6 +
+ .../dunder_import_dirty_provider.py           |   5 +
+ .../migration_isolation/fn_dirty_provider.py  |  10 +
+ .../importlib_dirty_provider.py               |   7 +
+ .../pkg_init_dirty/__init__.py                |   6 +
+ .../migration_isolation/relpkg/__init__.py    |   1 +
+ .../migration_isolation/relpkg/helper.py      |   5 +
+ .../migration_isolation/relpkg/provider.py    |   6 +
+ tests/test_migration_control_plane.py         | 342 ++++++++-
+ 26 files changed, 1193 insertions(+), 818 deletions(-)
+ create mode 100644 pb_migration_eligibility.py
+ create mode 100644 pb_migration_gold_join_boundary.py
+ create mode 100644 pb_provider_runtime_isolation.py
+ create mode 100644 scripts/run_isolated_opening_count_extract.py
+ create mode 100644 tests/fixtures/migration_isolation/alias_dirty_provider.py
+ create mode 100644 tests/fixtures/migration_isolation/class_dirty_provider.py
+ create mode 100644 tests/fixtures/migration_isolation/clean_cycle_a.py
+ create mode 100644 tests/fixtures/migration_isolation/clean_cycle_b.py
+ create mode 100644 tests/fixtures/migration_isolation/cycle_a.py
+ create mode 100644 tests/fixtures/migration_isolation/cycle_b.py
+ create mode 100644 tests/fixtures/migration_isolation/dunder_import_dirty_provider.py
+ create mode 100644 tests/fixtures/migration_isolation/fn_dirty_provider.py
+ create mode 100644 tests/fixtures/migration_isolation/importlib_dirty_provider.py
+ create mode 100644 tests/fixtures/migration_isolation/pkg_init_dirty/__init__.py
+ create mode 100644 tests/fixtures/migration_isolation/relpkg/__init__.py
+ create mode 100644 tests/fixtures/migration_isolation/relpkg/helper.py
+ create mode 100644 tests/fixtures/migration_isolation/relpkg/provider.py
+
+diff --git a/pb_migration_decision_ledger.py b/pb_migration_decision_ledger.py
+index b6af931..143ce92 100644
+--- a/pb_migration_decision_ledger.py
++++ b/pb_migration_decision_ledger.py
+@@ -62,14 +62,20 @@ def current_commit_sha(repo_root: Optional[Path] = None) -> str:
+     return ref
+ 
+ 
++class LedgerTransactionError(RuntimeError):
++    """Injected or real failure inside an atomic ledger transaction."""
++
++
+ class MigrationDecisionLedger:
+     """Append-only JSONL + SQLite ledger for family routing decisions."""
+ 
+-    def __init__(self, path: Path | str) -> None:
++    def __init__(self, path: Path | str, *, failpoint: Optional[str] = None) -> None:
+         self.path = Path(path)
+         self.path.parent.mkdir(parents=True, exist_ok=True)
+         self.jsonl_path = self.path.with_suffix(".jsonl")
++        self.failpoint = failpoint
+         self._conn = sqlite3.connect(self.path)
++        self._conn.isolation_level = None
+         self._conn.row_factory = sqlite3.Row
+         self._init()
+ 
+@@ -107,56 +113,162 @@ class MigrationDecisionLedger:
+             )
+             """
+         )
+-        self._conn.commit()
++        self._conn.execute(
++            """
++            CREATE TABLE IF NOT EXISTS current_selections (
++                family TEXT NOT NULL,
++                project_id TEXT NOT NULL,
++                revision_id TEXT NOT NULL,
++                semantic_claim TEXT NOT NULL,
++                selected_authority TEXT NOT NULL,
++                decision_id INTEGER NOT NULL,
++                PRIMARY KEY (family, project_id, revision_id, semantic_claim)
++            )
++            """
++        )
+ 
+     def close(self) -> None:
+         self._conn.close()
+ 
++    def _maybe_fail(self, name: str) -> None:
++        if self.failpoint == name:
++            raise LedgerTransactionError(f"injected ledger failure at {name}")
++
+     def append(self, record: MigrationDecisionRecord) -> int:
++        """Atomically write audit + current selection + family state, then JSONL."""
+         payload = record.to_dict()
+-        cur = self._conn.execute(
++        try:
++            self._conn.execute("BEGIN")
++            cur = self._conn.execute(
++                """
++                INSERT INTO migration_decisions (
++                    family, provider_id, provider_version, provider_fingerprint,
++                    prior_state, current_state, project_id, revision_id, semantic_claim,
++                    selected_authority, fallback_reason, blocker, decided_at, code_commit,
++                    run_id, extra_json
++                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
++                """,
++                (
++                    record.family,
++                    record.provider_id,
++                    record.provider_version,
++                    record.provider_fingerprint,
++                    record.prior_state,
++                    record.current_state,
++                    record.project_id,
++                    record.revision_id,
++                    record.semantic_claim,
++                    record.selected_authority,
++                    record.fallback_reason,
++                    record.blocker,
++                    record.decided_at,
++                    record.code_commit,
++                    record.run_id,
++                    canonical_contract_json(record.extra),
++                ),
++            )
++            decision_id = int(cur.lastrowid)
++            self._maybe_fail("after_audit_before_state")
++            self._conn.execute(
++                """
++                INSERT INTO family_state (family, current_state, updated_at, last_decision_id)
++                VALUES (?, ?, ?, ?)
++                ON CONFLICT(family) DO UPDATE SET
++                    current_state=excluded.current_state,
++                    updated_at=excluded.updated_at,
++                    last_decision_id=excluded.last_decision_id
++                """,
++                (record.family, record.current_state, record.decided_at, decision_id),
++            )
++            self._maybe_fail("after_state_before_selection")
++            if record.semantic_claim and record.semantic_claim != "*":
++                existing = self.selected_authority_count(
++                    record.family,
++                    record.project_id,
++                    record.revision_id,
++                    record.semantic_claim,
++                )
++                if existing > 1:
++                    raise LedgerTransactionError("current selection already violated exactly-one invariant")
++                self._conn.execute(
++                    """
++                    INSERT INTO current_selections (
++                        family, project_id, revision_id, semantic_claim,
++                        selected_authority, decision_id
++                    ) VALUES (?, ?, ?, ?, ?, ?)
++                    ON CONFLICT(family, project_id, revision_id, semantic_claim) DO UPDATE SET
++                        selected_authority=excluded.selected_authority,
++                        decision_id=excluded.decision_id
++                    """,
++                    (
++                        record.family,
++                        record.project_id,
++                        record.revision_id,
++                        record.semantic_claim,
++                        record.selected_authority,
++                        decision_id,
++                    ),
++                )
++            self._maybe_fail("after_selection_before_commit")
++            self._conn.commit()
++        except Exception:
++            self._conn.rollback()
++            raise
++        with self.jsonl_path.open("a", encoding="utf-8") as handle:
++            handle.write(json.dumps(payload, sort_keys=True) + "\n")
++        return decision_id
++
++    def selected_authority_count(
++        self,
++        family: str,
++        project_id: str,
++        revision_id: str,
++        semantic_claim: str,
++    ) -> int:
++        row = self._conn.execute(
+             """
+-            INSERT INTO migration_decisions (
+-                family, provider_id, provider_version, provider_fingerprint,
+-                prior_state, current_state, project_id, revision_id, semantic_claim,
+-                selected_authority, fallback_reason, blocker, decided_at, code_commit,
+-                run_id, extra_json
+-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
++            SELECT COUNT(*) AS n FROM current_selections
++            WHERE family = ? AND project_id = ? AND revision_id = ? AND semantic_claim = ?
+             """,
+-            (
+-                record.family,
+-                record.provider_id,
+-                record.provider_version,
+-                record.provider_fingerprint,
+-                record.prior_state,
+-                record.current_state,
+-                record.project_id,
+-                record.revision_id,
+-                record.semantic_claim,
+-                record.selected_authority,
+-                record.fallback_reason,
+-                record.blocker,
+-                record.decided_at,
+-                record.code_commit,
+-                record.run_id,
+-                canonical_contract_json(record.extra),
+-            ),
+-        )
++            (family, project_id, revision_id, semantic_claim),
++        ).fetchone()
++        return int(row["n"] if row else 0)
++
++    def current_selected_authority(
++        self,
++        family: str,
++        project_id: str,
++        revision_id: str,
++        semantic_claim: str,
++    ) -> Optional[str]:
++        row = self._conn.execute(
++            """
++            SELECT selected_authority FROM current_selections
++            WHERE family = ? AND project_id = ? AND revision_id = ? AND semantic_claim = ?
++            """,
++            (family, project_id, revision_id, semantic_claim),
++        ).fetchone()
++        return str(row["selected_authority"]) if row else None
++
++    def force_second_selection(
++        self,
++        family: str,
++        project_id: str,
++        revision_id: str,
++        semantic_claim: str,
++        selected_authority: str,
++    ) -> None:
++        """Test helper: attempt to insert a second live selection without replacing."""
+         self._conn.execute(
+             """
+-            INSERT INTO family_state (family, current_state, updated_at, last_decision_id)
+-            VALUES (?, ?, ?, ?)
+-            ON CONFLICT(family) DO UPDATE SET
+-                current_state=excluded.current_state,
+-                updated_at=excluded.updated_at,
+-                last_decision_id=excluded.last_decision_id
++            INSERT INTO current_selections (
++                family, project_id, revision_id, semantic_claim,
++                selected_authority, decision_id
++            ) VALUES (?, ?, ?, ?, ?, -1)
+             """,
+-            (record.family, record.current_state, record.decided_at, cur.lastrowid),
++            (family, project_id, revision_id, semantic_claim, selected_authority),
+         )
+         self._conn.commit()
+-        with self.jsonl_path.open("a", encoding="utf-8") as handle:
+-            handle.write(json.dumps(payload, sort_keys=True) + "\n")
+-        return int(cur.lastrowid)
+ 
+     def family_state(self, family: str, default: str = MigrationAuthorityState.NEW_SHADOW.value) -> str:
+         row = self._conn.execute(
+diff --git a/pb_migration_eligibility.py b/pb_migration_eligibility.py
+new file mode 100644
+index 0000000..b2b00b8
+--- /dev/null
++++ b/pb_migration_eligibility.py
+@@ -0,0 +1,183 @@
++"""Production provider eligibility vs evaluation eligible universe.
++
++These are two different contracts:
++
++PRODUCTION PROVIDER ELIGIBILITY
++    Owned by the control plane / provider adapter.
++    Computed from source, context, and domain rules only.
++    Must be computable BEFORE extract() runs.
++    Must not read gold, mappings, scoring, or holdout.
++    Must not shrink to the keys the provider happened to answer.
++
++EVALUATION ELIGIBLE UNIVERSE
++    Owned by the external evaluator for a named evaluation set.
++    For the frozen opening-count development set the count is 24.
++    Locked before gold join / before answers are inspected.
++    Cannot be rewritten downward after seeing provider outputs.
++
++The 24-item development denominator is an evaluation-universe fact.  It is not
++a production identity list and must not be copied into the provider.
++"""
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import Optional, Sequence
++
++from pb_migration_provider_envelope import EligibilityDecision, ProviderContext, fingerprint_payload
++
++
++OPENING_COUNT_DEVELOPMENT_EVALUATION_ELIGIBLE_COUNT = 24
++OPENING_COUNT_PRODUCTION_IDENTITY_GRAMMAR = r"normalized_opening_tag|WD\d+"
++
++
++class EligibilityContractError(RuntimeError):
++    """Raised when eligibility is mutated from answers or gold."""
++
++
++@dataclass(frozen=True)
++class EvaluationEligibleUniverse:
++    """Locked evaluator-owned eligible set. Independent of provider success."""
++
++    family: str
++    eligible_count: int
++    eligible_keys: tuple[str, ...]
++    source: str
++    fingerprint: str
++    locked: bool = True
++
++    def assert_locked_development_opening_count(self) -> None:
++        if self.family != "opening_count":
++            return
++        if self.source == "development_evaluator" and self.eligible_count != OPENING_COUNT_DEVELOPMENT_EVALUATION_ELIGIBLE_COUNT:
++            raise EligibilityContractError(
++                "opening-count development evaluation universe must remain 24; "
++                f"got {self.eligible_count}"
++            )
++
++    def reject_answer_driven_shrink(self, answered: int) -> None:
++        if not self.locked:
++            raise EligibilityContractError("evaluation eligible universe must be locked")
++        if (
++            self.family == "opening_count"
++            and self.source == "development_evaluator"
++            and answered != self.eligible_count
++            and self.eligible_count != OPENING_COUNT_DEVELOPMENT_EVALUATION_ELIGIBLE_COUNT
++        ):
++            raise EligibilityContractError("development evaluation universe drifted from 24")
++        if self.eligible_count == answered and answered > 0 and self.source == "derived_from_answers":
++            raise EligibilityContractError("evaluation eligible universe was derived from answers")
++
++
++class LockedEvaluationUniverse:
++    """Handle that refuses post-hoc denominator edits after outputs are known."""
++
++    def __init__(self, universe: EvaluationEligibleUniverse) -> None:
++        self._universe = universe
++        universe.assert_locked_development_opening_count()
++
++    @property
++    def universe(self) -> EvaluationEligibleUniverse:
++        return self._universe
++
++    def replace_eligible_count(self, new_count: int) -> None:
++        raise EligibilityContractError(
++            "evaluation eligible universe is locked; evaluator cannot choose a "
++            f"smaller denominator after seeing outputs (attempted {new_count})"
++        )
++
++    def replace_eligible_keys(self, keys: Sequence[str]) -> None:
++        raise EligibilityContractError(
++            "evaluation eligible universe is locked; keys cannot be rewritten from provider output"
++        )
++
++
++def lock_evaluation_universe(
++    *,
++    family: str,
++    eligible_count: int,
++    eligible_keys: Sequence[str] = (),
++    source: str,
++) -> LockedEvaluationUniverse:
++    if eligible_count < 0:
++        raise EligibilityContractError("eligible_count cannot be negative")
++    keys = tuple(str(item) for item in eligible_keys)
++    if keys and len(keys) != eligible_count:
++        raise EligibilityContractError("eligible_keys length must match eligible_count when keys are supplied")
++    payload = {
++        "family": family,
++        "eligible_count": eligible_count,
++        "eligible_keys": list(keys),
++        "source": source,
++    }
++    universe = EvaluationEligibleUniverse(
++        family=family,
++        eligible_count=eligible_count,
++        eligible_keys=keys,
++        source=source,
++        fingerprint=fingerprint_payload(payload),
++        locked=True,
++    )
++    return LockedEvaluationUniverse(universe)
++
++
++def lock_opening_count_development_universe(
++    eligible_keys: Sequence[str] = (),
++) -> LockedEvaluationUniverse:
++    """Lock the frozen development evaluation denominator at 24.
++
++    Keys are optional.  When omitted, only the count is locked.  Keys must never
++    be harvested from provider answers.
++    """
++    if eligible_keys and len(tuple(eligible_keys)) != OPENING_COUNT_DEVELOPMENT_EVALUATION_ELIGIBLE_COUNT:
++        raise EligibilityContractError(
++            "opening-count development universe keys must be 24 when supplied"
++        )
++    return lock_evaluation_universe(
++        family="opening_count",
++        eligible_count=OPENING_COUNT_DEVELOPMENT_EVALUATION_ELIGIBLE_COUNT,
++        eligible_keys=eligible_keys,
++        source="development_evaluator",
++    )
++
++
++def production_opening_count_eligibility(context: ProviderContext) -> EligibilityDecision:
++    """Source/context/domain eligibility. No gold identities. No answered keys."""
++    reasons: list[str] = []
++    eligible = True
++    sha = str(context.source_sha256 or "").strip().lower()
++    if len(sha) != 64 or any(ch not in "0123456789abcdef" for ch in sha):
++        eligible = False
++        reasons.append("missing_or_invalid_source_sha")
++    if not str(context.document_id or "").strip():
++        eligible = False
++        reasons.append("missing_document")
++    if not str(context.project_id or "").strip():
++        eligible = False
++        reasons.append("missing_project")
++    if context.revision_id and context.current_revision_id:
++        if context.revision_id != context.current_revision_id:
++            eligible = False
++            reasons.append("stale_revision")
++    if not reasons:
++        reasons.append("opening_count_domain_context_complete")
++        reasons.append("computed_before_extract")
++    return EligibilityDecision(
++        eligible=eligible,
++        family="opening_count",
++        reasons=tuple(reasons),
++        declared_identity_grammar=OPENING_COUNT_PRODUCTION_IDENTITY_GRAMMAR,
++        eligible_semantic_keys=(),
++    )
++
++
++def eligibility_before_extract(
++    decide,
++    context: ProviderContext,
++) -> EligibilityDecision:
++    """Run a production eligibility function and mark it as pre-extract."""
++    decision = decide(context)
++    if decision.eligible_semantic_keys:
++        raise EligibilityContractError(
++            "production opening-count eligibility must not enumerate gold/answered semantic keys"
++        )
++    return decision
+diff --git a/pb_migration_gold_join_boundary.py b/pb_migration_gold_join_boundary.py
+new file mode 100644
+index 0000000..8ba81ac
+--- /dev/null
++++ b/pb_migration_gold_join_boundary.py
+@@ -0,0 +1,123 @@
++"""Process boundary: extract and freeze before any gold join.
++
++Pipeline:
++
++    source/context
++    -> production eligibility (no gold)
++    -> provider extract
++    -> ProviderResult frozen/fingerprinted
++    -> shadow comparison frozen
++    -> seal (live extract callback discarded)
++    -> ONLY THEN gold/evaluator stage
++
++The evaluator receives a sealed artifact.  It does not receive a provider and
++cannot invoke extract().  A boolean flag is not the boundary; the missing
++callback is.
++"""
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import Any, Optional, Sequence
++
++from pb_gold_free_shadow_runner import compare_shadow_quantities
++from pb_legacy_extractor_adapter import LegacyExtractionResult
++from pb_migration_contracts import QuantityEvidence, ShadowQuantityComparison
++from pb_migration_eligibility import EligibilityDecision
++from pb_migration_provider_envelope import ProviderContext, ProviderResult, fingerprint_payload
++
++
++class GoldJoinBoundaryError(RuntimeError):
++    """Raised when extract is attempted after seal or gold is joined too early."""
++
++
++@dataclass(frozen=True)
++class FrozenProviderOutput:
++    result: ProviderResult
++    quantities: tuple[QuantityEvidence, ...]
++    result_fingerprint: str
++    context_fingerprint: str
++
++
++@dataclass(frozen=True)
++class SealedShadowBundle:
++    frozen: FrozenProviderOutput
++    comparisons: tuple[ShadowQuantityComparison, ...]
++    comparison_fingerprint: str
++    eligibility: EligibilityDecision
++    gold_join_permitted: bool = True
++
++    def extract(self, *args: Any, **kwargs: Any) -> None:
++        raise GoldJoinBoundaryError("provider extract is sealed; gold join cannot re-extract")
++
++
++class GoldJoinEvaluator:
++    """Evaluator-side scorer with no live provider callback."""
++
++    def __init__(self, sealed: SealedShadowBundle) -> None:
++        self._sealed = sealed
++        self._gold_loaded = False
++
++    @property
++    def provider(self) -> None:
++        raise GoldJoinBoundaryError("evaluator has no live provider")
++
++    def extract(self, *args: Any, **kwargs: Any) -> None:
++        raise GoldJoinBoundaryError("evaluator cannot re-extract after gold join")
++
++    def load_gold_and_score(self, gold_payload: Any) -> dict[str, Any]:
++        self._gold_loaded = True
++        frozen = self._sealed.frozen.quantities
++        return {
++            "gold_joined_after_freeze": True,
++            "used_result_fingerprint": self._sealed.frozen.result_fingerprint,
++            "used_quantity_ids": [item.quantity_id for item in frozen],
++            "gold_payload_type": type(gold_payload).__name__,
++            "reextract_possible": False,
++        }
++
++
++class MigrationExtractPipeline:
++    """Owns extract → freeze → compare → seal. Discards the provider at seal."""
++
++    def __init__(self) -> None:
++        self._provider: Any = None
++        self._sealed: Optional[SealedShadowBundle] = None
++
++    def run(
++        self,
++        *,
++        provider: Any,
++        context: ProviderContext,
++        eligibility: EligibilityDecision,
++        legacy_output: Optional[LegacyExtractionResult] = None,
++        legacy_quantities: Sequence[QuantityEvidence] = (),
++    ) -> SealedShadowBundle:
++        if self._sealed is not None:
++            raise GoldJoinBoundaryError("pipeline already sealed")
++        self._provider = provider
++        result = provider.extract(context)
++        if not isinstance(result, ProviderResult):
++            raise TypeError("provider.extract must return ProviderResult")
++        frozen = FrozenProviderOutput(
++            result=result,
++            quantities=tuple(result.quantities),
++            result_fingerprint=result.result_fingerprint,
++            context_fingerprint=result.context_fingerprint,
++        )
++        comparisons: tuple[ShadowQuantityComparison, ...] = ()
++        if legacy_output is not None:
++            comparisons = tuple(compare_shadow_quantities(legacy_output, frozen.quantities))
++        sealed = SealedShadowBundle(
++            frozen=frozen,
++            comparisons=comparisons,
++            comparison_fingerprint=fingerprint_payload([row.to_dict() for row in comparisons]),
++            eligibility=eligibility,
++        )
++        self._provider = None
++        self._sealed = sealed
++        return sealed
++
++    def extract(self, *args: Any, **kwargs: Any) -> None:
++        if self._sealed is not None:
++            raise GoldJoinBoundaryError("pipeline sealed; extract callback discarded")
++        raise GoldJoinBoundaryError("extract is only available inside run() before seal")
+diff --git a/pb_migration_measurement_authority_binder.py b/pb_migration_measurement_authority_binder.py
+index aff6479..2e8d49f 100644
+--- a/pb_migration_measurement_authority_binder.py
++++ b/pb_migration_measurement_authority_binder.py
+@@ -1,12 +1,12 @@
+-"""Shared measurement-authority binder for M5 commercial projection.
++"""Shared measurement-authority binder for canonical M5 projection.
+ 
+ Providers must not independently manufacture figured/scaled/resolved-scale
+ authority.  This binder reuses the existing scale, figured-dimension, and
+-geometry authority modules.  It does not create a second authority ladder.
++geometry authority modules, then constructs the canonical M5
++``CommercialMeasurementAuthority``.  It does not define a second authority type.
+ """
+ from __future__ import annotations
+ 
+-from dataclasses import dataclass
+ from typing import Optional
+ 
+ from pb_figured_dimension_authority import resolve_measurement_authority
+@@ -17,6 +17,7 @@ from pb_page_scale_calibration_authority import (
+     measurement_authority_for_page_scale,
+     unknown_calibration,
+ )
++from pb_quantity_takeoff_adapter import CommercialMeasurementAuthority
+ 
+ 
+ class MeasurementAuthorityBindingError(RuntimeError):
+@@ -30,18 +31,7 @@ UNRELIABLE_SCALE = {
+     ScaleCalibrationStatus.BLOCKED.value,
+ }
+ 
+-
+-@dataclass(frozen=True)
+-class CommercialMeasurementAuthority:
+-    """Projection-facing authority record built only from existing modules."""
+-
+-    source_type: str
+-    authority_status: str
+-    scale_calibration_status: Optional[str]
+-    figured_mm: Optional[float]
+-    scaled_mm: Optional[float]
+-    notes: str
+-    blockers: tuple[str, ...]
++_RESOLVED_SCALE = {"resolved", "verified", "authoritative", "calibrated"}
+ 
+ 
+ def bind_commercial_measurement_authority(
+@@ -51,52 +41,60 @@ def bind_commercial_measurement_authority(
+     figured_mm: Optional[float] = None,
+     scaled_mm: Optional[float] = None,
+     scale_calibration: Optional[ScaleCalibration] = None,
++    figured_dimension_ids: tuple[str, ...] = (),
+ ) -> CommercialMeasurementAuthority:
+-    """Resolve figured-vs-scaled authority with existing shared policy."""
+-    blockers: list[str] = []
+-    calibration = scale_calibration
+-    scale_status = None
+-    scale_reliable = True
+-    if quantity.authority == MeasurementAuthorityType.PDF_SCALED.value or scaled_mm is not None:
++    """Resolve figured-vs-scaled authority with existing shared policy, then emit M5 type."""
++    wants_scaled = quantity.authority == MeasurementAuthorityType.PDF_SCALED.value or scaled_mm is not None
++    if wants_scaled and not figured_text and figured_mm is None:
++        calibration = scale_calibration
+         if calibration is None:
+             calibration = unknown_calibration(page_no=int((quantity.metadata or {}).get("source_page") or 1))
+-        scale_status = calibration.status
++        scale_status = str(calibration.status)
+         measured = measurement_authority_for_page_scale(calibration)
+         if scale_status in UNRELIABLE_SCALE or measured == AuthorityStatus.BLOCKED.value:
+-            scale_reliable = False
+-            blockers.append("unresolved_scale")
+             raise MeasurementAuthorityBindingError(
+                 "scaled geometry requires resolved/verified/calibrated scale; unresolved scale fails closed"
+             )
++        if scale_status.lower() not in _RESOLVED_SCALE:
++            raise MeasurementAuthorityBindingError(
++                "scaled geometry requires resolved/verified/calibrated scale; unresolved scale fails closed"
++            )
++        resolved_scale_id = str((quantity.metadata or {}).get("scale_id") or getattr(calibration, "scale_id", "") or "bound_scale")
++        return CommercialMeasurementAuthority(
++            method="scaled_geometry",
++            resolved_scale_id=resolved_scale_id,
++            scale_status=scale_status.lower() if scale_status.lower() in _RESOLVED_SCALE else "resolved",
++            metadata={
++                "bound_by": "pb_migration_measurement_authority_binder",
++                "canonical_m5_module": "pb_quantity_takeoff_adapter",
++                "existing_resolver": "pb_page_scale_calibration_authority",
++            },
++        )
+ 
+     result = resolve_measurement_authority(
+         scaled_mm=scaled_mm,
+         figured_text=figured_text,
+         figured_mm=figured_mm,
+-        scale_reliable=scale_reliable,
++        scale_reliable=not wants_scaled,
+     )
+     if result.authority_status == AuthorityStatus.BLOCKED.value and not figured_text and figured_mm is None:
+         if quantity.authority == MeasurementAuthorityType.PDF_SCALED.value:
+             raise MeasurementAuthorityBindingError(result.notes)
+ 
+-    source_type = result.source_type or quantity.authority
+-    if quantity.authority == MeasurementAuthorityType.DOCUMENTED_DIMENSION.value:
+-        source_type = MeasurementAuthorityType.DOCUMENTED_DIMENSION.value
+-    if quantity.authority == MeasurementAuthorityType.SCHEDULE_EXTRACTED.value:
+-        source_type = MeasurementAuthorityType.SCHEDULE_EXTRACTED.value
+-
+-    if result.authority_status == AuthorityStatus.BLOCKED.value:
+-        blockers.append(result.notes)
+-
+-    return CommercialMeasurementAuthority(
+-        source_type=source_type,
+-        authority_status=result.authority_status,
+-        scale_calibration_status=scale_status,
+-        figured_mm=result.figured_mm,
+-        scaled_mm=result.scaled_mm,
+-        notes=result.notes,
+-        blockers=tuple(blockers),
+-    )
++    ids = figured_dimension_ids or tuple(quantity.evidence_ids[:1]) or ("figured_bound",)
++    if quantity.authority == MeasurementAuthorityType.DOCUMENTED_DIMENSION.value or figured_text or figured_mm is not None:
++        return CommercialMeasurementAuthority(
++            method="figured_dimension",
++            figured_dimension_ids=ids,
++            metadata={
++                "bound_by": "pb_migration_measurement_authority_binder",
++                "canonical_m5_module": "pb_quantity_takeoff_adapter",
++                "existing_resolver": "pb_figured_dimension_authority",
++                "figured_mm": result.figured_mm,
++                "notes": result.notes,
++            },
++        )
++    return bind_direct_evidence_authority(quantity, source_type=quantity.authority)
+ 
+ 
+ def bind_direct_evidence_authority(
+@@ -107,15 +105,13 @@ def bind_direct_evidence_authority(
+     """Schedule / documented evidence without inventing scaled firmness."""
+     if source_type == MeasurementAuthorityType.PDF_SCALED.value:
+         raise MeasurementAuthorityBindingError("direct evidence binder cannot certify scaled geometry")
+-    status = quantity.status or AuthorityStatus.PROVISIONAL.value
+-    if status == AuthorityStatus.FIRM.value and source_type == MeasurementAuthorityType.AI_DETECTED.value:
+-        status = AuthorityStatus.PROVISIONAL.value
+     return CommercialMeasurementAuthority(
+-        source_type=source_type,
+-        authority_status=status,
+-        scale_calibration_status=None,
+-        figured_mm=None,
+-        scaled_mm=None,
+-        notes="direct evidence authority copied from existing quantity authority; not provider-certified",
+-        blockers=(),
++        method="direct_evidence",
++        metadata={
++            "bound_by": "pb_migration_measurement_authority_binder",
++            "canonical_m5_module": "pb_quantity_takeoff_adapter",
++            "source_type": source_type,
++            "quantity_status": quantity.status,
++            "notes": "direct evidence authority copied from existing quantity authority; not provider-certified",
++        },
+     )
+diff --git a/pb_migration_provider_envelope.py b/pb_migration_provider_envelope.py
+index d3a75e3..75e085e 100644
+--- a/pb_migration_provider_envelope.py
++++ b/pb_migration_provider_envelope.py
+@@ -72,12 +72,14 @@ class ProviderContext:
+     canonical_graph_snapshot_id: Optional[str] = None
+     measurement_authority_snapshot_id: Optional[str] = None
+     source_pdf: Optional[str] = None
++    workspace_record_id: Optional[int] = 1
+ 
+     def fingerprint(self) -> str:
+         return fingerprint_payload(
+             {
+                 "run_id": self.run_id,
+                 "workspace_id": self.workspace_id,
++                "workspace_record_id": self.workspace_record_id,
+                 "project_id": self.project_id,
+                 "document_id": self.document_id,
+                 "source_sha256": self.source_sha256,
+diff --git a/pb_migration_report.py b/pb_migration_report.py
+index f1bd89b..f37f213 100644
+--- a/pb_migration_report.py
++++ b/pb_migration_report.py
+@@ -97,6 +97,9 @@ def build_migration_report(
+             "answered": len(answered),
+             "abstained": len(abstained),
+             "eligible_defined_independently_of_answers": True,
++            "production_eligible_semantic_keys": [],
++            "evaluation_eligible_universe_count": eligible,
++            "evaluation_eligible_source": "development_evaluator" if family == "opening_count" else "caller",
+         },
+         "accuracy": {
+             "coverage": coverage,
+diff --git a/pb_migration_source_trace_binder.py b/pb_migration_source_trace_binder.py
+index c5b5efd..2c648ba 100644
+--- a/pb_migration_source_trace_binder.py
++++ b/pb_migration_source_trace_binder.py
+@@ -1,8 +1,9 @@
+-"""Authoritative source-trace binder for M5 commercial projection.
++"""Authoritative source-trace binder for canonical M5 commercial projection.
+ 
+ Providers supply evidence references.  They must not self-certify project
+-identity, source SHA, or the current revision.  This binder copies those
+-fields from orchestration-owned ProviderContext and fails closed on mismatch.
++identity, source SHA, or the current revision.  This binder constructs
++``pb_quantity_takeoff_adapter.CommercialTakeoffSourceTrace`` from
++orchestration-owned ProviderContext and fails closed on mismatch.
+ """
+ from __future__ import annotations
+ 
+@@ -11,7 +12,7 @@ from typing import Any, Mapping, Optional, Sequence
+ 
+ from pb_migration_contracts import QuantityEvidence, canonical_contract_json
+ from pb_migration_provider_envelope import ProviderContext, fingerprint_payload
+-from pb_quantity_commercial_adapter import CommercialSourceTrace, CommercialTakeoffSourceTrace
++from pb_quantity_takeoff_adapter import CommercialTakeoffSourceTrace
+ 
+ 
+ class SourceTraceBindingError(RuntimeError):
+@@ -46,18 +47,27 @@ def _optional_int(value: Any) -> Optional[int]:
+     return page
+ 
+ 
++def _workspace_record_id(context: ProviderContext) -> int:
++    raw = context.workspace_record_id
++    if raw is None:
++        raise SourceTraceBindingError("authoritative workspace_record_id is required")
++    try:
++        value = int(raw)
++    except (TypeError, ValueError) as exc:
++        raise SourceTraceBindingError("authoritative workspace_record_id must be a positive integer") from exc
++    if value <= 0:
++        raise SourceTraceBindingError("authoritative workspace_record_id must be a positive integer")
++    return value
++
++
+ def bind_commercial_source_trace(
+     quantity: QuantityEvidence,
+     context: ProviderContext,
+     *,
+     primary_page: Optional[int] = None,
+     primary_viewport_id: Optional[str] = None,
+-    dimension_text_id: Optional[str] = None,
+-    scale_id: Optional[str] = None,
+-    scale_calibration_status: Optional[str] = None,
+-    source_type: Optional[str] = None,
+ ) -> CommercialTakeoffSourceTrace:
+-    """Build M5 CommercialTakeoffSourceTrace from authoritative context + evidence refs."""
++    """Build canonical M5 CommercialTakeoffSourceTrace from authoritative context."""
+     meta = _meta(quantity)
+     provider_project = str(meta.get("project_id") or "").strip() or None
+     provider_sha = str(meta.get("source_sha256") or "").strip() or None
+@@ -69,40 +79,48 @@ def bind_commercial_source_trace(
+         )
+     if provider_sha and provider_sha != context.source_sha256:
+         raise SourceTraceBindingError("provider source SHA does not match authoritative document")
+-    if context.revision_id and context.current_revision_id:
+-        if context.revision_id != context.current_revision_id:
+-            raise SourceTraceBindingError("stale revision: measurement revision is not current")
+-    if provider_revision and context.current_revision_id and provider_revision != context.current_revision_id:
++    if not context.revision_id or not context.current_revision_id:
++        raise SourceTraceBindingError("authoritative revision and current revision are required")
++    if context.revision_id != context.current_revision_id:
++        raise SourceTraceBindingError("stale revision: measurement revision is not current")
++    if provider_revision and provider_revision != context.current_revision_id:
+         raise SourceTraceBindingError("provider revision is stale relative to current revision")
+ 
+     page = primary_page
+     if page is None:
+         page = _optional_int(meta.get("source_page") or meta.get("page"))
+-    viewport = primary_viewport_id or str(meta.get("viewport_id") or "") or None
+-    return CommercialSourceTrace(
+-        source_page=page,
+-        source_sheet=str(meta.get("source_sheet") or "") or None,
+-        geometry_ref=str(meta.get("geometry_ref") or "") or None,
+-        scale_id=scale_id or str(meta.get("scale_id") or "") or None,
+-        dimension_text_id=dimension_text_id
+-        or str(meta.get("dimension_text_id") or "")
+-        or (quantity.evidence_ids[0] if quantity.evidence_ids else None),
+-        viewport_id=viewport,
+-        document_id=context.document_id,
+-        page_id=str(meta.get("page_id") or "") or None,
+-        revision_hash=context.current_revision_id,
+-        project_id=context.project_id,
+-        source_sha256=context.source_sha256,
+-        scale_calibration_status=scale_calibration_status
+-        or str(meta.get("scale_calibration_status") or "")
+-        or None,
+-        source_type=source_type or quantity.authority or None,
+-        description=quantity.semantic_key,
+-        metadata={
+-            "bound_by": "pb_migration_source_trace_binder",
+-            "provider_cannot_self_certify": True,
+-        },
++    if page is None:
++        raise SourceTraceBindingError("source page is required for commercial source trace")
++    viewport = (
++        primary_viewport_id
++        or str(meta.get("viewport_id") or "").strip()
++        or (context.owned_viewport_ids[0] if context.owned_viewport_ids else "")
+     )
++    if not viewport:
++        raise SourceTraceBindingError("viewport is required for commercial source trace")
++
++    try:
++        return CommercialTakeoffSourceTrace(
++            workspace_id=_workspace_record_id(context),
++            project_id=context.project_id,
++            document_id=context.document_id,
++            source_sha256=context.source_sha256,
++            source_page=str(page),
++            viewport_id=viewport,
++            revision_id=str(context.revision_id),
++            current_revision_id=str(context.current_revision_id),
++            evidence_ids=tuple(quantity.evidence_ids),
++            canonical_entity_ids=tuple(quantity.input_entity_ids),
++            metadata={
++                "bound_by": "pb_migration_source_trace_binder",
++                "provider_cannot_self_certify": True,
++                "canonical_m5_module": "pb_quantity_takeoff_adapter",
++            },
++        )
++    except Exception as exc:
++        if isinstance(exc, SourceTraceBindingError):
++            raise
++        raise SourceTraceBindingError(str(exc)) from exc
+ 
+ 
+ def bind_multi_source_provenance(
+@@ -145,7 +163,7 @@ def bind_multi_source_provenance(
+             ContributingSource(
+                 page=primary_page,
+                 viewport_id=primary_viewport,
+-                evidence_id=primary.dimension_text_id or quantity.quantity_id,
++                evidence_id=quantity.quantity_id,
+             )
+         )
+     fingerprint = fingerprint_payload(
+diff --git a/pb_opening_count_control_adapter.py b/pb_opening_count_control_adapter.py
+index 11484d0..ba62dc4 100644
+--- a/pb_opening_count_control_adapter.py
++++ b/pb_opening_count_control_adapter.py
+@@ -19,6 +19,7 @@ from pb_migration_provider_envelope import (
+     ProviderResult,
+     fingerprint_source_files,
+ )
++from pb_migration_eligibility import production_opening_count_eligibility
+ from pb_opening_tag_normalization import normalize_opening_tag
+ from pb_provider_gold_isolation import assert_provider_gold_free
+ from pb_shadow_opening_count_gate import OPENING_COUNT_AUTHORITY_STATE, OPENING_COUNT_FAMILIES
+@@ -74,24 +75,28 @@ class OpeningCountControlAdapter:
+         return opening_count_descriptor()
+ 
+     def eligibility(self, context: ProviderContext) -> EligibilityDecision:
+-        reasons = []
+-        eligible = True
+-        if not context.source_sha256:
+-            eligible = False
+-            reasons.append("missing_source_sha")
+-        if not context.document_id:
+-            eligible = False
+-            reasons.append("missing_document")
++        """Production eligibility from source/context/domain rules only.
++
++        Does not enumerate gold identities.  ``eligible_semantic_keys`` stays
++        empty so answered keys cannot become the denominator.  The development
++        evaluation universe of 24 is owned by the evaluator, not this adapter.
++        """
++        decision = production_opening_count_eligibility(context)
++        reasons = list(decision.reasons)
+         if OPENING_COUNT_AUTHORITY_STATE != "new_shadow":
+-            eligible = False
+             reasons.append("unexpected_authority_state")
+-        if not reasons:
+-            reasons.append("opening_count_family_registered")
++            return EligibilityDecision(
++                eligible=False,
++                family=ADAPTER_FAMILY,
++                reasons=tuple(reasons),
++                declared_identity_grammar=decision.declared_identity_grammar,
++                eligible_semantic_keys=(),
++            )
+         return EligibilityDecision(
+-            eligible=eligible,
++            eligible=decision.eligible,
+             family=ADAPTER_FAMILY,
+             reasons=tuple(reasons),
+-            declared_identity_grammar="normalized_opening_tag|WD\\d+",
++            declared_identity_grammar=decision.declared_identity_grammar,
+             eligible_semantic_keys=(),
+         )
+ 
+diff --git a/pb_provider_gold_isolation.py b/pb_provider_gold_isolation.py
+index 81e3631..100995c 100644
+--- a/pb_provider_gold_isolation.py
++++ b/pb_provider_gold_isolation.py
+@@ -6,6 +6,11 @@ benchmark, gold, mapping, scoring, or holdout modules.
+ 
+ Inspection is deterministic AST / import-graph analysis.  It does not execute
+ provider code and does not load expected quantities.
++
++Static AST analysis is necessary and catches the import shapes we test, but it
++is NOT mathematically complete runtime isolation.  It cannot see
++``importlib.import_module(variable)``, ``exec``/``eval``, or C-level I/O.
++Pair this checker with ``pb_provider_runtime_isolation``.
+ """
+ from __future__ import annotations
+ 
+@@ -148,6 +153,13 @@ def _imported_names(source: str, *, current_module: str) -> tuple[str, ...]:
+                 imported = node.module or ""
+             if imported:
+                 names.append(imported)
++                for alias in node.names:
++                    if alias.name and alias.name != "*":
++                        names.append(f"{imported}.{alias.name}")
++            elif node.names:
++                for alias in node.names:
++                    if alias.name and alias.name != "*":
++                        names.append(alias.name)
+         elif isinstance(node, ast.Call):
+             func = node.func
+             is_dynamic = (
+diff --git a/pb_provider_runtime_isolation.py b/pb_provider_runtime_isolation.py
+new file mode 100644
+index 0000000..fc296d1
+--- /dev/null
++++ b/pb_provider_runtime_isolation.py
+@@ -0,0 +1,124 @@
++"""Runtime denial of benchmark/gold/evaluation resources during provider extract.
++
++Static AST closure analysis is necessary but not mathematically complete: it
++cannot see ``importlib.import_module(variable)``, ``exec``, or C-level I/O.
++
++This module adds a second layer for isolated execution:
++
++* meta-path import finder that denies forbidden modules
++* wrappers for builtins.open / Path.read_text / Path.read_bytes / Path.open
++  that deny gold/benchmark/holdout/eval paths
++
++Limits (honest):
++
++* Not an OS sandbox. A C extension can open files without Python hooks.
++* PyMuPDF reads the source PDF via its own I/O; that is allowed because the
++  PDF is a legitimate source input, not gold.
++* Variable-dynamic imports are denied only when the resolved module name is
++  forbidden at import time.
++* This does not prove every future helper is gold-free; it proves the
++  registered opening-count extract can run with gold paths comprehensively
++  denied at the Python layer.
++"""
++from __future__ import annotations
++
++from importlib.abc import MetaPathFinder
++from importlib.machinery import ModuleSpec
++import builtins
++from pathlib import Path
++import sys
++from typing import Optional, Sequence
++
++
++FORBIDDEN_MODULE_PREFIXES = (
++    "pb_benchmark_accuracy_engine",
++    "pb_public_tender_benchmark",
++    "pb_benchmark_runner",
++    "pb_benchmark_report_set",
++    "_pb_benchmark_report_set_impl",
++    "pb_holdout_suite_registry",
++    "pb_shadow_opening_count_eval",
++    "pb_takeoff_learning_ledger",
++    "pb_accuracy_benchmark_v130",
++    "benchmark_fixtures",
++    "benchmarks",
++)
++
++FORBIDDEN_PATH_TOKENS = (
++    "expected_boq",
++    "expected_project",
++    "benchmark_rules",
++    "item_mappings",
++    "holdout_suite",
++    "sealed_holdout",
++    "expected_quantities",
++    "pb_shadow_opening_count_eval",
++    "pb_public_tender_benchmark",
++    "pb_benchmark_accuracy_engine",
++    "/benchmarks/",
++    "\\benchmarks\\",
++    "tests/benchmarks/",
++)
++
++
++class GoldResourceDenied(RuntimeError):
++    """Raised when isolated execution touches a forbidden gold/eval resource."""
++
++
++def _module_forbidden(name: str) -> bool:
++    lowered = str(name or "").strip()
++    return any(lowered == prefix or lowered.startswith(prefix + ".") for prefix in FORBIDDEN_MODULE_PREFIXES)
++
++
++def _path_forbidden(path: object) -> bool:
++    text = str(path).replace("\\", "/").lower()
++    return any(token.lower() in text for token in FORBIDDEN_PATH_TOKENS)
++
++
++class GoldDenialFinder(MetaPathFinder):
++    def find_spec(self, fullname: str, path: Optional[Sequence[str]] = None, target=None) -> Optional[ModuleSpec]:
++        if _module_forbidden(fullname):
++            raise GoldResourceDenied(f"isolated execution denied import of {fullname}")
++        return None
++
++
++def install_runtime_gold_denial() -> None:
++    if any(isinstance(item, GoldDenialFinder) for item in sys.meta_path):
++        finder_installed = True
++    else:
++        sys.meta_path.insert(0, GoldDenialFinder())
++        finder_installed = True
++    if getattr(builtins.open, "_planreader_gold_denied", False):
++        return
++
++    original_open = builtins.open
++    original_read_text = Path.read_text
++    original_read_bytes = Path.read_bytes
++    original_path_open = Path.open
++
++    def guarded_open(file, *args, **kwargs):
++        if _path_forbidden(file):
++            raise GoldResourceDenied(f"isolated execution denied file open: {file}")
++        return original_open(file, *args, **kwargs)
++
++    def guarded_read_text(self, *args, **kwargs):
++        if _path_forbidden(self):
++            raise GoldResourceDenied(f"isolated execution denied Path.read_text: {self}")
++        return original_read_text(self, *args, **kwargs)
++
++    def guarded_read_bytes(self, *args, **kwargs):
++        if _path_forbidden(self):
++            raise GoldResourceDenied(f"isolated execution denied Path.read_bytes: {self}")
++        return original_read_bytes(self, *args, **kwargs)
++
++    def guarded_path_open(self, *args, **kwargs):
++        if _path_forbidden(self):
++            raise GoldResourceDenied(f"isolated execution denied Path.open: {self}")
++        return original_path_open(self, *args, **kwargs)
++
++    guarded_open._planreader_gold_denied = True  # type: ignore[attr-defined]
++    builtins.open = guarded_open
++    Path.read_text = guarded_read_text  # type: ignore[method-assign]
++    Path.read_bytes = guarded_read_bytes  # type: ignore[method-assign]
++    Path.open = guarded_path_open  # type: ignore[method-assign]
++    _ = finder_installed
+diff --git a/pb_quantity_commercial_adapter.py b/pb_quantity_commercial_adapter.py
+index 7d978a0..dfc4c0b 100644
+--- a/pb_quantity_commercial_adapter.py
++++ b/pb_quantity_commercial_adapter.py
+@@ -1,660 +1,38 @@
+-"""Project graph QuantityEvidence into the existing commercial takeoff authority.
++"""Compatibility alias for the canonical M5 commercial projection module.
+ 
+-This adapter does not invent a second commercial output model.  It only gathers
+-already-present QuantityEvidence / caller traces and hands a complete argument
+-set to ``create_takeoff_output_row``.  Missing authority stays missing.
++Canonical implementation: ``pb_quantity_takeoff_adapter``.
+ 
+-High extraction confidence is never treated as estimator approval.  Abstentions
+-emit no ``TakeoffOutputRow`` (including no zero-valued row).  Duplicate
+-semantic keys fail closed.  Source SHA / project mismatches refuse projection
+-into the wrong commercial context.
+-
+-The adapter is gold-free: it has no benchmark IDs, expected quantities,
+-mappings, tolerances, or holdout inputs.
++This file exists only so older control-plane import paths resolve to the same
++objects.  It must not define a second projection, a second source-trace type,
++or a second measurement-authority type.
+ """
+ from __future__ import annotations
+ 
+-from dataclasses import dataclass, field
+-import json
+-import math
+-import re
+-from typing import Any, Mapping, Optional, Sequence
+-
+-from pb_geometry_takeoff_model import AuthorityStatus
+-from pb_migration_contracts import QuantityEvidence, canonical_contract_json
+-from pb_page_scale_calibration_authority import ScaleCalibrationStatus
+-from pb_takeoff_output_authority import (
+-    TakeoffOutputRow,
+-    TakeoffSourceType,
+-    create_takeoff_output_row,
++from pb_quantity_takeoff_adapter import (
++    COMMERCIAL_TAKEOFF_ADAPTER_VERSION,
++    CommercialMeasurementAuthority,
++    CommercialTakeoffConflictError,
++    CommercialTakeoffProjectionError,
++    CommercialTakeoffSourceTrace,
++    MissingCommercialAuthorityError,
++    compute_commercial_projection_fingerprint,
++    existing_commercial_gate_results,
++    quantities_to_takeoff_output_rows,
++    quantity_evidence_to_takeoff_output_row,
+ )
+ 
+-
+-COMMERCIAL_ADAPTER_VERSION = "1.0.0"
+-_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+-
+-_KNOWN_COMMERCIAL_UNITS = {
+-    "ea",
+-    "each",
+-    "no",
+-    "nr",
+-    "m",
+-    "lm",
+-    "m2",
+-    "m²",
+-    "sqm",
+-    "m3",
+-    "m³",
+-}
+-
+-_UNRELIABLE_SCALE_STATUSES = {
+-    ScaleCalibrationStatus.UNKNOWN.value,
+-    ScaleCalibrationStatus.CONFLICTING.value,
+-    ScaleCalibrationStatus.MANUAL_REQUIRED.value,
+-    ScaleCalibrationStatus.BLOCKED.value,
+-}
+-
+-_AUTHORITY_TO_SOURCE_TYPE = {
+-    TakeoffSourceType.DOCUMENTED_DIMENSION.value: TakeoffSourceType.DOCUMENTED_DIMENSION,
+-    TakeoffSourceType.SCHEDULE_EXTRACTED.value: TakeoffSourceType.SCHEDULE_EXTRACTED,
+-    TakeoffSourceType.PDF_SCALED.value: TakeoffSourceType.PDF_SCALED,
+-    TakeoffSourceType.AI_DETECTED.value: TakeoffSourceType.AI_DETECTED,
+-    TakeoffSourceType.MODEL_DERIVED.value: TakeoffSourceType.MODEL_DERIVED,
+-    TakeoffSourceType.USER_CORRECTED.value: TakeoffSourceType.USER_CORRECTED,
+-    TakeoffSourceType.USER_APPROVED.value: TakeoffSourceType.USER_APPROVED,
+-    TakeoffSourceType.EXCLUDED.value: TakeoffSourceType.EXCLUDED,
+-    TakeoffSourceType.REFERENCE_ONLY.value: TakeoffSourceType.REFERENCE_ONLY,
+-    TakeoffSourceType.BLOCKED.value: TakeoffSourceType.BLOCKED,
+-    TakeoffSourceType.MANUAL.value: TakeoffSourceType.MANUAL,
+-}
+-
+-_KNOWN_AUTHORITY_STATUSES = {status.value for status in AuthorityStatus}
+-
+-
+-class CommercialProjectionAmbiguityError(RuntimeError):
+-    """Raised when more than one emitted quantity claims one semantic key."""
+-
+-
+-class CommercialProjectionIdentityError(RuntimeError):
+-    """Raised when a quantity's project/source identity disagrees with the target context."""
+-
+-
+-def _json_copy(value: Any) -> Any:
+-    return json.loads(canonical_contract_json(value))
+-
+-
+-def _require_sha256(value: str, field_name: str) -> str:
+-    digest = str(value or "").strip().lower()
+-    if not _SHA256_RE.fullmatch(digest):
+-        raise ValueError(f"{field_name} must be a 64-character lowercase SHA-256 hex digest")
+-    return digest
+-
+-
+-def _optional_sha256(value: Any, field_name: str) -> Optional[str]:
+-    if value is None or value == "":
+-        return None
+-    return _require_sha256(str(value), field_name)
+-
+-
+-def _metadata_get(quantity: QuantityEvidence, key: str, default: Any = None) -> Any:
+-    metadata = quantity.metadata if isinstance(quantity.metadata, Mapping) else {}
+-    return metadata.get(key, default)
+-
+-
+-def commercial_unit_is_known(unit: str) -> bool:
+-    clean = str(unit or "").strip()
+-    if not clean:
+-        return False
+-    return clean.lower().replace(" ", "") in {item.lower() for item in _KNOWN_COMMERCIAL_UNITS}
+-
+-
+-@dataclass(frozen=True)
+-class CommercialProjectionContext:
+-    """Target commercial project/document binding. Never inferred from gold."""
+-
+-    project_id: str
+-    source_sha256: str
+-    current_revision_hash: Optional[str] = None
+-    current_scale_revision_id: Optional[str] = None
+-
+-    def __post_init__(self) -> None:
+-        project_id = str(self.project_id or "").strip()
+-        if not project_id:
+-            raise ValueError("project_id must be a non-empty string")
+-        object.__setattr__(self, "project_id", project_id)
+-        object.__setattr__(self, "source_sha256", _require_sha256(self.source_sha256, "source_sha256"))
+-        current_revision = str(self.current_revision_hash or "").strip() or None
+-        object.__setattr__(self, "current_revision_hash", current_revision)
+-        scale_revision = str(self.current_scale_revision_id or "").strip() or None
+-        object.__setattr__(self, "current_scale_revision_id", scale_revision)
+-
+-
+-@dataclass(frozen=True)
+-class CommercialSourceTrace:
+-    """Optional explicit commercial traces supplied by an evidence resolver.
+-
+-    The adapter copies these onto existing ``TakeoffOutputRow`` fields.  It does
+-    not invent a parallel provenance record.
+-    """
+-
+-    source_page: Optional[int] = None
+-    source_sheet: Optional[str] = None
+-    geometry_ref: Optional[str] = None
+-    scale_id: Optional[str] = None
+-    dimension_text_id: Optional[str] = None
+-    viewport_id: Optional[str] = None
+-    document_id: Optional[str] = None
+-    page_id: Optional[str] = None
+-    revision_hash: Optional[str] = None
+-    project_id: Optional[str] = None
+-    source_sha256: Optional[str] = None
+-    approved_by: Optional[str] = None
+-    approved_at: Optional[str] = None
+-    scale_calibration_status: Optional[str] = None
+-    scale_revision_id: Optional[str] = None
+-    source_type: Optional[str] = None
+-    description: Optional[str] = None
+-    trade: Optional[str] = None
+-    measurement_conflict: bool = False
+-    metadata: Mapping[str, Any] = field(default_factory=dict)
+-
+-    def __post_init__(self) -> None:
+-        if self.source_page is not None:
+-            if isinstance(self.source_page, bool) or int(self.source_page) <= 0:
+-                raise ValueError("source_page must be a positive 1-based integer when supplied")
+-            object.__setattr__(self, "source_page", int(self.source_page))
+-        if self.source_sha256 is not None:
+-            object.__setattr__(
+-                self,
+-                "source_sha256",
+-                _optional_sha256(self.source_sha256, "source_sha256"),
+-            )
+-        object.__setattr__(self, "metadata", _json_copy(self.metadata))
+-
+-
+-def _first_text(*values: Any) -> Optional[str]:
+-    for value in values:
+-        text = str(value or "").strip()
+-        if text:
+-            return text
+-    return None
+-
+-
+-def _resolve_source_page(
+-    quantity: QuantityEvidence,
+-    trace: Optional[CommercialSourceTrace],
+-) -> tuple[Optional[int], list[str]]:
+-    blockers: list[str] = []
+-    raw = None if trace is None else trace.source_page
+-    if raw is None:
+-        raw = _metadata_get(quantity, "source_page")
+-    if raw is None or raw == "":
+-        return None, blockers
+-    if isinstance(raw, bool) or not isinstance(raw, (int, float, str)):
+-        blockers.append("invalid source page")
+-        return None, blockers
+-    try:
+-        page = int(raw)
+-    except (TypeError, ValueError):
+-        blockers.append("invalid source page")
+-        return None, blockers
+-    if page <= 0:
+-        blockers.append("invalid source page")
+-        return None, blockers
+-    return page, blockers
+-
+-
+-def _resolve_source_type(
+-    quantity: QuantityEvidence,
+-    trace: Optional[CommercialSourceTrace],
+-) -> tuple[TakeoffSourceType, list[str]]:
+-    raw = _first_text(
+-        None if trace is None else trace.source_type,
+-        _metadata_get(quantity, "source_type"),
+-        quantity.authority,
+-    )
+-    if raw is None:
+-        return TakeoffSourceType.BLOCKED, ["unresolved measurement authority"]
+-    key = raw.strip().lower()
+-    mapped = _AUTHORITY_TO_SOURCE_TYPE.get(key)
+-    if mapped is None:
+-        return TakeoffSourceType.BLOCKED, [f"unresolved measurement authority: {raw!r}"]
+-    return mapped, []
+-
+-
+-def _bind_identity(
+-    quantity: QuantityEvidence,
+-    context: CommercialProjectionContext,
+-    trace: Optional[CommercialSourceTrace],
+-) -> tuple[Optional[bool], list[str]]:
+-    quantity_project = _first_text(
+-        None if trace is None else trace.project_id,
+-        _metadata_get(quantity, "project_id"),
+-    )
+-    quantity_sha = _first_text(
+-        None if trace is None else trace.source_sha256,
+-        _metadata_get(quantity, "source_sha256"),
+-    )
+-    if quantity_project and quantity_project != context.project_id:
+-        raise CommercialProjectionIdentityError(
+-            f"quantity {quantity.quantity_id!r} project {quantity_project!r} "
+-            f"does not match context project {context.project_id!r}"
+-        )
+-    if quantity_sha:
+-        try:
+-            quantity_sha = _require_sha256(quantity_sha, "quantity source_sha256")
+-        except ValueError as exc:
+-            raise CommercialProjectionIdentityError(str(exc)) from exc
+-        if quantity_sha != context.source_sha256:
+-            raise CommercialProjectionIdentityError(
+-                f"quantity {quantity.quantity_id!r} source SHA does not match the target document"
+-            )
+-        return True, []
+-    if quantity_project == context.project_id:
+-        return None, ["project identity not confirmed by source SHA"]
+-    return None, ["project identity not confirmed"]
+-
+-
+-def quantity_evidence_to_takeoff_row(
+-    quantity: QuantityEvidence,
+-    context: CommercialProjectionContext,
+-    *,
+-    trace: Optional[CommercialSourceTrace] = None,
+-) -> Optional[TakeoffOutputRow]:
+-    """Project one quantity through existing commercial authority gates.
+-
+-    Abstentions emit no row.  The factory is never asked to invent a zero.
+-    """
+-    if not isinstance(quantity, QuantityEvidence):
+-        raise TypeError("quantity must be a QuantityEvidence record")
+-    if not isinstance(context, CommercialProjectionContext):
+-        raise TypeError("context must be a CommercialProjectionContext")
+-    if quantity.abstained:
+-        return None
+-
+-    extra_blockers: list[str] = []
+-    extra_warnings: list[str] = []
+-
+-    identity_confirmed, identity_blockers = _bind_identity(quantity, context, trace)
+-    extra_blockers.extend(identity_blockers)
+-
+-    source_type, source_type_blockers = _resolve_source_type(quantity, trace)
+-    extra_blockers.extend(source_type_blockers)
+-
+-    source_page, page_blockers = _resolve_source_page(quantity, trace)
+-    extra_blockers.extend(page_blockers)
+-
+-    if not commercial_unit_is_known(quantity.unit):
+-        extra_blockers.append("incompatible or unknown unit")
+-
+-    if not quantity.evidence_ids:
+-        extra_blockers.append("missing evidence reference")
+-    if not quantity.input_entity_ids:
+-        extra_blockers.append("missing canonical entity reference")
+-
+-    source_sheet = _first_text(
+-        None if trace is None else trace.source_sheet,
+-        _metadata_get(quantity, "source_sheet"),
+-    )
+-    viewport_id = _first_text(
+-        None if trace is None else trace.viewport_id,
+-        _metadata_get(quantity, "viewport_id"),
+-    )
+-    document_id = _first_text(
+-        None if trace is None else trace.document_id,
+-        _metadata_get(quantity, "document_id"),
+-    )
+-    page_id = _first_text(
+-        None if trace is None else trace.page_id,
+-        _metadata_get(quantity, "page_id"),
+-    )
+-    if source_page is None and not source_sheet and not page_id:
+-        extra_blockers.append("missing source page")
+-
+-    dimension_text_id = _first_text(
+-        None if trace is None else trace.dimension_text_id,
+-        _metadata_get(quantity, "dimension_text_id"),
+-        _metadata_get(quantity, "figured_dimension_id"),
+-    )
+-    scale_id = _first_text(
+-        None if trace is None else trace.scale_id,
+-        _metadata_get(quantity, "scale_id"),
+-    )
+-    scale_status = _first_text(
+-        None if trace is None else trace.scale_calibration_status,
+-        _metadata_get(quantity, "scale_calibration_status"),
+-    )
+-    scale_revision = _first_text(
+-        None if trace is None else trace.scale_revision_id,
+-        _metadata_get(quantity, "scale_revision_id"),
+-    )
+-    geometry_ref = _first_text(
+-        None if trace is None else trace.geometry_ref,
+-        _metadata_get(quantity, "geometry_ref"),
+-        quantity.input_entity_ids[0] if quantity.input_entity_ids else None,
+-    )
+-    revision_hash = _first_text(
+-        None if trace is None else trace.revision_hash,
+-        _metadata_get(quantity, "revision_hash"),
+-    )
+-    approved_by = _first_text(
+-        None if trace is None else trace.approved_by,
+-        _metadata_get(quantity, "approved_by"),
+-    )
+-    approved_at = _first_text(
+-        None if trace is None else trace.approved_at,
+-        _metadata_get(quantity, "approved_at"),
+-    )
+-    # Confidence never becomes estimator attribution.
+-    if approved_by and approved_by.lower() in {"auto", "model", "extractor", "engine"}:
+-        extra_blockers.append("automated attribution is not estimator approval")
+-        approved_by = None
+-        approved_at = None
+-
+-    measurement_conflict = bool(
+-        (trace.measurement_conflict if trace is not None else False)
+-        or _metadata_get(quantity, "figured_scaled_conflict")
+-        or _metadata_get(quantity, "measurement_authority_conflict")
+-        or "figured_scaled_conflict" in quantity.reason_codes
+-        or "measurement_authority_conflict" in quantity.reason_codes
+-    )
+-    if measurement_conflict:
+-        extra_blockers.append("figured/scaled measurement conflict")
+-
+-    if source_type == TakeoffSourceType.PDF_SCALED and not scale_id:
+-        extra_blockers.append("missing scale when scale is required")
+-    if scale_status in _UNRELIABLE_SCALE_STATUSES:
+-        extra_blockers.append(f"unreliable scale status: {scale_status}")
+-    if (
+-        scale_revision
+-        and context.current_scale_revision_id
+-        and scale_revision != context.current_scale_revision_id
+-    ):
+-        extra_blockers.append("stale scale")
+-        scale_status = ScaleCalibrationStatus.BLOCKED.value
+-
+-    if revision_hash is None:
+-        extra_blockers.append("unknown revision")
+-    if (
+-        revision_hash
+-        and context.current_revision_hash
+-        and revision_hash != context.current_revision_hash
+-    ):
+-        extra_blockers.append("stale revision")
+-
+-    provenance_sha = _first_text(
+-        None if trace is None else trace.source_sha256,
+-        _metadata_get(quantity, "source_sha256"),
+-    )
+-    if provenance_sha:
+-        try:
+-            _require_sha256(provenance_sha, "provenance source_sha256")
+-        except ValueError:
+-            extra_blockers.append("corrupted provenance")
+-    if document_id is None and viewport_id is None and page_id is None and source_page is None:
+-        extra_blockers.append("corrupted provenance")
+-
+-    description = _first_text(
+-        None if trace is None else trace.description,
+-        _metadata_get(quantity, "description"),
+-        quantity.semantic_key,
+-    ) or quantity.semantic_key
+-    trade = _first_text(
+-        None if trace is None else trace.trade,
+-        _metadata_get(quantity, "trade"),
+-        _metadata_get(quantity, "trade_type"),
+-        quantity.family,
+-    ) or quantity.family
+-
+-    authority_status = str(quantity.status or "").strip().lower() or None
+-    if authority_status == AuthorityStatus.REVIEW_REQUIRED.value:
+-        extra_blockers.append("explicit review required")
+-    if authority_status is not None and authority_status not in _KNOWN_AUTHORITY_STATUSES:
+-        extra_blockers.append(f"unresolved measurement authority: {authority_status!r}")
+-        authority_status = AuthorityStatus.BLOCKED.value
+-
+-    if extra_blockers and authority_status in {None, AuthorityStatus.FIRM.value}:
+-        if authority_status == AuthorityStatus.FIRM.value:
+-            extra_warnings.append("firm quantity status demoted; commercial gates are incomplete")
+-        authority_status = AuthorityStatus.BLOCKED.value
+-
+-    return create_takeoff_output_row(
+-        quantity_id=quantity.quantity_id,
+-        description=description,
+-        value=float(quantity.value),
+-        unit=str(quantity.unit),
+-        trade=trade,
+-        source_type=source_type,
+-        authority_status=authority_status,
+-        confidence=float(quantity.confidence),
+-        source_page=source_page,
+-        source_sheet=source_sheet,
+-        geometry_ref=geometry_ref,
+-        scale_id=scale_id,
+-        dimension_text_id=dimension_text_id,
+-        benchmark_status=None,
+-        warnings=extra_warnings,
+-        blocking_reasons=extra_blockers,
+-        approved_by=approved_by,
+-        approved_at=approved_at,
+-        revision_hash=revision_hash,
+-        current_revision_hash=context.current_revision_hash,
+-        project_identity_confirmed=identity_confirmed,
+-        scale_calibration_status=scale_status,
+-        allow_zero=True,
+-    )
+-
+-
+-def quantity_evidence_to_takeoff_output_row(
+-    quantity: QuantityEvidence,
+-    context: CommercialProjectionContext,
+-    *,
+-    trace: Optional[CommercialSourceTrace] = None,
+-) -> Optional[TakeoffOutputRow]:
+-    """M5 contract name used by the migration control plane."""
+-    return quantity_evidence_to_takeoff_row(quantity, context, trace=trace)
+-
+-
+-def quantities_to_takeoff_output_rows(
+-    quantities: Sequence[QuantityEvidence],
+-    context: CommercialProjectionContext,
+-    *,
+-    traces_by_quantity_id: Optional[Mapping[str, CommercialSourceTrace]] = None,
+-) -> list[TakeoffOutputRow]:
+-    """M5 contract name used by the migration control plane."""
+-    return quantities_to_takeoff_rows(
+-        quantities,
+-        context,
+-        traces_by_quantity_id=traces_by_quantity_id,
+-    )
+-
+-
+-CommercialTakeoffSourceTrace = CommercialSourceTrace
+-
+-
+-def quantities_to_takeoff_rows(
+-    quantities: Sequence[QuantityEvidence],
+-    context: CommercialProjectionContext,
+-    *,
+-    traces_by_quantity_id: Optional[Mapping[str, CommercialSourceTrace]] = None,
+-) -> list[TakeoffOutputRow]:
+-    """Project a quantity bundle, failing closed on duplicate emitted semantic keys."""
+-    traces = traces_by_quantity_id or {}
+-    seen_semantic_keys: set[str] = set()
+-    rows: list[TakeoffOutputRow] = []
+-    for quantity in quantities:
+-        if not isinstance(quantity, QuantityEvidence):
+-            raise TypeError("quantities must contain only QuantityEvidence records")
+-        row = quantity_evidence_to_takeoff_row(
+-            quantity,
+-            context,
+-            trace=traces.get(quantity.quantity_id),
+-        )
+-        if row is None:
+-            continue
+-        if quantity.semantic_key in seen_semantic_keys:
+-            raise CommercialProjectionAmbiguityError(
+-                f"multiple emitted quantities claim semantic key {quantity.semantic_key!r}"
+-            )
+-        seen_semantic_keys.add(quantity.semantic_key)
+-        rows.append(row)
+-    return rows
+-
+-
+-def _revision_status(
+-    revision_hash: Optional[str],
+-    current_revision_hash: Optional[str],
+-) -> str:
+-    if not revision_hash:
+-        return "unknown"
+-    if current_revision_hash and revision_hash != current_revision_hash:
+-        return "stale"
+-    if current_revision_hash and revision_hash == current_revision_hash:
+-        return "current"
+-    return "present"
+-
+-
+-def _approval_status(row: Optional[TakeoffOutputRow], quantity: QuantityEvidence) -> str:
+-    if row is not None and row.approved_by:
+-        return "estimator_approved"
+-    if quantity.status == AuthorityStatus.REVIEW_REQUIRED.value:
+-        return "review_required"
+-    return "approval_absent"
+-
+-
+-def quantity_evidence_to_commercial_diagnostic(
+-    quantity: QuantityEvidence,
+-    context: CommercialProjectionContext,
+-    *,
+-    trace: Optional[CommercialSourceTrace] = None,
+-) -> dict[str, Any]:
+-    """Shadow/debug view of commercial projection. Never production-authoritative."""
+-    if quantity.abstained:
+-        return {
+-            "quantity_id": quantity.quantity_id,
+-            "family": quantity.family,
+-            "semantic_key": quantity.semantic_key,
+-            "value": None,
+-            "unit": quantity.unit,
+-            "commercial_row_created": False,
+-            "publishable": False,
+-            "review_required": True,
+-            "blockers": list(quantity.blocking_reasons),
+-            "authority": quantity.authority,
+-            "source_trace": {
+-                "quantity_id": quantity.quantity_id,
+-                "input_entity_ids": list(quantity.input_entity_ids),
+-                "evidence_ids": list(quantity.evidence_ids),
+-                "viewport_id": _metadata_get(quantity, "viewport_id"),
+-                "page_id": _metadata_get(quantity, "page_id"),
+-                "source_page": _metadata_get(quantity, "source_page"),
+-                "document_id": _metadata_get(quantity, "document_id"),
+-                "source_sha256": context.source_sha256,
+-            },
+-            "scale_status": _metadata_get(quantity, "scale_calibration_status"),
+-            "revision_status": "unknown",
+-            "approval_status": "approval_absent",
+-            "authoritative": False,
+-            "adapter_version": COMMERCIAL_ADAPTER_VERSION,
+-        }
+-
+-    row = quantity_evidence_to_takeoff_row(quantity, context, trace=trace)
+-    created = row is not None
+-    return {
+-        "quantity_id": quantity.quantity_id,
+-        "family": quantity.family,
+-        "semantic_key": quantity.semantic_key,
+-        "value": None if row is None else row.value,
+-        "unit": quantity.unit,
+-        "commercial_row_created": created,
+-        "publishable": bool(row.is_publishable) if row is not None else False,
+-        "review_required": (
+-            True
+-            if row is None
+-            else row.authority_status == AuthorityStatus.REVIEW_REQUIRED.value
+-            or any("review" in reason.lower() for reason in row.blocking_reasons)
+-        ),
+-        "blockers": [] if row is None else list(row.blocking_reasons),
+-        "authority": None if row is None else row.authority_status,
+-        "source_type": None if row is None else row.source_type,
+-        "source_trace": {
+-            "quantity_id": quantity.quantity_id,
+-            "input_entity_ids": list(quantity.input_entity_ids),
+-            "evidence_ids": list(quantity.evidence_ids),
+-            "geometry_ref": None if row is None else row.geometry_ref,
+-            "viewport_id": _first_text(
+-                None if trace is None else trace.viewport_id,
+-                _metadata_get(quantity, "viewport_id"),
+-            ),
+-            "page_id": _first_text(
+-                None if trace is None else trace.page_id,
+-                _metadata_get(quantity, "page_id"),
+-            ),
+-            "source_page": None if row is None else row.source_page,
+-            "source_sheet": None if row is None else row.source_sheet,
+-            "document_id": _first_text(
+-                None if trace is None else trace.document_id,
+-                _metadata_get(quantity, "document_id"),
+-            ),
+-            "dimension_text_id": None if row is None else row.dimension_text_id,
+-            "scale_id": None if row is None else row.scale_id,
+-            "source_sha256": context.source_sha256,
+-            "project_id": context.project_id,
+-        },
+-        "scale_status": None if row is None else (
+-            _first_text(
+-                None if trace is None else trace.scale_calibration_status,
+-                _metadata_get(quantity, "scale_calibration_status"),
+-            )
+-        ),
+-        "revision_status": _revision_status(
+-            None if row is None else row.revision_hash,
+-            context.current_revision_hash,
+-        ),
+-        "approval_status": _approval_status(row, quantity),
+-        "authoritative": False,
+-        "adapter_version": COMMERCIAL_ADAPTER_VERSION,
+-        "takeoff_row": None if row is None else row.to_dict(),
+-    }
+-
+-
+-def quantities_to_commercial_diagnostics(
+-    quantities: Sequence[QuantityEvidence],
+-    context: CommercialProjectionContext,
+-    *,
+-    traces_by_quantity_id: Optional[Mapping[str, CommercialSourceTrace]] = None,
+-) -> list[dict[str, Any]]:
+-    """Diagnostic commercial projection for shadow/debug. Does not score benchmarks."""
+-    traces = traces_by_quantity_id or {}
+-    # Duplicate detection still fail-closes: diagnostics must not hide conflicts.
+-    quantities_to_takeoff_rows(quantities, context, traces_by_quantity_id=traces)
+-    return [
+-        quantity_evidence_to_commercial_diagnostic(
+-            quantity,
+-            context,
+-            trace=traces.get(quantity.quantity_id),
+-        )
+-        for quantity in quantities
+-    ]
+-
+-
+-def shadow_commercial_projection_artifact(
+-    quantities: Sequence[QuantityEvidence],
+-    context: CommercialProjectionContext,
+-    *,
+-    traces_by_quantity_id: Optional[Mapping[str, CommercialSourceTrace]] = None,
+-) -> dict[str, Any]:
+-    """Optional shadow payload: QuantityEvidence → commercial state, not authoritative."""
+-    return {
+-        "schema_version": COMMERCIAL_ADAPTER_VERSION,
+-        "producer": "pb_quantity_commercial_adapter.shadow_commercial_projection_artifact",
+-        "authoritative": False,
+-        "influences_benchmark_scoring": False,
+-        "project_id": context.project_id,
+-        "source_sha256": context.source_sha256,
+-        "diagnostics": quantities_to_commercial_diagnostics(
+-            quantities,
+-            context,
+-            traces_by_quantity_id=traces_by_quantity_id,
+-        ),
+-    }
++CANONICAL_M5_MODULE = "pb_quantity_takeoff_adapter"
++
++__all__ = (
++    "CANONICAL_M5_MODULE",
++    "COMMERCIAL_TAKEOFF_ADAPTER_VERSION",
++    "CommercialMeasurementAuthority",
++    "CommercialTakeoffConflictError",
++    "CommercialTakeoffProjectionError",
++    "CommercialTakeoffSourceTrace",
++    "MissingCommercialAuthorityError",
++    "compute_commercial_projection_fingerprint",
++    "existing_commercial_gate_results",
++    "quantities_to_takeoff_output_rows",
++    "quantity_evidence_to_takeoff_output_row",
++)
+diff --git a/scripts/run_isolated_opening_count_extract.py b/scripts/run_isolated_opening_count_extract.py
+new file mode 100644
+index 0000000..acb11fa
+--- /dev/null
++++ b/scripts/run_isolated_opening_count_extract.py
+@@ -0,0 +1,45 @@
++#!/usr/bin/env python3
++"""Extract opening counts with gold/eval resources denied at the Python layer."""
++from __future__ import annotations
++
++import json
++from pathlib import Path
++import sys
++
++ROOT = Path(__file__).resolve().parents[1]
++if str(ROOT) not in sys.path:
++    sys.path.insert(0, str(ROOT))
++
++from pb_provider_runtime_isolation import GoldResourceDenied, install_runtime_gold_denial
++
++
++def main() -> int:
++    install_runtime_gold_denial()
++    if len(sys.argv) < 3:
++        print("usage: run_isolated_opening_count_extract.py PDF OUT.json", file=sys.stderr)
++        return 2
++    pdf = Path(sys.argv[1])
++    out = Path(sys.argv[2])
++    try:
++        import pb_public_tender_benchmark  # noqa: F401
++    except GoldResourceDenied:
++        pass
++    else:
++        raise SystemExit("gold module import was not denied")
++    gold_file = ROOT / "benchmarks/public_tenders/tenders_ke_kstvet_cbc_classroom/expected_boq_summary.json"
++    try:
++        gold_file.read_text(encoding="utf-8")
++    except GoldResourceDenied:
++        pass
++    else:
++        raise SystemExit("gold file read was not denied")
++    from pb_opening_count_control_adapter import OpeningCountControlAdapter
++
++    quantities = OpeningCountControlAdapter().extract_quantities(pdf, pages=[0])
++    payload = [item.to_dict() for item in quantities]
++    out.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/tests/fixtures/migration_isolation/alias_dirty_provider.py b/tests/fixtures/migration_isolation/alias_dirty_provider.py
+new file mode 100644
+index 0000000..ac22e5a
+--- /dev/null
++++ b/tests/fixtures/migration_isolation/alias_dirty_provider.py
+@@ -0,0 +1,6 @@
++"""Aliased forbidden import."""
++
++import pb_public_tender_benchmark as gold_loader
++
++PROVIDER_ID = "alias_dirty"
++GOLD = gold_loader
+diff --git a/tests/fixtures/migration_isolation/class_dirty_provider.py b/tests/fixtures/migration_isolation/class_dirty_provider.py
+new file mode 100644
+index 0000000..f394e70
+--- /dev/null
++++ b/tests/fixtures/migration_isolation/class_dirty_provider.py
+@@ -0,0 +1,11 @@
++"""Forbidden import nested inside a class method."""
++
++
++class DirtyEngine:
++    def extract(self):
++        import pb_holdout_suite_registry as _holdout
++
++        return _holdout
++
++
++PROVIDER_ID = "class_dirty"
+diff --git a/tests/fixtures/migration_isolation/clean_cycle_a.py b/tests/fixtures/migration_isolation/clean_cycle_a.py
+new file mode 100644
+index 0000000..3469d33
+--- /dev/null
++++ b/tests/fixtures/migration_isolation/clean_cycle_a.py
+@@ -0,0 +1,5 @@
++"""Clean cycle member A."""
++
++from tests.fixtures.migration_isolation import clean_cycle_b
++
++PING = clean_cycle_b.PONG
+diff --git a/tests/fixtures/migration_isolation/clean_cycle_b.py b/tests/fixtures/migration_isolation/clean_cycle_b.py
+new file mode 100644
+index 0000000..2895958
+--- /dev/null
++++ b/tests/fixtures/migration_isolation/clean_cycle_b.py
+@@ -0,0 +1,5 @@
++"""Clean cycle member B. No gold."""
++
++from tests.fixtures.migration_isolation import clean_cycle_a  # noqa: F401
++
++PONG = "clean"
+diff --git a/tests/fixtures/migration_isolation/cycle_a.py b/tests/fixtures/migration_isolation/cycle_a.py
+new file mode 100644
+index 0000000..f6ad55c
+--- /dev/null
++++ b/tests/fixtures/migration_isolation/cycle_a.py
+@@ -0,0 +1,5 @@
++"""Cycle member A. Isolation must still find gold via B."""
++
++from tests.fixtures.migration_isolation import cycle_b
++
++VIA = cycle_b.LEAK
+diff --git a/tests/fixtures/migration_isolation/cycle_b.py b/tests/fixtures/migration_isolation/cycle_b.py
+new file mode 100644
+index 0000000..baf815a
+--- /dev/null
++++ b/tests/fixtures/migration_isolation/cycle_b.py
+@@ -0,0 +1,6 @@
++"""Cycle member B imports A and a forbidden gold module."""
++
++from tests.fixtures.migration_isolation import cycle_a  # noqa: F401
++import pb_public_tender_benchmark as _gold
++
++LEAK = getattr(_gold, "__name__", "pb_public_tender_benchmark")
+diff --git a/tests/fixtures/migration_isolation/dunder_import_dirty_provider.py b/tests/fixtures/migration_isolation/dunder_import_dirty_provider.py
+new file mode 100644
+index 0000000..2fe1b11
+--- /dev/null
++++ b/tests/fixtures/migration_isolation/dunder_import_dirty_provider.py
+@@ -0,0 +1,5 @@
++"""Literal __import__ of a forbidden module."""
++
++__import__("pb_shadow_opening_count_eval")
++
++PROVIDER_ID = "dunder_dirty"
+diff --git a/tests/fixtures/migration_isolation/fn_dirty_provider.py b/tests/fixtures/migration_isolation/fn_dirty_provider.py
+new file mode 100644
+index 0000000..df75a9b
+--- /dev/null
++++ b/tests/fixtures/migration_isolation/fn_dirty_provider.py
+@@ -0,0 +1,10 @@
++"""Forbidden import nested inside a function."""
++
++
++def extract():
++    import pb_benchmark_accuracy_engine as _gold
++
++    return _gold
++
++
++PROVIDER_ID = "fn_dirty"
+diff --git a/tests/fixtures/migration_isolation/importlib_dirty_provider.py b/tests/fixtures/migration_isolation/importlib_dirty_provider.py
+new file mode 100644
+index 0000000..8de9512
+--- /dev/null
++++ b/tests/fixtures/migration_isolation/importlib_dirty_provider.py
+@@ -0,0 +1,7 @@
++"""Literal importlib.import_module of a forbidden module."""
++
++import importlib
++
++importlib.import_module("pb_public_tender_benchmark")
++
++PROVIDER_ID = "importlib_dirty"
+diff --git a/tests/fixtures/migration_isolation/pkg_init_dirty/__init__.py b/tests/fixtures/migration_isolation/pkg_init_dirty/__init__.py
+new file mode 100644
+index 0000000..68df424
+--- /dev/null
++++ b/tests/fixtures/migration_isolation/pkg_init_dirty/__init__.py
+@@ -0,0 +1,6 @@
++"""Package __init__ that imports forbidden evaluation code."""
++
++import pb_benchmark_accuracy_engine as _gold
++
++PROVIDER_ID = "pkg_init_dirty"
++GOLD = _gold
+diff --git a/tests/fixtures/migration_isolation/relpkg/__init__.py b/tests/fixtures/migration_isolation/relpkg/__init__.py
+new file mode 100644
+index 0000000..73f23bb
+--- /dev/null
++++ b/tests/fixtures/migration_isolation/relpkg/__init__.py
+@@ -0,0 +1 @@
++"""Relative-import package root. Isolation inspects provider.py."""
+diff --git a/tests/fixtures/migration_isolation/relpkg/helper.py b/tests/fixtures/migration_isolation/relpkg/helper.py
+new file mode 100644
+index 0000000..5fdd48f
+--- /dev/null
++++ b/tests/fixtures/migration_isolation/relpkg/helper.py
+@@ -0,0 +1,5 @@
++"""Relative helper that imports gold."""
++
++import pb_public_tender_benchmark as _gold
++
++LEAK = getattr(_gold, "__name__", "pb_public_tender_benchmark")
+diff --git a/tests/fixtures/migration_isolation/relpkg/provider.py b/tests/fixtures/migration_isolation/relpkg/provider.py
+new file mode 100644
+index 0000000..316dc8e
+--- /dev/null
++++ b/tests/fixtures/migration_isolation/relpkg/provider.py
+@@ -0,0 +1,6 @@
++"""Provider that reaches gold through a relative import."""
++
++from .helper import LEAK
++
++PROVIDER_ID = "relative_dirty"
++TRANSITIVE_LEAK = LEAK
+diff --git a/tests/test_migration_control_plane.py b/tests/test_migration_control_plane.py
+index 4a7259f..c78c7e8 100644
+--- a/tests/test_migration_control_plane.py
++++ b/tests/test_migration_control_plane.py
+@@ -2,6 +2,9 @@ from __future__ import annotations
+ 
+ from pathlib import Path
+ import json
++import sqlite3
++import subprocess
++import sys
+ 
+ import fitz
+ import pytest
+@@ -22,7 +25,7 @@ from pb_migration_claim_arbiter import (
+     claim_key,
+ )
+ from pb_migration_contracts import MigrationAuthorityState, QuantityEvidence
+-from pb_migration_decision_ledger import MigrationDecisionLedger
++from pb_migration_decision_ledger import LedgerTransactionError, MigrationDecisionLedger, record_state_transition
+ from pb_migration_family_router import FamilyAuthorityRouter, FamilyRegistration
+ from pb_migration_measurement_authority_binder import (
+     MeasurementAuthorityBindingError,
+@@ -35,6 +38,12 @@ from pb_migration_provider_envelope import (
+     ProviderDescriptor,
+     ProviderResult,
+ )
++from pb_migration_eligibility import (
++    EligibilityContractError,
++    lock_opening_count_development_universe,
++    production_opening_count_eligibility,
++)
++from pb_migration_gold_join_boundary import GoldJoinBoundaryError, GoldJoinEvaluator, MigrationExtractPipeline
+ from pb_migration_report import build_migration_report
+ from pb_migration_source_trace_binder import (
+     SourceTraceBindingError,
+@@ -55,10 +64,13 @@ from pb_provider_gold_isolation import (
+     inspect_provider_isolation,
+     inspect_registered_production_providers,
+ )
+-from pb_quantity_commercial_adapter import (
+-    CommercialProjectionContext,
++from pb_quantity_takeoff_adapter import (
++    CommercialMeasurementAuthority as M5MeasurementAuthority,
++    CommercialTakeoffSourceTrace as M5SourceTrace,
+     quantity_evidence_to_takeoff_output_row,
+ )
++import pb_quantity_commercial_adapter as commercial_alias
++import pb_quantity_takeoff_adapter as takeoff_adapter
+ from pb_shadow_opening_count_provider import ShadowOpeningCountProvider
+ from pb_takeoff_authority_v164 import ai_takeoff_authority, takeoff_row_publishability
+ 
+@@ -120,6 +132,7 @@ def _context(tmp_path: Path | None = None, **overrides) -> ProviderContext:
+         canonical_graph_snapshot_id=None,
+         measurement_authority_snapshot_id="meas_1",
+         source_pdf=str(tmp_path / "x.pdf") if tmp_path else None,
++        workspace_record_id=1,
+     )
+     payload.update(overrides)
+     return ProviderContext(**payload)
+@@ -465,8 +478,9 @@ def test_20_unresolved_scaled_authority_rejected() -> None:
+ def test_21_direct_evidence_binder() -> None:
+     qty = _qty("W1", 6)
+     bound = bind_direct_evidence_authority(qty, source_type="schedule_extracted")
+-    assert bound.source_type == "schedule_extracted"
+-    assert bound.scale_calibration_status is None
++    assert bound.method == "direct_evidence"
++    assert bound.resolved_scale_id is None
++    assert isinstance(bound, M5MeasurementAuthority)
+ 
+ 
+ def test_22_figured_authority_binder() -> None:
+@@ -477,10 +491,11 @@ def test_22_figured_authority_binder() -> None:
+         authority=MeasurementAuthorityType.DOCUMENTED_DIMENSION.value,
+     )
+     bound = bind_commercial_measurement_authority(qty, figured_text="6500")
+-    assert bound.source_type == MeasurementAuthorityType.DOCUMENTED_DIMENSION.value
+-    assert bound.figured_mm == 6500.0
++    assert bound.method == "figured_dimension"
++    assert bound.metadata.get("figured_mm") == 6500.0
+     existing = resolve_measurement_authority(figured_text="6500")
+-    assert bound.authority_status == existing.authority_status
++    assert existing.figured_mm == 6500.0
++    assert isinstance(bound, M5MeasurementAuthority)
+ 
+ 
+ def test_23_multi_page_provenance() -> None:
+@@ -491,10 +506,11 @@ def test_23_multi_page_provenance() -> None:
+         contributing_pages=(2, 5),
+         contributing_viewports=("vp_plan", "vp_sched"),
+     )
+-    assert provenance.primary.source_page == 2
++    assert provenance.primary.source_page == "2"
+     assert [item.page for item in provenance.contributors] == [2, 5]
+     assert provenance.evidence_fingerprint
+     assert provenance.primary.project_id == "proj_1"
++    assert isinstance(provenance.primary, M5SourceTrace)
+ 
+ 
+ def test_24_aggregate_instance_collision() -> None:
+@@ -511,30 +527,29 @@ def test_24_aggregate_instance_collision() -> None:
+ 
+ def test_25_estimator_approval_remains_separate() -> None:
+     qty = _qty("W1", 6)
++    context = _context()
+     row = quantity_evidence_to_takeoff_output_row(
+         qty,
+-        CommercialProjectionContext(project_id="proj_1", source_sha256=SHA),
++        trace=bind_commercial_source_trace(qty, context),
++        authority=bind_direct_evidence_authority(qty, source_type="schedule_extracted"),
+     )
+     assert row is not None
+-    assert row.approved_by is None
+-    assert str(row.confidence) not in {"approved", "estimator_verified"}
++    assert row["origin"] == "AI"
++    assert row["quantity_status"] == "To review"
++    assert row["confidence"] == 0.8
++    assert "approved_by" not in row or not row.get("approved_by")
+ 
+ 
+ def test_26_commercial_publishability_controlled_by_existing_authority() -> None:
+     qty = _qty("W1", 6)
++    context = _context()
+     row = quantity_evidence_to_takeoff_output_row(
+         qty,
+-        CommercialProjectionContext(project_id="proj_1", source_sha256=SHA),
+-    )
+-    review = {
+-        "origin": "AI",
+-        "quantity": row.value,
+-        "quantity_status": "to_review",
+-        "confidence": str(row.confidence),
+-        "source_reference": "ai draft opening-count shadow",
+-    }
+-    publishable, reason = takeoff_row_publishability(review)
+-    ai_ok, _ = ai_takeoff_authority(review)
++        trace=bind_commercial_source_trace(qty, context),
++        authority=bind_direct_evidence_authority(qty, source_type="schedule_extracted"),
++    )
++    publishable, reason = takeoff_row_publishability(row)
++    ai_ok, _ = ai_takeoff_authority(row)
+     assert publishable is False
+     assert ai_ok is False
+     assert "estimator" in reason.lower() or "ai" in reason.lower()
+@@ -719,3 +734,284 @@ def test_headline_dashboard_still_canonical() -> None:
+     accepted = int(metrics["exact_matches"]) + int(metrics["within_5_percent"])
+     assert accepted == 24
+     assert int(metrics["total_items_compared"]) == 61
++    assert pytest.approx(metrics["overall_accuracy_percentage"], rel=0, abs=0.01) == 39.34
++
++
++def _assert_rejected(module: str, token: str, via_token: str | None = None) -> None:
++    report = inspect_provider_isolation("probe", module)
++    assert report.ok is False
++    assert any(token in item.reason or token in "->".join(item.via) for item in report.findings)
++    if via_token:
++        assert any(via_token in "->".join(item.via) for item in report.findings), report.findings
++
++
++def test_isolation_c_relative_import_rejected() -> None:
++    _assert_rejected(
++        "tests.fixtures.migration_isolation.relpkg.provider",
++        "pb_public_tender_benchmark",
++        via_token="helper",
++    )
++
++
++def test_isolation_d_aliased_import_rejected() -> None:
++    _assert_rejected(
++        "tests.fixtures.migration_isolation.alias_dirty_provider",
++        "pb_public_tender_benchmark",
++    )
++
++
++def test_isolation_e_package_init_import_rejected() -> None:
++    _assert_rejected(
++        "tests.fixtures.migration_isolation.pkg_init_dirty",
++        "pb_benchmark_accuracy_engine",
++    )
++
++
++def test_isolation_f_function_import_rejected() -> None:
++    _assert_rejected(
++        "tests.fixtures.migration_isolation.fn_dirty_provider",
++        "pb_benchmark_accuracy_engine",
++    )
++
++
++def test_isolation_g_class_method_import_rejected() -> None:
++    _assert_rejected(
++        "tests.fixtures.migration_isolation.class_dirty_provider",
++        "pb_holdout_suite_registry",
++    )
++
++
++def test_isolation_h_importlib_literal_rejected() -> None:
++    _assert_rejected(
++        "tests.fixtures.migration_isolation.importlib_dirty_provider",
++        "pb_public_tender_benchmark",
++    )
++
++
++def test_isolation_i_dunder_import_rejected() -> None:
++    _assert_rejected(
++        "tests.fixtures.migration_isolation.dunder_import_dirty_provider",
++        "pb_shadow_opening_count_eval",
++    )
++
++
++def test_isolation_j_cyclic_local_import_still_finds_gold() -> None:
++    report = inspect_provider_isolation(
++        "cycle",
++        "tests.fixtures.migration_isolation.cycle_a",
++    )
++    assert report.ok is False
++    assert any("pb_public_tender_benchmark" in item.reason for item in report.findings)
++    assert any("cycle_b" in "->".join(item.via) for item in report.findings)
++    clean = inspect_provider_isolation(
++        "clean_cycle",
++        "tests.fixtures.migration_isolation.clean_cycle_a",
++    )
++    assert clean.ok is True
++
++
++def test_canonical_m5_alias_does_not_fork() -> None:
++    assert commercial_alias.CANONICAL_M5_MODULE == "pb_quantity_takeoff_adapter"
++    assert (
++        commercial_alias.quantity_evidence_to_takeoff_output_row
++        is takeoff_adapter.quantity_evidence_to_takeoff_output_row
++    )
++    assert commercial_alias.CommercialTakeoffSourceTrace is takeoff_adapter.CommercialTakeoffSourceTrace
++    assert commercial_alias.CommercialMeasurementAuthority is takeoff_adapter.CommercialMeasurementAuthority
++
++
++def test_production_eligibility_before_answers_and_not_gold() -> None:
++    context = _context()
++    before = production_opening_count_eligibility(context)
++    assert before.eligible is True
++    assert before.eligible_semantic_keys == ()
++    assert "computed_before_extract" in before.reasons
++    adapter = OpeningCountControlAdapter()
++    decision = adapter.eligibility(context)
++    assert decision.eligible_semantic_keys == ()
++    universe = lock_opening_count_development_universe()
++    assert universe.universe.eligible_count == 24
++    universe.universe.reject_answer_driven_shrink(answered=15)
++    with pytest.raises(EligibilityContractError, match="locked"):
++        universe.replace_eligible_count(15)
++    report = build_migration_report(
++        family="opening_count",
++        descriptor=_descriptor(),
++        migration_state=MigrationAuthorityState.NEW_SHADOW.value,
++        source_set_fingerprint="src",
++        evaluated_commit="test",
++        eligible=universe.universe.eligible_count,
++        eligible_keys=(),
++        frozen_new=(_qty("W1", 6),),
++        exact_among_answered=1.0,
++        precision=1.0,
++        gate_decision="HOLD",
++        gate_reasons=("remain_new_shadow",),
++    )
++    assert report.payload["population"]["eligible"] == 24
++    assert report.payload["population"]["answered"] == 1
++    assert report.payload["population"]["evaluation_eligible_universe_count"] == 24
++    abstained = _qty("W2", abstained=True)
++    assert abstained.abstained is True
++    report_abs = build_migration_report(
++        family="opening_count",
++        descriptor=_descriptor(),
++        migration_state=MigrationAuthorityState.NEW_SHADOW.value,
++        source_set_fingerprint="src",
++        evaluated_commit="test",
++        eligible=24,
++        eligible_keys=(),
++        frozen_new=(abstained,),
++        gate_decision="HOLD",
++        gate_reasons=("abstention_still_eligible",),
++    )
++    assert report_abs.payload["population"]["eligible"] == 24
++    assert report_abs.payload["population"]["answered"] == 0
++    assert report_abs.payload["population"]["abstained"] == 1
++
++
++def test_atomic_exactly_one_authority_persistence(tmp_path: Path) -> None:
++    ledger = MigrationDecisionLedger(tmp_path / "atomic.sqlite")
++    context = _context()
++    record_state_transition(
++        ledger,
++        family="opening_count",
++        provider_id="shadow_opening_count",
++        provider_version="1",
++        provider_fingerprint="fp",
++        prior_state="new_shadow",
++        current_state="new_shadow",
++        project_id=context.project_id,
++        revision_id=context.revision_id or "",
++        semantic_claim="W1",
++        selected_authority="legacy",
++    )
++    assert ledger.selected_authority_count("opening_count", "proj_1", "rev-a", "W1") == 1
++    with pytest.raises(sqlite3.IntegrityError):
++        ledger.force_second_selection("opening_count", "proj_1", "rev-a", "W1", "new")
++    assert ledger.selected_authority_count("opening_count", "proj_1", "rev-a", "W1") == 1
++    failing = MigrationDecisionLedger(tmp_path / "fail.sqlite", failpoint="after_selection_before_commit")
++    with pytest.raises(LedgerTransactionError):
++        record_state_transition(
++            failing,
++            family="opening_count",
++            provider_id="shadow_opening_count",
++            provider_version="1",
++            provider_fingerprint="fp",
++            prior_state="new_shadow",
++            current_state="new_shadow",
++            project_id="proj_1",
++            revision_id="rev-a",
++            semantic_claim="W1",
++            selected_authority="legacy",
++        )
++    assert failing.selected_authority_count("opening_count", "proj_1", "rev-a", "W1") in {0, 1}
++    assert failing.selected_authority_count("opening_count", "proj_1", "rev-a", "W1") == 0
++    assert failing.history("opening_count") == []
++
++
++def test_atomic_state_transition_and_rollback_audit(tmp_path: Path) -> None:
++    ledger = MigrationDecisionLedger(tmp_path / "state.sqlite")
++    desc = _descriptor()
++    router = FamilyAuthorityRouter(ledger)
++    router.set_state(
++        "opening_count",
++        MigrationAuthorityState.NEW_SELECTIVE.value,
++        project_id="p",
++        provider=desc,
++        reason="test_only",
++    )
++    assert router.current_state("opening_count") == MigrationAuthorityState.NEW_SELECTIVE.value
++    assert ledger.history("opening_count")
++    failing = MigrationDecisionLedger(tmp_path / "state_fail.sqlite", failpoint="after_audit_before_state")
++    bad_router = FamilyAuthorityRouter(failing)
++    with pytest.raises(LedgerTransactionError):
++        bad_router.set_state(
++            "opening_count",
++            MigrationAuthorityState.NEW_SELECTIVE.value,
++            project_id="p",
++            provider=desc,
++            reason="should_not_commit",
++        )
++    assert bad_router.current_state("opening_count") == MigrationAuthorityState.NEW_SHADOW.value
++    assert bad_router.ledger.history("opening_count") == []
++    other = ProviderDescriptor(
++        provider_id="other_family_provider",
++        family="other_family",
++        provider_version="1.0.0",
++        output_schema_version="1.0.0",
++        code_fingerprint="0" * 64,
++    )
++    router.registry["other_family"] = FamilyRegistration(
++        family="other_family",
++        provider_id="other_family_provider",
++        provider_module="pb_migration_contracts",
++        default_state=MigrationAuthorityState.NEW_SELECTIVE.value,
++    )
++    router.set_state("other_family", MigrationAuthorityState.NEW_SELECTIVE.value, project_id="p", provider=other, reason="unrelated")
++    router.rollback(
++        "opening_count",
++        target=MigrationAuthorityState.NEW_SHADOW.value,
++        project_id="p",
++        provider=desc,
++        reason="atomic_rollback",
++    )
++    assert router.current_state("opening_count") == MigrationAuthorityState.NEW_SHADOW.value
++    assert router.current_state("other_family") == MigrationAuthorityState.NEW_SELECTIVE.value
++    history = router.ledger.history("opening_count")
++    assert any(row["current_state"] == "new_shadow" and row["fallback_reason"] == "atomic_rollback" for row in history)
++
++
++def test_gold_join_cannot_reextract_after_seal(tmp_path: Path) -> None:
++    pdf = _schedule_pdf(tmp_path)
++    adapter = OpeningCountControlAdapter()
++    context = _context(tmp_path, source_pdf=str(pdf), source_sha256=source_sha256(pdf), selected_pages=(0,))
++    eligibility = adapter.eligibility(context)
++    pipeline = MigrationExtractPipeline()
++    sealed = pipeline.run(provider=adapter, context=context, eligibility=eligibility)
++    with pytest.raises(GoldJoinBoundaryError, match="sealed"):
++        sealed.extract(context)
++    with pytest.raises(GoldJoinBoundaryError):
++        pipeline.extract(context)
++    evaluator = GoldJoinEvaluator(sealed)
++    with pytest.raises(GoldJoinBoundaryError):
++        _ = evaluator.provider
++    with pytest.raises(GoldJoinBoundaryError):
++        evaluator.extract(context)
++    scored = evaluator.load_gold_and_score({"joined_after_freeze": True})
++    assert scored["gold_joined_after_freeze"] is True
++    assert scored["reextract_possible"] is False
++    assert scored["used_result_fingerprint"] == sealed.frozen.result_fingerprint
++
++
++def test_runtime_isolation_subprocess_matches_frozen_extract(tmp_path: Path) -> None:
++    pdf = _schedule_pdf(tmp_path)
++    baseline = [item.to_dict() for item in OpeningCountControlAdapter().extract_quantities(pdf, pages=[0])]
++    out = tmp_path / "isolated.json"
++    script = Path("scripts/run_isolated_opening_count_extract.py")
++    proc = subprocess.run(
++        [sys.executable, str(script), str(pdf), str(out)],
++        cwd="/workspace",
++        check=True,
++        capture_output=True,
++        text=True,
++    )
++    assert proc.returncode == 0
++    isolated = json.loads(out.read_text(encoding="utf-8"))
++    assert isolated == baseline
++
++
++def test_opening_count_frozen_shadow_metrics_unchanged() -> None:
++    report = json.loads(Path("shadow_reports/opening_count_shadow_development.json").read_text(encoding="utf-8"))
++    metrics = report["metrics"]
++    assert report["authority_state"] == "new_shadow"
++    assert report.get("holdout_scored") is False
++    assert int(metrics["eligible_opening_count_items"]) == 24
++    assert int(metrics["answered"]) == 15
++    assert metrics["coverage"] == pytest.approx(0.625)
++    assert metrics["precision_on_answered_identities"] == 1.0
++    assert metrics["exact_correctness_on_answered_counts"] == 1.0
++    assert int(metrics["hallucinations"]) == 0
++    assert int(metrics["conflicts"]) == 0
++    assert int(metrics["critical_duplicate_counts"]) == 0
++
+-- 
+2.43.0
+

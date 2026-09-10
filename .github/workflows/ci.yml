@@ -35,6 +35,9 @@ jobs:
         run: |
           git diff --name-only "$BASE_SHA" "$HEAD_SHA" | python scripts/check_benchmark_gold_separation.py
 
+      - name: Enforce production-provider transitive gold isolation
+        run: PYTHONPATH=. python scripts/check_provider_gold_isolation.py
+
       - name: Compile all Python code
         run: python -m compileall -q .
 

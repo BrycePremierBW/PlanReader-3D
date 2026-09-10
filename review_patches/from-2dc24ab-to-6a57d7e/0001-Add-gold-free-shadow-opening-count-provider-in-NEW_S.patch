@@ -1,0 +1,2094 @@
+From ef3932a57c718074365d316f5e57ef7b461f0b80 Mon Sep 17 00:00:00 2001
+From: Cursor Agent <cursoragent@cursor.com>
+Date: Wed, 9 Sep 2026 22:52:38 +0000
+Subject: [PATCH 01/10] Add gold-free shadow opening-count provider in
+ NEW_SHADOW.
+
+Reuse F.12 binding, generic schedule extraction, and QuantityEvidence
+contracts. Predeclare the migration gate before development scoring.
+Do not switch authority or implement M5 commercial projection.
+---
+ pb_shadow_opening_count_eval.py             | 361 ++++++++
+ pb_shadow_opening_count_gate.py             |  63 ++
+ pb_shadow_opening_count_provider.py         | 899 ++++++++++++++++++++
+ scripts/run_shadow_opening_count_report.py  |  35 +
+ tests/test_shadow_opening_count_eval.py     |  77 ++
+ tests/test_shadow_opening_count_gate.py     |  50 ++
+ tests/test_shadow_opening_count_provider.py | 538 ++++++++++++
+ 7 files changed, 2023 insertions(+)
+ create mode 100644 pb_shadow_opening_count_eval.py
+ create mode 100644 pb_shadow_opening_count_gate.py
+ create mode 100644 pb_shadow_opening_count_provider.py
+ create mode 100644 scripts/run_shadow_opening_count_report.py
+ create mode 100644 tests/test_shadow_opening_count_eval.py
+ create mode 100644 tests/test_shadow_opening_count_gate.py
+ create mode 100644 tests/test_shadow_opening_count_provider.py
+
+diff --git a/pb_shadow_opening_count_eval.py b/pb_shadow_opening_count_eval.py
+new file mode 100644
+index 0000000..2e4dd46
+--- /dev/null
++++ b/pb_shadow_opening_count_eval.py
+@@ -0,0 +1,361 @@
++"""Evaluator-side scoring for the shadow opening-count provider.
++
++The provider and GoldFreeShadowRunner stay gold-free.  This module may load
++expected BOQ files and item mappings only AFTER new QuantityEvidence has been
++frozen.  It does not activate NEW_SELECTIVE or NEW_AUTHORITATIVE.
++"""
++from __future__ import annotations
++
++from dataclasses import dataclass
++import json
++import math
++from pathlib import Path
++from typing import Any, Mapping, Optional, Sequence
++
++from pb_benchmark_runner import resolve_file_path
++from pb_gold_free_shadow_runner import GoldFreeShadowRunner
++from pb_migration_contracts import QuantityEvidence
++from pb_opening_tag_normalization import normalize_opening_tag
++from pb_shadow_opening_count_gate import (
++    OPENING_COUNT_FAMILIES,
++    evaluate_opening_count_migration_gate,
++)
++from pb_shadow_opening_count_provider import (
++    ShadowOpeningCountProvider,
++    probe_opening_evidence_pages,
++    resolve_opening_identity,
++)
++
++
++HEADLINE_DEVELOPMENT_BENCHMARKS = (
++    "tenders_ke_kstvet_cbc_classroom",
++    "tenders_ke_murera_science_lab",
++    "tenders_ke_ghazi_science_lab",
++    "tenders_ke_umma_hostels",
++    "tenders_ke_lamu_ishakani_ecd_classrooms",
++)
++
++COUNT_UNITS = frozenset({"NO", "NO.", "NOS", "NOS.", "EA", "EACH", "NR"})
++AGGREGATE_OPENING_KEYS = frozenset({"steel_casement_windows", "doors_complete"})
++_HOLD_OUT_ID = "tenders_ke_olv_laboratory_complex"
++
++
++@dataclass(frozen=True)
++class EligibleOpeningItem:
++    benchmark_id: str
++    item_id: str
++    semantic_key: str
++    expected_quantity: float
++    unit: str
++    description: str
++    category: str
++
++
++def _public_tender_dir(benchmark_id: str) -> Path:
++    return Path("benchmarks/public_tenders") / benchmark_id
++
++
++def _is_opening_identity(key: str) -> bool:
++    if key in AGGREGATE_OPENING_KEYS:
++        return True
++    if normalize_opening_tag(key) is not None:
++        return True
++    return resolve_opening_identity(key, trade_type="windows") is not None or key.upper().startswith("WD")
++
++
++def _looks_like_opening_count(description: str, unit: str, mapped: str) -> bool:
++    if str(unit or "").strip().upper() not in COUNT_UNITS:
++        return False
++    if mapped and _is_opening_identity(mapped):
++        return True
++    text = (description or "").lower()
++    if any(token in text for token in ("ironmongery", "hinge", "lockset", "butt hinge")):
++        return False
++    return bool(
++        ("window" in text or "door" in text or "casement" in text)
++        and "chalkboard" not in text
++        and "pillar" not in text
++    )
++
++
++def load_eligible_opening_items(benchmark_id: str) -> tuple[EligibleOpeningItem, ...]:
++    """Load gold opening-count items. Evaluator-only; never called by the provider."""
++    if benchmark_id == _HOLD_OUT_ID:
++        raise RuntimeError("sealed holdout scoring is out of scope for this shadow family")
++    root = _public_tender_dir(benchmark_id)
++    boq = json.loads((root / "expected_boq_summary.json").read_text(encoding="utf-8"))
++    rules = json.loads((root / "benchmark_rules.json").read_text(encoding="utf-8"))
++    mappings = dict(rules.get("item_mappings") or {})
++    items: list[EligibleOpeningItem] = []
++    for raw in boq.get("sample_measurable_items") or []:
++        item_id = str(raw.get("item_id") or "")
++        mapped = str(mappings.get(item_id) or "")
++        if not _looks_like_opening_count(str(raw.get("description") or ""), str(raw.get("unit") or ""), mapped):
++            continue
++        key = mapped or item_id
++        items.append(
++            EligibleOpeningItem(
++                benchmark_id=benchmark_id,
++                item_id=item_id,
++                semantic_key=key,
++                expected_quantity=float(raw.get("expected_quantity")),
++                unit=str(raw.get("unit") or "NO"),
++                description=str(raw.get("description") or ""),
++                category=str(raw.get("category") or ""),
++            )
++        )
++    return tuple(items)
++
++
++def _answered(quantities: Sequence[QuantityEvidence]) -> tuple[QuantityEvidence, ...]:
++    return tuple(
++        item
++        for item in quantities
++        if item.family in OPENING_COUNT_FAMILIES and not item.abstained and item.value is not None
++    )
++
++
++def _abstained(quantities: Sequence[QuantityEvidence]) -> tuple[QuantityEvidence, ...]:
++    return tuple(
++        item
++        for item in quantities
++        if item.family in OPENING_COUNT_FAMILIES and item.abstained
++    )
++
++
++def score_frozen_quantities(
++    *,
++    benchmark_id: str,
++    frozen_quantities: Sequence[QuantityEvidence],
++    eligible: Sequence[EligibleOpeningItem],
++    conflicts: Sequence[Mapping[str, Any]] = (),
++    ambiguous_marks: Sequence[str] = (),
++    duplicate_observations: int = 0,
++    comparisons: Sequence[Mapping[str, Any]] = (),
++    source_status: str = "ok",
++) -> dict[str, Any]:
++    """Score already-frozen quantities against gold. Does not run extraction."""
++    answered = _answered(frozen_quantities)
++    abstained = _abstained(frozen_quantities)
++    gold_by_key = {item.semantic_key: item for item in eligible}
++    answered_keys = [item.semantic_key for item in answered]
++    duplicate_answered = len(answered_keys) - len(set(answered_keys))
++
++    matched = [item for item in answered if item.semantic_key in gold_by_key]
++    hallucinations = [item for item in answered if item.semantic_key not in gold_by_key]
++    exact = [
++        item
++        for item in matched
++        if math.isclose(float(item.value), gold_by_key[item.semantic_key].expected_quantity, abs_tol=1e-9)
++    ]
++    missing_provenance = [
++        item
++        for item in answered
++        if not item.evidence_ids and not item.input_entity_ids
++    ]
++    conflict_leaks = [
++        item
++        for item in answered
++        if any(
++            str(conflict.get("tag")) == item.semantic_key
++            for conflict in conflicts
++        )
++        or "conflict" in " ".join(item.reason_codes).lower()
++    ]
++    fake_identities = [
++        item
++        for item in answered
++        if item.metadata.get("count_kind") == "dimension_only_identity"
++        or item.formula == "dimension_inferred_identity"
++    ]
++
++    eligible_n = len(eligible)
++    answered_n = len(answered)
++    exact_n = len(exact)
++    identity_n = len(matched)
++    precision = (identity_n / answered_n) if answered_n else 0.0
++    exact_rate = (exact_n / answered_n) if answered_n else 0.0
++    recall = (exact_n / eligible_n) if eligible_n else 0.0
++    coverage = (answered_n / eligible_n) if eligible_n else 0.0
++
++    agree = sum(1 for row in comparisons if row.get("status") == "agree")
++    compared = len(comparisons)
++    by_authority: dict[str, int] = {}
++    by_formula: dict[str, int] = {}
++    for item in answered:
++        by_authority[item.authority] = by_authority.get(item.authority, 0) + 1
++        by_formula[item.formula] = by_formula.get(item.formula, 0) + 1
++
++    return {
++        "benchmark_id": benchmark_id,
++        "source_status": source_status,
++        "eligible_opening_count_items": eligible_n,
++        "answered": answered_n,
++        "abstained": len(abstained),
++        "coverage": coverage,
++        "precision_on_answered_identities": precision,
++        "exact_correctness_on_answered_counts": exact_rate,
++        "recall": recall,
++        "hallucinations": len(hallucinations),
++        "duplicate_counts": duplicate_answered,
++        "critical_duplicate_counts": duplicate_answered,
++        "conflicts": len(conflicts),
++        "ambiguous_identities": len(tuple(ambiguous_marks)),
++        "legacy_new_agreement": {
++            "agree": agree,
++            "compared": compared,
++            "rate": (agree / compared) if compared else None,
++        },
++        "accepted_answered_count": answered_n,
++        "accepted_missing_provenance": len(missing_provenance),
++        "conflict_not_fail_closed": len(conflict_leaks),
++        "dimension_derived_fake_identities": len(fake_identities),
++        "by_authority": by_authority,
++        "by_formula": by_formula,
++        "answered_keys": [item.semantic_key for item in answered],
++        "exact_keys": [item.semantic_key for item in exact],
++        "hallucinated_keys": [item.semantic_key for item in hallucinations],
++        "eligible_keys": [item.semantic_key for item in eligible],
++        "abstained_keys": [item.semantic_key for item in abstained],
++        "duplicate_observations_suppressed": duplicate_observations,
++    }
++
++
++def _load_manifest_pdf(benchmark_id: str) -> Optional[Path]:
++    manifest_path = _public_tender_dir(benchmark_id) / "source_manifest.json"
++    if not manifest_path.is_file():
++        return None
++    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
++    return resolve_file_path(manifest.get("source_pdf"))
++
++
++def run_project_shadow(
++    benchmark_id: str,
++    *,
++    runner: Optional[GoldFreeShadowRunner] = None,
++    provider: Optional[ShadowOpeningCountProvider] = None,
++) -> dict[str, Any]:
++    eligible = load_eligible_opening_items(benchmark_id)
++    pdf_path = _load_manifest_pdf(benchmark_id)
++    if pdf_path is None:
++        metrics = score_frozen_quantities(
++            benchmark_id=benchmark_id,
++            frozen_quantities=(),
++            eligible=eligible,
++            source_status="SOURCE_UNAVAILABLE",
++        )
++        return {
++            "benchmark_id": benchmark_id,
++            "source_status": "SOURCE_UNAVAILABLE",
++            "frozen_quantities": [],
++            "metrics": metrics,
++        }
++
++    engine = provider or ShadowOpeningCountProvider()
++    import fitz
++
++    doc = fitz.open(pdf_path)
++    try:
++        pages = probe_opening_evidence_pages(doc)
++    finally:
++        doc.close()
++
++    bundle = engine.extract_bundle(pdf_path, pages=pages or None)
++    frozen = tuple(bundle.quantities)
++    shadow = (runner or GoldFreeShadowRunner()).run(pdf_path, engine, pages=pages or None)
++    metrics = score_frozen_quantities(
++        benchmark_id=benchmark_id,
++        frozen_quantities=frozen,
++        eligible=eligible,
++        conflicts=bundle.conflicts,
++        ambiguous_marks=bundle.ambiguous_marks,
++        duplicate_observations=bundle.duplicate_observations,
++        comparisons=[row.to_dict() for row in shadow.comparisons],
++        source_status="ok",
++    )
++    return {
++        "benchmark_id": benchmark_id,
++        "source_status": "ok",
++        "source_pdf": str(pdf_path),
++        "pages": pages,
++        "shadow_result_id": shadow.result_id,
++        "frozen_quantities": [item.to_dict() for item in frozen],
++        "entity_evidence": [item.to_dict() for item in bundle.entity_evidence],
++        "canonical_openings": [item.to_dict() for item in bundle.canonical_openings],
++        "diagnostics": dict(bundle.diagnostics),
++        "metrics": metrics,
++    }
++
++
++def _sum_int(rows: Sequence[Mapping[str, Any]], key: str) -> int:
++    return sum(int(row.get(key) or 0) for row in rows)
++
++
++def aggregate_development_metrics(project_rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
++    eligible = _sum_int(project_rows, "eligible_opening_count_items")
++    answered = _sum_int(project_rows, "answered")
++    identity = 0
++    exact = 0
++    for row in project_rows:
++        answered_n = int(row.get("answered") or 0)
++        identity += int(round(float(row.get("precision_on_answered_identities") or 0.0) * answered_n))
++        exact += int(round(float(row.get("exact_correctness_on_answered_counts") or 0.0) * answered_n))
++    precision = (identity / answered) if answered else 0.0
++    exact_rate = (exact / answered) if answered else 0.0
++    recall = (exact / eligible) if eligible else 0.0
++    coverage = (answered / eligible) if eligible else 0.0
++    agree = sum(int((row.get("legacy_new_agreement") or {}).get("agree") or 0) for row in project_rows)
++    compared = sum(int((row.get("legacy_new_agreement") or {}).get("compared") or 0) for row in project_rows)
++    aggregated = {
++        "eligible_opening_count_items": eligible,
++        "answered": answered,
++        "abstained": _sum_int(project_rows, "abstained"),
++        "coverage": coverage,
++        "precision_on_answered_identities": precision,
++        "exact_correctness_on_answered_counts": exact_rate,
++        "recall": recall,
++        "hallucinations": _sum_int(project_rows, "hallucinations"),
++        "duplicate_counts": _sum_int(project_rows, "duplicate_counts"),
++        "critical_duplicate_counts": _sum_int(project_rows, "critical_duplicate_counts"),
++        "conflicts": _sum_int(project_rows, "conflicts"),
++        "ambiguous_identities": _sum_int(project_rows, "ambiguous_identities"),
++        "legacy_new_agreement": {
++            "agree": agree,
++            "compared": compared,
++            "rate": (agree / compared) if compared else None,
++        },
++        "accepted_answered_count": answered,
++        "accepted_missing_provenance": _sum_int(project_rows, "accepted_missing_provenance"),
++        "conflict_not_fail_closed": _sum_int(project_rows, "conflict_not_fail_closed"),
++        "dimension_derived_fake_identities": _sum_int(project_rows, "dimension_derived_fake_identities"),
++        "by_project": {row["benchmark_id"]: row for row in project_rows},
++        "by_authority": {},
++        "by_formula": {},
++    }
++    for row in project_rows:
++        for key, value in (row.get("by_authority") or {}).items():
++            aggregated["by_authority"][key] = aggregated["by_authority"].get(key, 0) + int(value)
++        for key, value in (row.get("by_formula") or {}).items():
++            aggregated["by_formula"][key] = aggregated["by_formula"].get(key, 0) + int(value)
++    return aggregated
++
++
++def run_development_shadow_report(
++    *,
++    benchmark_ids: Sequence[str] = HEADLINE_DEVELOPMENT_BENCHMARKS,
++) -> dict[str, Any]:
++    projects = [run_project_shadow(benchmark_id) for benchmark_id in benchmark_ids]
++    metrics_rows = [project["metrics"] for project in projects]
++    aggregated = aggregate_development_metrics(metrics_rows)
++    gate = evaluate_opening_count_migration_gate(aggregated)
++    return {
++        "family": "opening_count",
++        "authority_state": "new_shadow",
++        "authoritative_engine": "legacy",
++        "gold_joined_after_freeze": True,
++        "holdout_scored": False,
++        "projects": projects,
++        "metrics": aggregated,
++        "migration_gate": gate,
++        "recommendation": "remain_new_shadow",
++    }
+diff --git a/pb_shadow_opening_count_gate.py b/pb_shadow_opening_count_gate.py
+new file mode 100644
+index 0000000..836806c
+--- /dev/null
++++ b/pb_shadow_opening_count_gate.py
+@@ -0,0 +1,63 @@
++"""Predeclared authority gate for door/window opening-count shadow migration.
++
++These thresholds were fixed BEFORE any development-project shadow measurement.
++Do not edit them after seeing results.  Coverage is reported separately and is
++not a reason to lower this gate.
++
++A FAIL result means the family stays NEW_SHADOW.  That is a valid outcome.
++This module does not activate NEW_SELECTIVE or NEW_AUTHORITATIVE.
++"""
++from __future__ import annotations
++
++from typing import Any, Mapping
++
++
++# Frozen before development-project measurement. Do not revise after scoring.
++OPENING_COUNT_MIGRATION_GATE = {
++    "min_precision_on_answered_identities": 0.99,
++    "min_exact_correctness_on_answered_counts": 0.99,
++    "max_dimension_derived_fake_identities": 0,
++    "max_critical_duplicate_counts": 0,
++    "require_complete_provenance_on_accepted": True,
++    "conflicts_must_fail_closed_or_review": True,
++}
++
++OPENING_COUNT_FAMILIES = frozenset({"window_count", "door_count", "opening_count"})
++
++
++def evaluate_opening_count_migration_gate(metrics: Mapping[str, Any]) -> dict[str, Any]:
++    """Apply the predeclared gate. Does not mutate thresholds."""
++    gate = dict(OPENING_COUNT_MIGRATION_GATE)
++    precision = float(metrics.get("precision_on_answered_identities") or 0.0)
++    exact = float(metrics.get("exact_correctness_on_answered_counts") or 0.0)
++    fake_ids = int(metrics.get("dimension_derived_fake_identities") or 0)
++    duplicates = int(metrics.get("critical_duplicate_counts") or 0)
++    accepted = int(metrics.get("accepted_answered_count") or 0)
++    missing_provenance = int(metrics.get("accepted_missing_provenance") or 0)
++    conflict_leaks = int(metrics.get("conflict_not_fail_closed") or 0)
++
++    checks = {
++        "precision_on_answered_identities": precision >= gate["min_precision_on_answered_identities"],
++        "exact_correctness_on_answered_counts": exact >= gate["min_exact_correctness_on_answered_counts"],
++        "zero_dimension_derived_fake_identities": fake_ids <= gate["max_dimension_derived_fake_identities"],
++        "zero_critical_duplicate_counts": duplicates <= gate["max_critical_duplicate_counts"],
++        "complete_provenance_on_accepted": (
++            not gate["require_complete_provenance_on_accepted"] or missing_provenance == 0
++        ),
++        "conflicts_fail_closed_or_review": (
++            not gate["conflicts_must_fail_closed_or_review"] or conflict_leaks == 0
++        ),
++    }
++    if accepted == 0:
++        # No answered quantities cannot satisfy a 99% correctness claim.
++        checks["precision_on_answered_identities"] = False
++        checks["exact_correctness_on_answered_counts"] = False
++
++    passed = all(checks.values())
++    return {
++        "gate": gate,
++        "checks": checks,
++        "decision": "PASS" if passed else "FAIL",
++        "authority_recommendation": "remain_new_shadow",
++        "coverage_is_not_a_gate_input": True,
++    }
+diff --git a/pb_shadow_opening_count_provider.py b/pb_shadow_opening_count_provider.py
+new file mode 100644
+index 0000000..3fb2e2b
+--- /dev/null
++++ b/pb_shadow_opening_count_provider.py
+@@ -0,0 +1,899 @@
++"""Gold-free shadow quantity provider for door/window schedule counts.
++
++SOURCE PDF
++    → GenericScheduleTableExtractor + explicit tag observations
++    → F.07 viewports / DrawingViewClassifier
++    → F.12 DrawingEvidenceBindingEngine
++    → EntityEvidence + optional type-level CanonicalOpening
++    → QuantityEvidence (shadow only)
++
++This provider does not read expected BOQ files, benchmark IDs, mappings, or
++tolerances.  It does not change GenericPlanReaderExtractor.  It does not switch
++family authority away from legacy.  It does not project commercial takeoff rows.
++
++OPENING TYPE COUNT is not VERIFIED PHYSICAL INSTANCE reconstruction.
++A schedule row ``W1 Qty 6`` may justify a type-count QuantityEvidence of 6.
++It does not create six spatially reconstructed openings.
++Dimension-only geometry never becomes a W/D identity.
++Ambiguous ``WD`` marks abstain unless F.28 already resolved window semantics.
++"""
++from __future__ import annotations
++
++from dataclasses import dataclass, field
++from pathlib import Path
++import re
++from typing import Any, Mapping, Optional, Sequence
++
++import fitz
++
++from pb_canonical_building import CanonicalOpening, ObjectType, Provenance, ReviewState
++from pb_drawing_evidence_binding import (
++    DrawingViewClassifier,
++    DrawingViewType,
++    EvidenceGraph,
++    EvidenceOccurrence,
++    ReconciliationStatus,
++    ScheduleSpecification,
++)
++from pb_drawing_ocr_evidence_layer import DrawingEvidenceParser, EvidenceMethod
++from pb_migration_contracts import (
++    EntityEvidence,
++    EvidenceResolutionStatus,
++    QuantityEvidence,
++    stable_contract_id,
++)
++from pb_opening_tag_normalization import (
++    NormalizedOpeningTag,
++    find_explicit_opening_tags,
++    normalize_opening_tag,
++)
++from pb_raster_schedule_extractor import GenericScheduleTableExtractor, ScheduleRow
++from pb_shadow_opening_count_gate import OPENING_COUNT_FAMILIES
++from pb_viewport_segmentation import assign_bbox_to_viewport, segment_page_viewports
++
++
++PROVIDER_ENGINE_ID = "shadow_opening_count"
++PROVIDER_ENGINE_VERSION = "1.0.0"
++FORMULA_VERSION = "1.0.0"
++
++_DETAIL_OR_LEGEND = {
++    DrawingViewType.DETAIL.value,
++    DrawingViewType.LEGEND.value,
++    DrawingViewType.SPECIFICATION.value,
++    DrawingViewType.REPEATED_OR_REFERENCE.value,
++}
++
++_F28_WD_TAG_RE = re.compile(r"^WD\s*[-_]?\s*0*(?P<number>\d{1,3})$", re.IGNORECASE)
++_WD_TOKEN_RE = re.compile(
++    r"(?<![A-Za-z0-9])WD(?:\s*[-_]?\s*0*(?P<number>\d{1,3}))?(?![A-Za-z0-9])",
++    re.IGNORECASE,
++)
++_OPENING_PAGE_PROBE_RE = re.compile(
++    r"(?is)(?:window\s+schedule|door\s+schedule|schedule\s+of\s+(?:doors|windows)|"
++    r"overall\s+quantity|ground\s+floor\s+plan|floor\s+plan|"
++    r"(?<![A-Za-z0-9])(?:WINDOW|WIN|W|DOOR|DR|D|WD)\s*[-_]?\s*\d{1,3}(?![A-Za-z0-9]))"
++)
++_SCHEDULE_TITLE_RE = re.compile(
++    r"(?i)(?:window\s+schedule|door\s+schedule|schedule\s+of\s+(?:doors|windows))"
++)
++
++
++def _family_for_trade(trade_type: str) -> str:
++    if trade_type == "windows":
++        return "window_count"
++    if trade_type == "doors":
++        return "door_count"
++    return "opening_count"
++
++
++def _round_bbox(bbox: Sequence[float] | None) -> tuple[float, ...]:
++    if not bbox or len(bbox) < 4:
++        return ()
++    values = tuple(round(float(v), 1) for v in bbox[:4])
++    if values == (0.0, 0.0, 0.0, 0.0):
++        return ()
++    return values
++
++
++def _bbox_near(
++    left: Sequence[float],
++    right: Sequence[float],
++    *,
++    tol: float = 24.0,
++) -> bool:
++    if len(left) < 4 or len(right) < 4:
++        return False
++    return (
++        abs(float(left[0]) - float(right[0])) <= tol
++        and abs(float(left[1]) - float(right[1])) <= tol
++    )
++
++
++def page_has_opening_evidence(text: str) -> bool:
++    """Cheap gold-free probe: skip pages with no opening-like text."""
++    return bool(_OPENING_PAGE_PROBE_RE.search(text or ""))
++
++
++def probe_opening_evidence_pages(doc: fitz.Document, pages: Optional[Sequence[int]] = None) -> list[int]:
++    """Return 0-based page indexes that contain opening-like evidence text."""
++    target = list(pages) if pages is not None else list(range(len(doc)))
++    found: list[int] = []
++    for pno in target:
++        if pno < 0 or pno >= len(doc):
++            continue
++        if page_has_opening_evidence(doc[pno].get_text("text") or ""):
++            found.append(pno)
++    return found
++
++
++def resolve_opening_identity(
++    tag: str,
++    *,
++    evidence_text: str = "",
++    trade_type: str = "",
++) -> Optional[NormalizedOpeningTag]:
++    """Normalize an explicit W/D mark. Accept F.28 WD{n} only when already window-resolved."""
++    norm = normalize_opening_tag(tag)
++    if norm is not None:
++        return norm
++    match = _F28_WD_TAG_RE.fullmatch((tag or "").strip())
++    if match is None:
++        return None
++    number = int(match.group("number"))
++    if number <= 0:
++        return None
++    evidence = f"{evidence_text or ''} {trade_type or ''}".lower()
++    if "window fields" in evidence or trade_type == "windows":
++        return NormalizedOpeningTag(
++            tag=f"WD{number}",
++            trade_type="windows",
++            raw_text=tag,
++        )
++    return None
++
++
++def _classify_page_view(
++    page: fitz.Page,
++    page_number: int,
++    bbox: Sequence[float] | None,
++    viewports: Sequence[Any],
++) -> tuple[str, str]:
++    if bbox and len(bbox) >= 4 and _round_bbox(bbox):
++        owned = assign_bbox_to_viewport(bbox, viewports)
++        if owned is not None:
++            return owned.view_type, owned.view_id
++    page_type = DrawingViewClassifier.classify_text(page.get_text("text") or "")
++    return page_type.value, f"page_{page_number}_main"
++
++
++def _is_schedule_type_row(row: ScheduleRow, view_type: str) -> bool:
++    """Type-count rows are schedule/card totals, not a single plan callout."""
++    evidence = f"{row.evidence_text or ''} {row.description or ''}".lower()
++    if "overall quantity" in evidence:
++        return True
++    if view_type == DrawingViewType.SCHEDULE.value:
++        if row.quantity is not None and row.quantity >= 2:
++            return True
++        if row.dimensions is not None:
++            return True
++        return False
++    return row.quantity is not None and row.quantity >= 2
++
++
++def _specs_conflict(existing: ScheduleSpecification, quantity: Optional[float], dimensions: Optional[Sequence[float]]) -> bool:
++    if existing.scheduled_quantity is not None and quantity is not None:
++        if abs(float(existing.scheduled_quantity) - float(quantity)) > 1e-9:
++            return True
++    if existing.dimensions and dimensions and len(existing.dimensions) >= 2 and len(dimensions) >= 2:
++        if (
++            abs(float(existing.dimensions[0]) - float(dimensions[0])) > 50
++            or abs(float(existing.dimensions[1]) - float(dimensions[1])) > 50
++        ):
++            return True
++    return False
++
++
++@dataclass
++class OpeningCountBundle:
++    """Shadow artifacts for one source. Not commercially authoritative."""
++
++    quantities: tuple[QuantityEvidence, ...]
++    entity_evidence: tuple[EntityEvidence, ...]
++    canonical_openings: tuple[CanonicalOpening, ...]
++    conflicts: tuple[dict[str, Any], ...]
++    ambiguous_marks: tuple[str, ...]
++    duplicate_observations: int
++    diagnostics: Mapping[str, Any] = field(default_factory=dict)
++
++    def to_dict(self) -> dict[str, Any]:
++        return {
++            "quantities": [item.to_dict() for item in self.quantities],
++            "entity_evidence": [item.to_dict() for item in self.entity_evidence],
++            "canonical_openings": [item.to_dict() for item in self.canonical_openings],
++            "conflicts": list(self.conflicts),
++            "ambiguous_marks": list(self.ambiguous_marks),
++            "duplicate_observations": self.duplicate_observations,
++            "diagnostics": dict(self.diagnostics),
++        }
++
++
++class ShadowOpeningCountProvider:
++    """ShadowQuantityEngine for door/window type counts."""
++
++    engine_id = PROVIDER_ENGINE_ID
++    engine_version = PROVIDER_ENGINE_VERSION
++
++    def __init__(
++        self,
++        *,
++        ocr_lines_by_page: Optional[Mapping[int, Sequence[Mapping[str, Any]]]] = None,
++    ) -> None:
++        self._ocr_lines_by_page = {
++            int(page): tuple(lines) for page, lines in (ocr_lines_by_page or {}).items()
++        }
++
++    def extract_quantities(
++        self,
++        pdf_path: Path | str,
++        pages: Optional[Sequence[int]] = None,
++    ) -> tuple[QuantityEvidence, ...]:
++        return self.extract_bundle(pdf_path, pages=pages).quantities
++
++    def extract_bundle(
++        self,
++        pdf_path: Path | str,
++        pages: Optional[Sequence[int]] = None,
++    ) -> OpeningCountBundle:
++        path = Path(pdf_path)
++        if not path.is_file():
++            raise FileNotFoundError(f"PDF file not found at: {path}")
++        doc = fitz.open(path)
++        try:
++            return self._extract_open_document(doc, path=path, pages=pages)
++        finally:
++            doc.close()
++
++    def _extract_open_document(
++        self,
++        doc: fitz.Document,
++        *,
++        path: Path,
++        pages: Optional[Sequence[int]],
++    ) -> OpeningCountBundle:
++        requested = list(pages) if pages is not None else list(range(len(doc)))
++        target = probe_opening_evidence_pages(doc, requested)
++        if self._ocr_lines_by_page:
++            for page_number in self._ocr_lines_by_page:
++                pno = int(page_number) - 1
++                if pno in requested and pno not in target:
++                    target.append(pno)
++            target.sort()
++
++        extractor = GenericScheduleTableExtractor()
++        graph = EvidenceGraph()
++        schedule_conflicts: list[dict[str, Any]] = []
++        ambiguous: list[str] = []
++        seen_physical: set[tuple[str, int, tuple[float, ...]]] = set()
++        duplicate_holder = [0]
++        schedule_bboxes: set[tuple[int, tuple[float, ...]]] = set()
++
++        viewports_by_page: dict[int, list[Any]] = {}
++        for pno in target:
++            page = doc[pno]
++            page_number = pno + 1
++            viewports_by_page[page_number] = segment_page_viewports(page, page_number=page_number)
++
++        raw_rows: list[ScheduleRow] = []
++        for pno in target:
++            raw_rows.extend(extractor.extract_from_page(doc[pno], pno + 1))
++
++        for row in raw_rows:
++            norm = resolve_opening_identity(
++                row.tag,
++                evidence_text=row.evidence_text or row.description,
++                trade_type=row.trade_type,
++            )
++            if norm is None:
++                continue
++            viewports = viewports_by_page.get(row.source_page, [])
++            page = doc[row.source_page - 1]
++            view_type, _view_id = _classify_page_view(page, row.source_page, row.bbox, viewports)
++            bbox = list(row.bbox) if row.bbox and _round_bbox(row.bbox) else None
++            evidence_id = stable_contract_id(
++                "ev",
++                {
++                    "kind": "schedule_row",
++                    "tag": norm.tag,
++                    "page": row.source_page,
++                    "bbox": _round_bbox(row.bbox),
++                    "qty": row.quantity,
++                    "dims": row.dimensions,
++                },
++            )
++            if _is_schedule_type_row(row, view_type):
++                existing = graph.schedule_specs.get(norm.tag)
++                if existing is not None:
++                    if _specs_conflict(existing, row.quantity, row.dimensions):
++                        schedule_conflicts.append(
++                            {
++                                "type": "duplicate_schedule_conflict",
++                                "tag": norm.tag,
++                                "first": existing.scheduled_quantity,
++                                "second": row.quantity,
++                            }
++                        )
++                        continue
++                    if (
++                        existing.scheduled_quantity == row.quantity
++                        and (existing.dimensions == row.dimensions or not row.dimensions or not existing.dimensions)
++                    ):
++                        duplicate_holder[0] += 1
++                        continue
++                graph.add_schedule_spec(
++                    ScheduleSpecification(
++                        tag=norm.tag,
++                        trade_type=norm.trade_type,
++                        description=row.description,
++                        dimensions=list(row.dimensions) if row.dimensions else None,
++                        scheduled_quantity=float(row.quantity) if row.quantity is not None else None,
++                        source_page=row.source_page,
++                        bounding_box=bbox,
++                        confidence=row.confidence,
++                        extraction_method="schedule",
++                        evidence_id=evidence_id,
++                    )
++                )
++                graph.add_observation(
++                    EvidenceOccurrence(
++                        occurrence_id=evidence_id,
++                        tag=norm.tag,
++                        trade_type=norm.trade_type,
++                        view_type=DrawingViewType.SCHEDULE.value,
++                        source_page=row.source_page,
++                        bounding_box=bbox,
++                        raw_text=row.evidence_text or row.description,
++                        dimensions=list(row.dimensions) if row.dimensions else None,
++                        confidence=row.confidence,
++                        extraction_method="schedule",
++                    ).to_observation()
++                )
++                if _round_bbox(row.bbox):
++                    schedule_bboxes.add((row.source_page, _round_bbox(row.bbox)))
++            elif view_type == DrawingViewType.FLOOR_PLAN.value and (row.quantity is None or row.quantity == 1):
++                self._add_physical_observation(
++                    graph=graph,
++                    seen_physical=seen_physical,
++                    duplicate_holder=duplicate_holder,
++                    tag=norm.tag,
++                    trade_type=norm.trade_type,
++                    page_number=row.source_page,
++                    bbox=bbox,
++                    text=row.evidence_text or row.description,
++                    dimensions=list(row.dimensions) if row.dimensions else None,
++                    view_type=DrawingViewType.FLOOR_PLAN.value,
++                    method="native",
++                    confidence=row.confidence,
++                )
++
++        for pno in target:
++            page = doc[pno]
++            page_number = pno + 1
++            viewports = viewports_by_page.get(page_number, [])
++            self._ingest_explicit_tags(
++                page,
++                page_number=page_number,
++                viewports=viewports,
++                graph=graph,
++                seen_physical=seen_physical,
++                schedule_bboxes=schedule_bboxes,
++                duplicate_holder=duplicate_holder,
++            )
++            self._ingest_ocr_lines(
++                page_number=page_number,
++                graph=graph,
++                schedule_conflicts=schedule_conflicts,
++                duplicate_holder=duplicate_holder,
++            )
++            self._note_ambiguous_marks(page, page_number, viewports, graph, ambiguous)
++
++        conflicting_tags = {str(item["tag"]) for item in schedule_conflicts if item.get("tag")}
++        reconciled = graph.reconcile_all()
++        quantities: list[QuantityEvidence] = []
++        entities: list[EntityEvidence] = []
++        openings: list[CanonicalOpening] = []
++        visible_conflicts: list[dict[str, Any]] = list(schedule_conflicts)
++        suppressed = len(graph.suppressed_duplicates) + duplicate_holder[0]
++
++        for tag, group in sorted(reconciled.items(), key=lambda item: item[0]):
++            visible_conflicts.extend(group.conflicts)
++            evidence_ids = self._group_evidence_ids(group, graph)
++            if tag in conflicting_tags:
++                quantities.append(
++                    self._abstain(
++                        tag=tag,
++                        trade=group.trade_type,
++                        path=path,
++                        reasons=("duplicate_schedule_conflict",),
++                        evidence_ids=evidence_ids,
++                    )
++                )
++                continue
++            if any(c.get("type") == "dimension_conflict" for c in group.conflicts):
++                quantities.append(
++                    self._abstain(
++                        tag=tag,
++                        trade=group.trade_type,
++                        path=path,
++                        reasons=("conflicting_dimensions",),
++                        evidence_ids=evidence_ids,
++                    )
++                )
++                continue
++            if group.status == ReconciliationStatus.CONFLICT_MANUAL_REVIEW.value:
++                reasons = tuple(
++                    str(c.get("type") or "conflict_manual_review") for c in group.conflicts
++                ) or ("conflict_manual_review",)
++                quantities.append(
++                    self._abstain(
++                        tag=tag,
++                        trade=group.trade_type,
++                        path=path,
++                        reasons=reasons,
++                        evidence_ids=evidence_ids,
++                    )
++                )
++                continue
++            if group.final_quantity is None:
++                quantities.append(
++                    self._abstain(
++                        tag=tag,
++                        trade=group.trade_type,
++                        path=path,
++                        reasons=("missing_quantity",),
++                        evidence_ids=evidence_ids,
++                    )
++                )
++                continue
++            if not evidence_ids:
++                quantities.append(
++                    self._abstain(
++                        tag=tag,
++                        trade=group.trade_type,
++                        path=path,
++                        reasons=("missing_identity_evidence",),
++                    )
++                )
++                continue
++
++            plan_count = int(group.metadata.get("plan_count") or 0)
++            schedule_qty = group.metadata.get("schedule_count")
++            has_schedule = schedule_qty is not None
++            if has_schedule and plan_count == 0:
++                formula = "explicit_schedule_count"
++                authority = "schedule_extracted"
++                status = "provisional"
++            elif has_schedule and plan_count > 0:
++                formula = "schedule_plan_corroborated"
++                authority = "schedule_extracted"
++                status = "firm"
++            elif plan_count > 0:
++                formula = "plan_tag_count"
++                authority = "provisional"
++                status = "provisional"
++            else:
++                formula = "elevation_tag_count"
++                authority = "provisional"
++                status = "provisional"
++
++            type_entity_id = stable_contract_id(
++                "ent",
++                {"kind": "opening_type", "tag": tag, "source": str(path)},
++            )
++            entity_status = (
++                EvidenceResolutionStatus.CORROBORATED
++                if formula == "schedule_plan_corroborated"
++                else EvidenceResolutionStatus.CANDIDATE
++            )
++            entities.append(
++                EntityEvidence(
++                    candidate_entity_id=type_entity_id,
++                    candidate_type="opening_type",
++                    evidence_ids=evidence_ids,
++                    status=entity_status,
++                    confidence=0.9 if status == "firm" else 0.6,
++                    reason_codes=(formula,),
++                    metadata={
++                        "mark": tag,
++                        "trade_type": group.trade_type,
++                        "count_kind": "opening_type_count",
++                        "scheduled_quantity": schedule_qty,
++                        "plan_instance_count": plan_count,
++                        "spatially_reconstructed": False,
++                    },
++                )
++            )
++            for occ in group.occurrences_by_view.get(DrawingViewType.FLOOR_PLAN.value, []):
++                if not occ.bounding_box:
++                    continue
++                phys_id = stable_contract_id(
++                    "ent",
++                    {
++                        "kind": "opening_instance",
++                        "tag": tag,
++                        "page": occ.source_page,
++                        "bbox": _round_bbox(occ.bounding_box),
++                    },
++                )
++                entities.append(
++                    EntityEvidence(
++                        candidate_entity_id=phys_id,
++                        candidate_type="opening_instance",
++                        evidence_ids=(occ.occurrence_id,),
++                        status=EvidenceResolutionStatus.CANDIDATE,
++                        confidence=float(occ.confidence),
++                        reason_codes=("plan_tag_observation",),
++                        metadata={
++                            "mark": tag,
++                            "count_kind": "physical_instance_candidate",
++                            "source_page": occ.source_page,
++                            "spatially_reconstructed": False,
++                        },
++                    )
++                )
++
++            width_m = height_m = None
++            if group.dimensions and len(group.dimensions) >= 2:
++                width_m = group.dimensions[0] / 1000.0 if group.dimensions[0] > 50 else group.dimensions[0]
++                height_m = group.dimensions[1] / 1000.0 if group.dimensions[1] > 50 else group.dimensions[1]
++            spec = graph.schedule_specs.get(tag)
++            openings.append(
++                CanonicalOpening(
++                    id=stable_contract_id("open", {"tag": tag, "kind": "type", "source": str(path)}),
++                    name=f"{tag} opening type",
++                    opening_type="WINDOW" if group.trade_type == "windows" else "DOOR",
++                    mark=tag,
++                    width_m=width_m,
++                    height_m=height_m,
++                    object_type=ObjectType.WINDOW if group.trade_type == "windows" else ObjectType.DOOR,
++                    review_state=ReviewState.REVIEW_REQUIRED,
++                    takeoff_eligible=False,
++                    deduction_authority=False,
++                    provenance=Provenance(
++                        source_pdf=str(path),
++                        page_number=spec.source_page if spec else None,
++                        producer_module=PROVIDER_ENGINE_ID,
++                        producer_version=PROVIDER_ENGINE_VERSION,
++                        contributing_evidence=list(evidence_ids),
++                    ),
++                    metadata={
++                        "count_kind": "opening_type",
++                        "type_count": group.final_quantity,
++                        "spatially_reconstructed": False,
++                        "physical_instance_count_not_implied": True,
++                    },
++                )
++            )
++            quantities.append(
++                QuantityEvidence(
++                    quantity_id=stable_contract_id(
++                        "qty",
++                        {
++                            "family": _family_for_trade(group.trade_type),
++                            "tag": tag,
++                            "value": group.final_quantity,
++                            "formula": formula,
++                            "version": FORMULA_VERSION,
++                        },
++                    ),
++                    family=_family_for_trade(group.trade_type),
++                    semantic_key=tag,
++                    value=float(group.final_quantity),
++                    unit="ea",
++                    input_entity_ids=(type_entity_id,),
++                    formula=formula,
++                    formula_version=FORMULA_VERSION,
++                    evidence_ids=evidence_ids,
++                    authority=authority,
++                    status=status,
++                    confidence=0.9 if status == "firm" else 0.55,
++                    abstained=False,
++                    reason_codes=(formula, group.status),
++                    metadata={
++                        "count_kind": "opening_type_count",
++                        "spatially_reconstructed": False,
++                        "plan_instance_count": plan_count,
++                        "schedule_count": schedule_qty,
++                        "trade_type": group.trade_type,
++                        "source_page": spec.source_page if spec else None,
++                        "source_sheet": None,
++                        "description": group.description,
++                        "viewport_id": None,
++                    },
++                )
++            )
++
++        for mark in sorted(set(ambiguous)):
++            quantities.append(
++                self._abstain(
++                    tag=mark,
++                    trade="openings",
++                    path=path,
++                    reasons=("ambiguous_opening_identity",),
++                    family="opening_count",
++                )
++            )
++
++        quantities = self._prefer_abstention(tuple(quantities))
++        return OpeningCountBundle(
++            quantities=quantities,
++            entity_evidence=tuple(entities),
++            canonical_openings=tuple(openings),
++            conflicts=tuple(visible_conflicts),
++            ambiguous_marks=tuple(sorted(set(ambiguous))),
++            duplicate_observations=suppressed,
++            diagnostics={
++                "engine_id": self.engine_id,
++                "engine_version": self.engine_version,
++                "families": sorted(OPENING_COUNT_FAMILIES),
++                "authoritative": False,
++                "authority_state": "new_shadow",
++                "gold_consulted": False,
++                "pages_considered": target,
++                "type_count_is_not_physical_reconstruction": True,
++            },
++        )
++
++    def _add_physical_observation(
++        self,
++        *,
++        graph: EvidenceGraph,
++        seen_physical: set[tuple[str, int, tuple[float, ...]]],
++        duplicate_holder: list[int],
++        tag: str,
++        trade_type: str,
++        page_number: int,
++        bbox: Optional[Sequence[float]],
++        text: str,
++        dimensions: Optional[list[float]],
++        view_type: str,
++        method: str,
++        confidence: float = 1.0,
++        legend: bool = False,
++    ) -> None:
++        rounded = _round_bbox(bbox)
++        for existing_tag, existing_page, existing_bbox in seen_physical:
++            if existing_tag == tag and existing_page == page_number and (
++                existing_bbox == rounded or (rounded and existing_bbox and _bbox_near(existing_bbox, rounded))
++            ):
++                duplicate_holder[0] += 1
++                return
++        seen_physical.add((tag, page_number, rounded))
++        occ_id = stable_contract_id(
++            "ev",
++            {"kind": "physical_tag", "tag": tag, "page": page_number, "bbox": rounded, "text": text},
++        )
++        graph.add_observation(
++            EvidenceOccurrence(
++                occurrence_id=occ_id,
++                tag=tag,
++                trade_type=trade_type,
++                view_type=view_type,
++                source_page=page_number,
++                bounding_box=list(bbox) if bbox else None,
++                raw_text=text,
++                dimensions=dimensions,
++                is_legend_or_typical=legend,
++                confidence=confidence,
++                extraction_method=method,
++            ).to_observation()
++        )
++
++    def _ingest_explicit_tags(
++        self,
++        page: fitz.Page,
++        *,
++        page_number: int,
++        viewports: Sequence[Any],
++        graph: EvidenceGraph,
++        seen_physical: set[tuple[str, int, tuple[float, ...]]],
++        schedule_bboxes: set[tuple[int, tuple[float, ...]]],
++        duplicate_holder: list[int],
++    ) -> None:
++        words = page.get_text("words") or []
++        blocks: dict[int, list[Any]] = {}
++        for word in words:
++            blocks.setdefault(int(word[5]), []).append(word)
++        for block_words in blocks.values():
++            if not block_words:
++                continue
++            text = " ".join(str(w[4]) for w in sorted(block_words, key=lambda item: (item[6], item[7])))
++            bbox = (
++                min(w[0] for w in block_words),
++                min(w[1] for w in block_words),
++                max(w[2] for w in block_words),
++                max(w[3] for w in block_words),
++            )
++            if (page_number, _round_bbox(bbox)) in schedule_bboxes:
++                continue
++            tags = find_explicit_opening_tags(text)
++            if not tags:
++                continue
++            view_type, _view_id = _classify_page_view(page, page_number, bbox, viewports)
++            if view_type == DrawingViewType.SCHEDULE.value:
++                continue
++            legend = view_type in _DETAIL_OR_LEGEND
++            for norm in tags:
++                self._add_physical_observation(
++                    graph=graph,
++                    seen_physical=seen_physical,
++                    duplicate_holder=duplicate_holder,
++                    tag=norm.tag,
++                    trade_type=norm.trade_type,
++                    page_number=page_number,
++                    bbox=bbox,
++                    text=text,
++                    dimensions=None,
++                    view_type=view_type,
++                    method="native",
++                    legend=legend,
++                )
++
++    def _ingest_ocr_lines(
++        self,
++        *,
++        page_number: int,
++        graph: EvidenceGraph,
++        schedule_conflicts: list[dict[str, Any]],
++        duplicate_holder: list[int],
++    ) -> None:
++        for line in self._ocr_lines_by_page.get(page_number, ()):
++            text = str(line.get("text") or "")
++            bbox = line.get("bounding_box") or line.get("bbox")
++            record = DrawingEvidenceParser.parse_schedule_line(
++                text,
++                source_page=page_number,
++                bbox=list(bbox) if bbox else None,
++                confidence=float(line.get("confidence") or 0.8),
++                method=EvidenceMethod.RASTER_OCR.value,
++            )
++            if record is None:
++                continue
++            norm = resolve_opening_identity(
++                record.tag,
++                evidence_text=text,
++                trade_type="windows" if str(record.tag).upper().startswith("W") else "doors",
++            )
++            if norm is None:
++                continue
++            existing = graph.schedule_specs.get(norm.tag)
++            if existing is not None:
++                if _specs_conflict(existing, record.quantity, record.dimensions):
++                    schedule_conflicts.append(
++                        {
++                            "type": "duplicate_schedule_conflict",
++                            "tag": norm.tag,
++                            "first": existing.scheduled_quantity,
++                            "second": record.quantity,
++                        }
++                    )
++                    continue
++                duplicate_holder[0] += 1
++                continue
++            if record.quantity is None and not record.dimensions:
++                continue
++            evidence_id = stable_contract_id(
++                "ev",
++                {"kind": "ocr_schedule", "tag": norm.tag, "page": page_number, "text": text},
++            )
++            graph.add_schedule_spec(
++                ScheduleSpecification(
++                    tag=norm.tag,
++                    trade_type=norm.trade_type,
++                    description=record.description,
++                    dimensions=record.dimensions,
++                    scheduled_quantity=record.quantity,
++                    source_page=page_number,
++                    bounding_box=record.bounding_box,
++                    confidence=record.confidence,
++                    extraction_method="ocr",
++                    evidence_id=evidence_id,
++                )
++            )
++            graph.add_observation(
++                EvidenceOccurrence(
++                    occurrence_id=evidence_id,
++                    tag=norm.tag,
++                    trade_type=norm.trade_type,
++                    view_type=DrawingViewType.SCHEDULE.value,
++                    source_page=page_number,
++                    bounding_box=record.bounding_box,
++                    raw_text=text,
++                    dimensions=record.dimensions,
++                    confidence=record.confidence,
++                    extraction_method="ocr",
++                ).to_observation()
++            )
++
++    def _note_ambiguous_marks(
++        self,
++        page: fitz.Page,
++        page_number: int,
++        viewports: Sequence[Any],
++        graph: EvidenceGraph,
++        ambiguous: list[str],
++    ) -> None:
++        text = page.get_text("text") or ""
++        view_type, _ = _classify_page_view(page, page_number, None, viewports)
++        if view_type != DrawingViewType.SCHEDULE.value and not _SCHEDULE_TITLE_RE.search(text):
++            return
++        resolved_wd = {tag for tag in graph.schedule_specs if _F28_WD_TAG_RE.fullmatch(tag)}
++        for match in _WD_TOKEN_RE.finditer(text):
++            number = match.group("number")
++            key = f"WD{int(number)}" if number else "WD"
++            if key in resolved_wd or (key == "WD" and resolved_wd):
++                continue
++            if normalize_opening_tag(match.group(0)) is not None:
++                continue
++            ambiguous.append(key)
++
++    def _group_evidence_ids(self, group: Any, graph: EvidenceGraph) -> tuple[str, ...]:
++        ids: list[str] = []
++        spec = graph.schedule_specs.get(group.tag)
++        if spec and spec.evidence_id:
++            ids.append(spec.evidence_id)
++        for occs in group.occurrences_by_view.values():
++            for occ in occs:
++                if occ.occurrence_id:
++                    ids.append(occ.occurrence_id)
++        unique: list[str] = []
++        for item in ids:
++            if item not in unique:
++                unique.append(item)
++        return tuple(unique)
++
++    def _prefer_abstention(self, quantities: Sequence[QuantityEvidence]) -> tuple[QuantityEvidence, ...]:
++        by_key: dict[str, QuantityEvidence] = {}
++        for quantity in quantities:
++            previous = by_key.get(quantity.semantic_key)
++            if previous is None:
++                by_key[quantity.semantic_key] = quantity
++                continue
++            if quantity.abstained or previous.abstained:
++                by_key[quantity.semantic_key] = quantity if quantity.abstained else previous
++        return tuple(
++            sorted(by_key.values(), key=lambda item: (item.family, item.semantic_key, item.quantity_id))
++        )
++
++    def _abstain(
++        self,
++        *,
++        tag: str,
++        trade: str,
++        path: Path,
++        reasons: tuple[str, ...],
++        family: Optional[str] = None,
++        evidence_ids: tuple[str, ...] = (),
++    ) -> QuantityEvidence:
++        chosen_family = family or _family_for_trade(trade)
++        return QuantityEvidence(
++            quantity_id=stable_contract_id(
++                "qty",
++                {"family": chosen_family, "tag": tag, "abstained": True, "reasons": list(reasons)},
++            ),
++            family=chosen_family,
++            semantic_key=tag,
++            value=None,
++            unit="ea",
++            evidence_ids=evidence_ids,
++            authority="blocked",
++            status="blocked",
++            confidence=0.0,
++            abstained=True,
++            blocking_reasons=reasons,
++            reason_codes=reasons,
++            metadata={
++                "count_kind": "opening_type_count",
++                "spatially_reconstructed": False,
++                "source_pdf": str(path),
++            },
++        )
+diff --git a/scripts/run_shadow_opening_count_report.py b/scripts/run_shadow_opening_count_report.py
+new file mode 100644
+index 0000000..9b7ab11
+--- /dev/null
++++ b/scripts/run_shadow_opening_count_report.py
+@@ -0,0 +1,35 @@
++#!/usr/bin/env python3
++"""Run the gold-joining opening-count shadow report after provider outputs freeze."""
++from __future__ import annotations
++
++import argparse
++import json
++from pathlib import Path
++import sys
++
++ROOT = Path(__file__).resolve().parents[1]
++if str(ROOT) not in sys.path:
++    sys.path.insert(0, str(ROOT))
++
++from pb_shadow_opening_count_eval import run_development_shadow_report
++
++
++def main() -> int:
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument(
++        "--output",
++        default="shadow_reports/opening_count_shadow_development.json",
++        help="Path for the frozen evaluator report",
++    )
++    args = parser.parse_args()
++    report = run_development_shadow_report()
++    target = Path(args.output)
++    target.parent.mkdir(parents=True, exist_ok=True)
++    target.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
++    print(json.dumps(report["metrics"], indent=2, sort_keys=True))
++    print(json.dumps(report["migration_gate"], indent=2, sort_keys=True))
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/tests/test_shadow_opening_count_eval.py b/tests/test_shadow_opening_count_eval.py
+new file mode 100644
+index 0000000..ee95d03
+--- /dev/null
++++ b/tests/test_shadow_opening_count_eval.py
+@@ -0,0 +1,77 @@
++from __future__ import annotations
++
++from pb_migration_contracts import QuantityEvidence
++from pb_shadow_opening_count_eval import (
++    EligibleOpeningItem,
++    aggregate_development_metrics,
++    score_frozen_quantities,
++)
++from pb_shadow_opening_count_gate import evaluate_opening_count_migration_gate
++
++
++def _qty(key: str, value: float | None, *, abstained: bool = False, formula: str = "explicit_schedule_count") -> QuantityEvidence:
++    return QuantityEvidence(
++        quantity_id=f"qty_{key}_{'x' if abstained else value}",
++        family="window_count" if key.startswith("W") else "door_count",
++        semantic_key=key,
++        value=value,
++        unit="ea",
++        input_entity_ids=("ent_type",) if not abstained else (),
++        evidence_ids=("ev_1",) if not abstained else (),
++        formula=formula,
++        formula_version="1.0.0",
++        authority="schedule_extracted" if not abstained else "blocked",
++        status="firm" if not abstained else "blocked",
++        confidence=0.9 if not abstained else 0.0,
++        abstained=abstained,
++        blocking_reasons=("conflict_manual_review",) if abstained else (),
++    )
++
++
++def test_evaluator_scores_frozen_outputs_without_reextracting() -> None:
++    eligible = (
++        EligibleOpeningItem("demo", "I1", "W1", 6.0, "NO", "Window W1", "schedule_extractable"),
++        EligibleOpeningItem("demo", "I2", "D1", 3.0, "NO", "Door D1", "schedule_extractable"),
++    )
++    frozen = (_qty("W1", 6.0), _qty("D1", None, abstained=True), _qty("W99", 2.0))
++    metrics = score_frozen_quantities(
++        benchmark_id="demo",
++        frozen_quantities=frozen,
++        eligible=eligible,
++        conflicts=(),
++    )
++    assert metrics["eligible_opening_count_items"] == 2
++    assert metrics["answered"] == 2
++    assert metrics["hallucinations"] == 1
++    assert metrics["precision_on_answered_identities"] == 0.5
++    assert metrics["exact_correctness_on_answered_counts"] == 0.5
++    assert "W99" in metrics["hallucinated_keys"]
++
++
++def test_gate_is_applied_to_aggregated_metrics_without_changing_thresholds() -> None:
++    rows = [
++        {
++            "benchmark_id": "a",
++            "eligible_opening_count_items": 2,
++            "answered": 2,
++            "abstained": 0,
++            "precision_on_answered_identities": 1.0,
++            "exact_correctness_on_answered_counts": 1.0,
++            "hallucinations": 0,
++            "duplicate_counts": 0,
++            "critical_duplicate_counts": 0,
++            "conflicts": 0,
++            "ambiguous_identities": 0,
++            "accepted_missing_provenance": 0,
++            "conflict_not_fail_closed": 0,
++            "dimension_derived_fake_identities": 0,
++            "legacy_new_agreement": {"agree": 1, "compared": 1},
++            "by_authority": {"schedule_extracted": 2},
++            "by_formula": {"explicit_schedule_count": 2},
++        }
++    ]
++    aggregated = aggregate_development_metrics(rows)
++    gate = evaluate_opening_count_migration_gate(aggregated)
++    assert gate["decision"] == "PASS"
++    assert gate["authority_recommendation"] == "remain_new_shadow"
++    assert gate["gate"]["min_precision_on_answered_identities"] == 0.99
+diff --git a/tests/test_shadow_opening_count_gate.py b/tests/test_shadow_opening_count_gate.py
+new file mode 100644
+index 0000000..a2806ae
+--- /dev/null
++++ b/tests/test_shadow_opening_count_gate.py
+@@ -0,0 +1,50 @@
++from __future__ import annotations
++
++from pb_shadow_opening_count_gate import (
++    OPENING_COUNT_MIGRATION_GATE,
++    evaluate_opening_count_migration_gate,
++)
++
++
++def test_migration_gate_was_predeclared_and_is_not_relaxed() -> None:
++    assert OPENING_COUNT_MIGRATION_GATE == {
++        "min_precision_on_answered_identities": 0.99,
++        "min_exact_correctness_on_answered_counts": 0.99,
++        "max_dimension_derived_fake_identities": 0,
++        "max_critical_duplicate_counts": 0,
++        "require_complete_provenance_on_accepted": True,
++        "conflicts_must_fail_closed_or_review": True,
++    }
++
++
++def test_zero_answered_quantities_cannot_pass_the_gate() -> None:
++    result = evaluate_opening_count_migration_gate(
++        {
++            "precision_on_answered_identities": 1.0,
++            "exact_correctness_on_answered_counts": 1.0,
++            "dimension_derived_fake_identities": 0,
++            "critical_duplicate_counts": 0,
++            "accepted_answered_count": 0,
++            "accepted_missing_provenance": 0,
++            "conflict_not_fail_closed": 0,
++        }
++    )
++    assert result["decision"] == "FAIL"
++    assert result["authority_recommendation"] == "remain_new_shadow"
++    assert result["coverage_is_not_a_gate_input"] is True
++
++
++def test_gate_passes_only_when_all_frozen_thresholds_hold() -> None:
++    result = evaluate_opening_count_migration_gate(
++        {
++            "precision_on_answered_identities": 1.0,
++            "exact_correctness_on_answered_counts": 1.0,
++            "dimension_derived_fake_identities": 0,
++            "critical_duplicate_counts": 0,
++            "accepted_answered_count": 4,
++            "accepted_missing_provenance": 0,
++            "conflict_not_fail_closed": 0,
++        }
++    )
++    assert result["decision"] == "PASS"
++    assert result["authority_recommendation"] == "remain_new_shadow"
+diff --git a/tests/test_shadow_opening_count_provider.py b/tests/test_shadow_opening_count_provider.py
+new file mode 100644
+index 0000000..9ec6d26
+--- /dev/null
++++ b/tests/test_shadow_opening_count_provider.py
+@@ -0,0 +1,538 @@
++from __future__ import annotations
++
++import ast
++import hashlib
++import inspect
++import json
++from pathlib import Path
++
++import fitz
++import pytest
++
++import pb_shadow_opening_count_provider as provider_mod
++from pb_gold_free_shadow_runner import GoldFreeShadowRunner
++from pb_shadow_opening_count_gate import OPENING_COUNT_MIGRATION_GATE
++from pb_shadow_opening_count_provider import (
++    ShadowOpeningCountProvider,
++    page_has_opening_evidence,
++    resolve_opening_identity,
++)
++
++
++def _answered(bundle):
++    return {item.semantic_key: item for item in bundle.quantities if not item.abstained}
++
++
++def _abstained(bundle):
++    return {item.semantic_key: item for item in bundle.quantities if item.abstained}
++
++
++def _schedule_pdf(
++    tmp_path: Path,
++    name: str,
++    rows: list[list[str]],
++    extra_text: str = "",
++    *,
++    title: str = "DRAWING TITLE: WINDOW & DOOR SCHEDULE",
++    origin: tuple[float, float] = (40.0, 85.0),
++    fontsize: float = 9,
++    reverse_draw_order: bool = False,
++) -> Path:
++    path = tmp_path / name
++    doc = fitz.open()
++    page = doc.new_page(width=842, height=595)
++    page.insert_text((40, 35), title, fontsize=10)
++    page.insert_text((40, 50), "SCALE 1:100", fontsize=9)
++    x = [origin[0], origin[0] + 90, origin[0] + 260, origin[0] + 350, origin[0] + 610]
++    y0 = origin[1]
++    rh = 28
++    draw_rows = list(enumerate(rows))
++    if reverse_draw_order:
++        draw_rows = list(reversed(draw_rows))
++    for ridx, row in draw_rows:
++        y = y0 + ridx * rh
++        page.draw_line(fitz.Point(x[0], y), fitz.Point(x[-1], y))
++        for cidx, cell in enumerate(row):
++            page.draw_line(fitz.Point(x[cidx], y), fitz.Point(x[cidx], y + rh))
++            page.insert_text((x[cidx] + 5, y + 18), cell, fontsize=fontsize)
++        page.draw_line(fitz.Point(x[-1], y), fitz.Point(x[-1], y + rh))
++    page.draw_line(fitz.Point(x[0], y0 + len(rows) * rh), fitz.Point(x[-1], y0 + len(rows) * rh))
++    if extra_text:
++        page.insert_text((40, y0 + len(rows) * rh + 35), extra_text, fontsize=9)
++    doc.save(path)
++    doc.close()
++    return path
++
++
++def _plan_pdf(tmp_path: Path, name: str, tags: list[tuple[str, tuple[float, float]]], extra: str = "") -> Path:
++    path = tmp_path / name
++    doc = fitz.open()
++    page = doc.new_page(width=842, height=595)
++    page.insert_text((40, 35), "GROUND FLOOR PLAN", fontsize=12)
++    page.insert_text((40, 50), "SCALE 1:100", fontsize=9)
++    for tag, pos in tags:
++        page.insert_text(pos, tag, fontsize=11)
++    if extra:
++        page.insert_text((40, 520), extra, fontsize=8)
++    doc.save(path)
++    doc.close()
++    return path
++
++
++def _multi_page(tmp_path: Path, name: str, builders: list) -> Path:
++    path = tmp_path / name
++    doc = fitz.open()
++    for builder in builders:
++        builder(doc)
++    doc.save(path)
++    doc.close()
++    return path
++
++
++def test_tabular_schedule_emits_type_count_quantity_evidence(tmp_path: Path) -> None:
++    pdf = _schedule_pdf(
++        tmp_path,
++        "tabular.pdf",
++        [
++            ["Mark", "Dimensions", "Quantity", "Description"],
++            ["W1", "1200 x 1500 mm", "6 No.", "Powder coated casement"],
++            ["D1", "900 x 2100 mm", "3 No.", "Flush door"],
++        ],
++    )
++    bundle = ShadowOpeningCountProvider().extract_bundle(pdf)
++    answered = _answered(bundle)
++    assert answered["W1"].value == 6.0
++    assert answered["W1"].family == "window_count"
++    assert answered["W1"].unit == "ea"
++    assert answered["W1"].formula == "explicit_schedule_count"
++    assert answered["W1"].evidence_ids
++    assert answered["D1"].value == 3.0
++    assert answered["D1"].family == "door_count"
++    assert all(opening.takeoff_eligible is False for opening in bundle.canonical_openings)
++    assert all(opening.metadata.get("physical_instance_count_not_implied") for opening in bundle.canonical_openings)
++    assert len(bundle.canonical_openings) == 2
++    physical = [item for item in bundle.entity_evidence if item.candidate_type == "opening_instance"]
++    assert physical == []
++    assert bundle.diagnostics["gold_consulted"] is False
++    assert bundle.diagnostics["authoritative"] is False
++
++
++def test_schedule_row_reorder_and_collection_order_are_stable(tmp_path: Path) -> None:
++    first = _schedule_pdf(
++        tmp_path,
++        "order_a.pdf",
++        [
++            ["Mark", "Dimensions", "Quantity", "Description"],
++            ["W1", "1200 x 1500 mm", "6 No.", "Casement"],
++            ["D2", "900 x 2100 mm", "2 No.", "Door"],
++        ],
++    )
++    second = _schedule_pdf(
++        tmp_path,
++        "order_b.pdf",
++        [
++            ["Mark", "Dimensions", "Quantity", "Description"],
++            ["D2", "900 x 2100 mm", "2 No.", "Door"],
++            ["W1", "1200 x 1500 mm", "6 No.", "Casement"],
++        ],
++        reverse_draw_order=True,
++    )
++    a = _answered(ShadowOpeningCountProvider().extract_bundle(first))
++    b = _answered(ShadowOpeningCountProvider().extract_bundle(second))
++    assert a["W1"].value == b["W1"].value == 6.0
++    assert a["D2"].value == b["D2"].value == 2.0
++    reversed_pages = _answered(ShadowOpeningCountProvider().extract_bundle(first, pages=[0]))
++    assert reversed_pages["W1"].value == 6.0
++
++
++def test_card_schedule_uses_overall_quantity(tmp_path: Path) -> None:
++    path = tmp_path / "card.pdf"
++    doc = fitz.open()
++    page = doc.new_page(width=842, height=1200)
++    page.insert_text((40, 40), "WINDOW SCHEDULE", fontsize=12)
++    page.insert_text((100, 200), "W - 07", fontsize=9)
++    page.insert_text((100, 260), "Overall Quantity: 6", fontsize=9)
++    page.insert_text((300, 200), "D - 05", fontsize=9)
++    page.insert_text((300, 260), "Overall Quantity: 12", fontsize=9)
++    doc.save(path)
++    doc.close()
++    answered = _answered(ShadowOpeningCountProvider().extract_bundle(path))
++    assert answered["W7"].value == 6.0
++    assert answered["D5"].value == 12.0
++    assert answered["W7"].family == "window_count"
++    assert answered["D5"].family == "door_count"
++
++
++def test_ocr_injected_schedule_line_is_accepted(tmp_path: Path) -> None:
++    path = tmp_path / "ocr.pdf"
++    doc = fitz.open()
++    doc.new_page(width=842, height=595)
++    doc.save(path)
++    doc.close()
++    provider = ShadowOpeningCountProvider(
++        ocr_lines_by_page={
++            1: (
++                {
++                    "text": "W1: 1200 x 1500 - 6 No.",
++                    "bbox": [40, 80, 240, 100],
++                    "confidence": 0.84,
++                },
++            )
++        }
++    )
++    answered = _answered(provider.extract_bundle(path))
++    assert answered["W1"].value == 6.0
++    assert answered["W1"].authority == "schedule_extracted"
++    assert any("ocr" in evid or evid.startswith("ev_") for evid in answered["W1"].evidence_ids)
++
++
++def test_plan_only_counts_tags_not_geometry(tmp_path: Path) -> None:
++    pdf = _plan_pdf(
++        tmp_path,
++        "plan_only.pdf",
++        [("W1", (80, 140)), ("W1", (220, 140)), ("W1", (360, 140)), ("D1", (80, 260))],
++    )
++    answered = _answered(ShadowOpeningCountProvider().extract_bundle(pdf))
++    assert answered["W1"].value == 3.0
++    assert answered["W1"].formula == "plan_tag_count"
++    assert answered["D1"].value == 1.0
++    physical = [
++        item
++        for item in ShadowOpeningCountProvider().extract_bundle(pdf).entity_evidence
++        if item.candidate_type == "opening_instance"
++    ]
++    assert len(physical) == 4
++
++
++def _add_schedule_page(doc: fitz.Document, rows: list[list[str]], title: str = "WINDOW SCHEDULE") -> None:
++    page = doc.new_page(width=842, height=595)
++    page.insert_text((40, 35), title, fontsize=12)
++    page.insert_text((40, 50), "SCALE 1:100", fontsize=9)
++    x = [40, 130, 300, 390, 650]
++    y0 = 85
++    rh = 28
++    for ridx, row in enumerate(rows):
++        y = y0 + ridx * rh
++        page.draw_line(fitz.Point(x[0], y), fitz.Point(x[-1], y))
++        for cidx, cell in enumerate(row):
++            page.draw_line(fitz.Point(x[cidx], y), fitz.Point(x[cidx], y + rh))
++            page.insert_text((x[cidx] + 5, y + 18), cell, fontsize=9)
++        page.draw_line(fitz.Point(x[-1], y), fitz.Point(x[-1], y + rh))
++    page.draw_line(fitz.Point(x[0], y0 + len(rows) * rh), fitz.Point(x[-1], y0 + len(rows) * rh))
++
++
++def test_schedule_and_plan_agreement_is_firm(tmp_path: Path) -> None:
++    def schedule(doc: fitz.Document) -> None:
++        _add_schedule_page(
++            doc,
++            [
++                ["Mark", "Dimensions", "Quantity", "Description"],
++                ["W1", "1200 x 1500 mm", "3 No.", "Casement"],
++            ],
++        )
++
++    def plan(doc: fitz.Document) -> None:
++        page = doc.new_page(width=842, height=595)
++        page.insert_text((40, 35), "GROUND FLOOR PLAN", fontsize=12)
++        page.insert_text((80, 140), "W1", fontsize=11)
++        page.insert_text((220, 140), "W1", fontsize=11)
++        page.insert_text((360, 140), "W1", fontsize=11)
++
++    pdf = _multi_page(tmp_path, "agree.pdf", [schedule, plan])
++    answered = _answered(ShadowOpeningCountProvider().extract_bundle(pdf))
++    assert answered["W1"].value == 3.0
++    assert answered["W1"].formula == "schedule_plan_corroborated"
++    assert answered["W1"].status == "firm"
++
++
++def test_schedule_plan_disagreement_abstains(tmp_path: Path) -> None:
++    def schedule(doc: fitz.Document) -> None:
++        _add_schedule_page(
++            doc,
++            [
++                ["Mark", "Dimensions", "Quantity", "Description"],
++                ["W1", "1200 x 1500 mm", "6 No.", "Casement"],
++            ],
++        )
++
++    def plan(doc: fitz.Document) -> None:
++        page = doc.new_page(width=842, height=595)
++        page.insert_text((40, 35), "GROUND FLOOR PLAN", fontsize=12)
++        page.insert_text((80, 140), "W1", fontsize=11)
++        page.insert_text((220, 140), "W1", fontsize=11)
++        page.insert_text((360, 140), "W1", fontsize=11)
++
++    pdf = _multi_page(tmp_path, "disagree.pdf", [schedule, plan])
++    bundle = ShadowOpeningCountProvider().extract_bundle(pdf)
++    abstained = _abstained(bundle)
++    assert "W1" in abstained
++    assert abstained["W1"].value is None
++    assert "schedule_vs_plan_count_mismatch" in abstained["W1"].blocking_reasons
++    assert "W1" not in _answered(bundle)
++
++
++def test_duplicate_schedule_observation_conflicts(tmp_path: Path) -> None:
++    pdf = _schedule_pdf(
++        tmp_path,
++        "dup_sched.pdf",
++        [
++            ["Mark", "Dimensions", "Quantity", "Description"],
++            ["W-33", "1870 x 1240 mm", "4 No.", "Casement"],
++            ["WINDOW 33", "1870 x 1240 mm", "7 No.", "Casement"],
++        ],
++    )
++    bundle = ShadowOpeningCountProvider().extract_bundle(pdf)
++    abstained = _abstained(bundle)
++    assert "W33" in abstained
++    assert abstained["W33"].value is None
++    assert any("conflict" in str(item.get("type", "")) for item in bundle.conflicts) or (
++        "duplicate_schedule_conflict" in abstained["W33"].blocking_reasons
++    )
++
++
++def test_conflicting_dimensions_abstain(tmp_path: Path) -> None:
++    pdf = _schedule_pdf(
++        tmp_path,
++        "dims.pdf",
++        [
++            ["Mark", "Dimensions", "Quantity", "Description"],
++            ["W1", "1200 x 1500 mm", "6 No.", "Casement"],
++            ["W1", "1800 x 1500 mm", "6 No.", "Casement"],
++        ],
++    )
++    bundle = ShadowOpeningCountProvider().extract_bundle(pdf)
++    abstained = _abstained(bundle)
++    assert "W1" in abstained
++    assert abstained["W1"].value is None
++
++
++def test_ambiguous_wd_abstains_and_does_not_guess_trade(tmp_path: Path) -> None:
++    path = tmp_path / "wd.pdf"
++    doc = fitz.open()
++    page = doc.new_page(width=842, height=595)
++    page.insert_text((40, 40), "WINDOW SCHEDULE", fontsize=12)
++    page.insert_text((40, 120), "WD 01 1800 x 2200  Overall Quantity missing", fontsize=10)
++    doc.save(path)
++    doc.close()
++    bundle = ShadowOpeningCountProvider().extract_bundle(path)
++    abstained = _abstained(bundle)
++    assert "WD" in abstained or "WD1" in abstained
++    answered = _answered(bundle)
++    assert "W1" not in answered
++    assert "D1" not in answered
++    assert all(item.family == "opening_count" for item in abstained.values() if item.semantic_key.startswith("WD"))
++
++
++def test_dimension_only_geometry_does_not_create_identities(tmp_path: Path) -> None:
++    path = tmp_path / "dims_only.pdf"
++    doc = fitz.open()
++    page = doc.new_page(width=842, height=595)
++    page.insert_text((40, 35), "GROUND FLOOR PLAN", fontsize=12)
++    page.insert_text((60, 100), "2,900mm x 900mm steel casement windows with 4mm thick glass", fontsize=9)
++    page.insert_text((60, 130), "1,000mm x 2,100mm timber batten door", fontsize=9)
++    page.draw_rect(fitz.Rect(80, 200, 200, 280))
++    page.draw_rect(fitz.Rect(240, 200, 360, 280))
++    doc.save(path)
++    doc.close()
++    bundle = ShadowOpeningCountProvider().extract_bundle(path)
++    answered = _answered(bundle)
++    assert "W1" not in answered
++    assert "W2" not in answered
++    assert "D1" not in answered
++    assert all(item.value != 0 for item in bundle.quantities if not item.abstained)
++
++
++def test_missing_quantity_and_missing_identity_do_not_invent_zeros(tmp_path: Path) -> None:
++    missing_qty = _schedule_pdf(
++        tmp_path,
++        "missing_qty.pdf",
++        [
++            ["Mark", "Dimensions", "Quantity", "Description"],
++            ["W1", "1200 x 1500 mm", "No.", "Casement"],
++        ],
++    )
++    missing_id = _schedule_pdf(
++        tmp_path,
++        "missing_id.pdf",
++        [
++            ["Mark", "Dimensions", "Quantity", "Description"],
++            ["", "1200 x 1500 mm", "6 No.", "Casement"],
++        ],
++    )
++    qty_bundle = ShadowOpeningCountProvider().extract_bundle(missing_qty)
++    id_bundle = ShadowOpeningCountProvider().extract_bundle(missing_id)
++    if "W1" in {item.semantic_key for item in qty_bundle.quantities}:
++        record = next(item for item in qty_bundle.quantities if item.semantic_key == "W1")
++        assert record.abstained is True
++        assert record.value is None
++    assert "W1" not in _answered(id_bundle)
++    assert not any(item.value == 0 for item in id_bundle.quantities)
++
++
++def test_duplicate_detail_and_elevation_do_not_inflate_count(tmp_path: Path) -> None:
++    def schedule(doc: fitz.Document) -> None:
++        _add_schedule_page(
++            doc,
++            [
++                ["Mark", "Dimensions", "Quantity", "Description"],
++                ["W1", "1200 x 1500 mm", "3 No.", "Casement"],
++            ],
++        )
++
++    def elevation(doc: fitz.Document) -> None:
++        page = doc.new_page(width=842, height=595)
++        page.insert_text((40, 35), "NORTH ELEVATION", fontsize=12)
++        page.insert_text((80, 140), "W1", fontsize=11)
++        page.insert_text((220, 140), "W1", fontsize=11)
++        page.insert_text((360, 140), "W1", fontsize=11)
++
++    def detail(doc: fitz.Document) -> None:
++        page = doc.new_page(width=842, height=595)
++        page.insert_text((40, 35), "TYPICAL DETAIL W1", fontsize=12)
++        page.insert_text((80, 140), "W1", fontsize=11)
++        page.insert_text((80, 180), "W1", fontsize=11)
++
++    def elev_dup(doc: fitz.Document) -> None:
++        page = doc.new_page(width=842, height=595)
++        page.insert_text((40, 35), "NORTH ELEVATION", fontsize=12)
++        page.insert_text((80, 140), "W1", fontsize=11)
++        page.insert_text((220, 140), "W1", fontsize=11)
++        page.insert_text((360, 140), "W1", fontsize=11)
++
++    pdf = _multi_page(tmp_path, "views.pdf", [schedule, elevation, detail, elev_dup])
++    answered = _answered(ShadowOpeningCountProvider().extract_bundle(pdf))
++    assert answered["W1"].value == 3.0
++
++
++def test_unrelated_notes_font_and_translation_do_not_change_counts(tmp_path: Path) -> None:
++    rows = [
++        ["Mark", "Dimensions", "Quantity", "Description"],
++        ["W1", "1200 x 1500 mm", "6 No.", "Casement"],
++        ["D1", "900 x 2100 mm", "2 No.", "Door"],
++    ]
++    base = _schedule_pdf(tmp_path, "base.pdf", rows)
++    notes = _schedule_pdf(tmp_path, "notes.pdf", rows, extra_text="REFER STRUCTURAL NOTES REV C FOR STEEL")
++    font = _schedule_pdf(tmp_path, "font.pdf", rows, fontsize=14)
++    shifted = _schedule_pdf(tmp_path, "shift.pdf", rows, origin=(90.0, 140.0))
++    values = []
++    for pdf in (base, notes, font, shifted):
++        answered = _answered(ShadowOpeningCountProvider().extract_bundle(pdf))
++        values.append((answered["W1"].value, answered["D1"].value))
++    assert values == [(6.0, 2.0)] * 4
++
++
++def test_page_object_and_page_order_changes_do_not_create_fake_counts(tmp_path: Path) -> None:
++    def schedule(doc: fitz.Document) -> None:
++        _add_schedule_page(
++            doc,
++            [
++                ["Mark", "Dimensions", "Quantity", "Description"],
++                ["D1", "900 x 2100 mm", "4 No.", "Flush door"],
++            ],
++            title="DOOR SCHEDULE",
++        )
++
++    def blank_notes(doc: fitz.Document) -> None:
++        page = doc.new_page(width=842, height=595)
++        page.insert_text((40, 40), "GENERAL NOTES", fontsize=12)
++        page.insert_text((40, 80), "This sheet has no opening identities.", fontsize=9)
++
++    first = _multi_page(tmp_path, "a.pdf", [schedule, blank_notes])
++    second = _multi_page(tmp_path, "b.pdf", [blank_notes, schedule])
++    a = _answered(ShadowOpeningCountProvider().extract_bundle(first))
++    b = _answered(ShadowOpeningCountProvider().extract_bundle(second))
++    assert a["D1"].value == b["D1"].value
++
++
++def test_f28_resolved_wd_is_window_type_not_guessed_door() -> None:
++    resolved = resolve_opening_identity(
++        "WD01",
++        evidence_text="WD 01; Overall Quantity: 14; window fields: frame, panel",
++        trade_type="windows",
++    )
++    assert resolved is not None
++    assert resolved.tag == "WD1"
++    assert resolved.trade_type == "windows"
++    assert resolve_opening_identity("WD", evidence_text="ambiguous mark") is None
++    assert resolve_opening_identity("WD01") is None
++
++
++def test_provider_and_shadow_runner_are_gold_free() -> None:
++    source = inspect.getsource(provider_mod)
++    tree = ast.parse(source)
++    imported: list[str] = []
++    for node in ast.walk(tree):
++        if isinstance(node, ast.Import):
++            imported.extend(alias.name for alias in node.names)
++        elif isinstance(node, ast.ImportFrom) and node.module:
++            imported.append(node.module)
++    forbidden = (
++        "benchmark_accuracy_engine",
++        "public_tender_benchmark",
++        "benchmark_runner",
++        "holdout_suite",
++        "expected_boq",
++        "pb_shadow_opening_count_eval",
++        "pb_quantity_commercial_adapter",
++    )
++    assert not [module for module in imported if any(token in module.lower() for token in forbidden)]
++    assert "NEW_SELECTIVE" not in source
++    assert "NEW_AUTHORITATIVE" not in source
++    assert "expected_quantity" not in source
++    params = {name.lower() for name in inspect.signature(ShadowOpeningCountProvider.extract_quantities).parameters}
++    assert "benchmark_id" not in params
++    assert "expected" not in params
++
++
++def test_gate_constants_remain_frozen_from_provider_module() -> None:
++    assert OPENING_COUNT_MIGRATION_GATE["min_precision_on_answered_identities"] == 0.99
++    assert OPENING_COUNT_MIGRATION_GATE["min_exact_correctness_on_answered_counts"] == 0.99
++
++
++def test_shadow_runner_accepts_provider_without_gold(tmp_path: Path) -> None:
++    pdf = _schedule_pdf(
++        tmp_path,
++        "shadow.pdf",
++        [
++            ["Mark", "Dimensions", "Quantity", "Description"],
++            ["W1", "1200 x 1500 mm", "6 No.", "Casement"],
++        ],
++    )
++    result = GoldFreeShadowRunner().run(pdf, ShadowOpeningCountProvider())
++    payload = result.to_dict()
++
++    def keys(value, found=None):
++        found = found if found is not None else set()
++        if isinstance(value, dict):
++            found.update(value)
++            for item in value.values():
++                keys(item, found)
++        elif isinstance(value, list):
++            for item in value:
++                keys(item, found)
++        return found
++
++    assert {"expected", "expected_quantity", "benchmark_id", "ground_truth"}.isdisjoint(keys(payload))
++    new_w1 = [item for item in result.new_output if item.semantic_key == "W1" and not item.abstained]
++    assert new_w1 and new_w1[0].value == 6.0
++
++
++def test_committed_headline_benchmark_is_unchanged() -> None:
++    dashboard = json.loads(Path("benchmark_results/headline_accuracy_dashboard.json").read_text(encoding="utf-8"))
++    metrics = dashboard["headline_metrics"]
++    accepted = int(metrics["exact_matches"]) + int(metrics["within_5_percent"])
++    assert accepted == 24
++    assert int(metrics["total_items_compared"]) == 61
++    assert pytest.approx(metrics["overall_accuracy_percentage"], rel=0, abs=0.01) == 39.34
++
++
++def test_legacy_extractor_source_was_not_edited_for_this_family() -> None:
++    digest = hashlib.sha256(Path("pb_planreader_pdf_extractor.py").read_bytes()).hexdigest()
++    assert len(digest) == 64
++    source = Path("pb_planreader_pdf_extractor.py").read_text(encoding="utf-8")
++    assert "shadow_opening_count" not in source
++
++
++def test_page_probe_ignores_unrelated_notes() -> None:
++    assert page_has_opening_evidence("WINDOW SCHEDULE\nW1 6 No")
++    assert not page_has_opening_evidence("GENERAL PRELIMINARIES AND CONDITIONS OF CONTRACT")
+-- 
+2.43.0
+
