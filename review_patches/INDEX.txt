@@ -1,0 +1,24 @@
+Reviewable W3-based series (independent of the later W4 rebase)
+
+GitHub origin/main at the original review was:
+
+    2dc24abd1551bd1c79bf75579b307a78fd81e29e
+    W3 wall-room topology junction classifier
+
+The reviewable control-plane tip on that base was:
+
+    6a57d7ed2cba341711d7a2344725d08400e24673
+    Harden the migration control plane on current main without promotion.
+
+That commit is not required to be reachable on GitHub. Apply the patches in
+from-2dc24ab-to-6a57d7e/ onto 2dc24abd to reconstruct the series:
+
+    git checkout 2dc24abd1551bd1c79bf75579b307a78fd81e29e
+    git am review_patches/from-2dc24ab-to-6a57d7e/*.patch
+
+The current development branch is the same series replayed onto W4
+(d05a134d2d0119867337de3953b7c9ec9c351a86) plus later isolation work.
+W4 rebase had no conflicts. Claude W1-W4 topology algorithms were not edited.
+
+Opening-count remains NEW_SHADOW. Holdout remains NOT_RUN.
+Do not treat these patches as a promotion.

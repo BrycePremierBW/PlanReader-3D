@@ -1,0 +1,125 @@
+From 18c22d7f32b7f2c750f065fa3e82784c6888f9f2 Mon Sep 17 00:00:00 2001
+From: Cursor Agent <cursoragent@cursor.com>
+Date: Wed, 9 Sep 2026 23:04:14 +0000
+Subject: [PATCH 04/10] Exclude bill pages from shadow opening-count evidence.
+
+BOQ headers and NRM earthworks codes are not drawing or card-schedule
+type counts. Keep Overall Quantity cards and explicit W/D marks.
+---
+ pb_shadow_opening_count_provider.py         | 31 ++++++++++++++++--
+ tests/test_shadow_opening_count_provider.py | 35 +++++++++++++++++++++
+ 2 files changed, 63 insertions(+), 3 deletions(-)
+
+diff --git a/pb_shadow_opening_count_provider.py b/pb_shadow_opening_count_provider.py
+index 1afcff8..99bbcb4 100644
+--- a/pb_shadow_opening_count_provider.py
++++ b/pb_shadow_opening_count_provider.py
+@@ -76,6 +76,20 @@ _OPENING_PAGE_PROBE_RE = re.compile(
+ _SCHEDULE_TITLE_RE = re.compile(
+     r"(?i)(?:window\s+schedule|door\s+schedule|schedule\s+of\s+(?:doors|windows))"
+ )
++_BILL_PAGE_RE = re.compile(
++    r"(?is)(?:\bbills?\s+of\s+quantities\b|"
++    r"\bbuilder'?s\s+work\b|"
++    r"\bitem\b.{0,160}\bdescription\b.{0,160}\b(?:qty|quantity)\b.{0,80}\bunit\b.{0,80}\brate\b|"
++    r"\bitem\b.{0,160}\bdescription\b.{0,160}\bunit\b.{0,160}\b(?:qty|quantity)\b.{0,80}\brate\b|"
++    r"\bref\.\s*.{0,80}\bdescription\b.{0,80}\bquantity\b.{0,80}\bunit\b.{0,80}\brate\b|"
++    r"\bparticular\s+preliminaries\b|"
++    r"\bpricing\s+preamble\b|"
++    r"\b[a-z]\d{2}\s+excavating\b)"
++)
++_NON_OPENING_CONTEXT_RE = re.compile(
++    r"(?i)(?:excavating\s+and\s+filling|in\s+situ\s+concrete|site\s+preparation|"
++    r"mechanical\s+works|hardcore)"
++)
+ 
+ 
+ def _family_for_trade(trade_type: str) -> str:
+@@ -109,13 +123,21 @@ def _bbox_near(
+     )
+ 
+ 
++def page_is_bill_of_quantities(text: str) -> bool:
++    """Bill/BOQ pages are not drawing or opening-schedule evidence."""
++    return bool(_BILL_PAGE_RE.search(text or ""))
++
++
+ def page_has_opening_evidence(text: str) -> bool:
+-    """Cheap gold-free probe: skip pages with no opening-like text."""
+-    return bool(_OPENING_PAGE_PROBE_RE.search(text or ""))
++    """Cheap gold-free probe: skip pages with no opening-like drawing text."""
++    raw = text or ""
++    if page_is_bill_of_quantities(raw):
++        return False
++    return bool(_OPENING_PAGE_PROBE_RE.search(raw))
+ 
+ 
+ def probe_opening_evidence_pages(doc: fitz.Document, pages: Optional[Sequence[int]] = None) -> list[int]:
+-    """Return 0-based page indexes that contain opening-like evidence text."""
++    """Return 0-based page indexes that contain opening-like drawing evidence."""
+     target = list(pages) if pages is not None else list(range(len(doc)))
+     found: list[int] = []
+     for pno in target:
+@@ -133,6 +155,9 @@ def resolve_opening_identity(
+     trade_type: str = "",
+ ) -> Optional[NormalizedOpeningTag]:
+     """Normalize an explicit W/D mark. Accept F.28 WD{n} only when already window-resolved."""
++    context = f"{tag or ''} {evidence_text or ''}"
++    if _NON_OPENING_CONTEXT_RE.search(context):
++        return None
+     norm = normalize_opening_tag(tag)
+     if norm is not None:
+         return norm
+diff --git a/tests/test_shadow_opening_count_provider.py b/tests/test_shadow_opening_count_provider.py
+index 9ec6d26..d437de0 100644
+--- a/tests/test_shadow_opening_count_provider.py
++++ b/tests/test_shadow_opening_count_provider.py
+@@ -15,6 +15,7 @@ from pb_shadow_opening_count_gate import OPENING_COUNT_MIGRATION_GATE
+ from pb_shadow_opening_count_provider import (
+     ShadowOpeningCountProvider,
+     page_has_opening_evidence,
++    page_is_bill_of_quantities,
+     resolve_opening_identity,
+ )
+ 
+@@ -536,3 +537,37 @@ def test_legacy_extractor_source_was_not_edited_for_this_family() -> None:
+ def test_page_probe_ignores_unrelated_notes() -> None:
+     assert page_has_opening_evidence("WINDOW SCHEDULE\nW1 6 No")
+     assert not page_has_opening_evidence("GENERAL PRELIMINARIES AND CONDITIONS OF CONTRACT")
++
++
++def test_bill_pages_are_not_drawing_opening_evidence(tmp_path: Path) -> None:
++    assert page_is_bill_of_quantities(
++        "GENERAL SCIENCE LAB\nBuilder's Work\nItem Description Unit Quantity Rate Amount\nWindow W1 2 No"
++    )
++    assert page_is_bill_of_quantities(
++        "Item\nDescription\nQuantity\nUnit\nRate\nAmount\nWindow W1 2 No"
++    )
++    assert page_is_bill_of_quantities(
++        "Ref. Description Quantity Unit Rate Kshs/Cts\nSUBSTRUCTURES (ALL PROVISIONAL)"
++    )
++    assert page_is_bill_of_quantities(
++        "ITEM DESCRIPTION QTY UNIT RATE AMOUNT\nELEMENT NO. 4 ROOFING"
++    )
++    assert page_is_bill_of_quantities("D20 EXCAVATING AND FILLING; SITE PREPARATION")
++    assert not page_is_bill_of_quantities("WINDOW SCHEDULE\nW - 07\nOverall Quantity: 6")
++    assert not page_has_opening_evidence(
++        "Builder's Work BW / 12\nItem Description Unit Quantity Rate Amount\nWindow W1 Overall size 1700 x 1200mm high - (2No. Side"
++    )
++    path = tmp_path / "boq.pdf"
++    doc = fitz.open()
++    page = doc.new_page(width=842, height=595)
++    page.insert_text((40, 40), "Builder's Work BW / 12", fontsize=12)
++    page.insert_text((40, 70), "Item  Description  Unit  Quantity  Rate  Amount", fontsize=9)
++    page.insert_text((40, 110), "Window W1 Overall size 1700 x 1200mm high - (2No. Side hung)", fontsize=9)
++    page.insert_text((40, 140), "D20 EXCAVATING AND FILLING; SITE PREPARATION", fontsize=9)
++    doc.save(path)
++    doc.close()
++    bundle = ShadowOpeningCountProvider().extract_bundle(path)
++    answered = _answered(bundle)
++    assert "W1" not in answered
++    assert "D20" not in answered
++    assert not any(item.semantic_key in {"W1", "D20"} and not item.abstained for item in bundle.quantities)
+-- 
+2.43.0
+

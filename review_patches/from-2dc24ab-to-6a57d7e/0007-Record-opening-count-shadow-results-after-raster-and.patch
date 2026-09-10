@@ -1,0 +1,809 @@
+From 53103580d757ce976c69be87535d9c257f7aa370 Mon Sep 17 00:00:00 2001
+From: Cursor Agent <cursoragent@cursor.com>
+Date: Wed, 9 Sep 2026 23:20:39 +0000
+Subject: [PATCH 07/10] Record opening-count shadow results after raster and
+ native evidence work.
+
+Keep the family in NEW_SHADOW. Coverage remains 15/24 with unchanged 100% precision; family totals are excluded from gold coverage and legacy agreement.
+---
+ pb_shadow_opening_count_eval.py               |   7 +-
+ .../opening_count_shadow_development.json     | 334 +++++++++++++++---
+ 2 files changed, 297 insertions(+), 44 deletions(-)
+
+diff --git a/pb_shadow_opening_count_eval.py b/pb_shadow_opening_count_eval.py
+index f6b1fb3..a1a47c0 100644
+--- a/pb_shadow_opening_count_eval.py
++++ b/pb_shadow_opening_count_eval.py
+@@ -215,8 +215,11 @@ def score_frozen_quantities(
+     opening_comparisons = [
+         row
+         for row in comparisons
+-        if _is_opening_identity(str(row.get("semantic_key") or ""))
+-        or str(row.get("family") or "") in OPENING_COUNT_FAMILIES
++        if str(row.get("semantic_key") or "") not in FAMILY_TOTAL_KEYS
++        and (
++            _is_opening_identity(str(row.get("semantic_key") or ""))
++            or str(row.get("family") or "") in OPENING_COUNT_FAMILIES
++        )
+     ]
+     agree = sum(1 for row in opening_comparisons if row.get("status") == "agree")
+     compared = len(opening_comparisons)
+diff --git a/shadow_reports/opening_count_shadow_development.json b/shadow_reports/opening_count_shadow_development.json
+index edf58f8..841df5c 100644
+--- a/shadow_reports/opening_count_shadow_development.json
++++ b/shadow_reports/opening_count_shadow_development.json
+@@ -43,6 +43,10 @@
+         "eligible_opening_count_items": 3,
+         "exact_correctness_on_answered_counts": 0.0,
+         "exact_keys": [],
++        "extra_valid_keys": [],
++        "extra_valid_type_marks": 0,
++        "family_aggregate_keys": [],
++        "family_aggregates": 0,
+         "hallucinated_keys": [],
+         "hallucinations": 0,
+         "legacy_new_agreement": {
+@@ -80,6 +84,10 @@
+         "eligible_opening_count_items": 3,
+         "exact_correctness_on_answered_counts": 0.0,
+         "exact_keys": [],
++        "extra_valid_keys": [],
++        "extra_valid_type_marks": 0,
++        "family_aggregate_keys": [],
++        "family_aggregates": 0,
+         "hallucinated_keys": [],
+         "hallucinations": 0,
+         "legacy_new_agreement": {
+@@ -115,6 +123,10 @@
+         "eligible_opening_count_items": 1,
+         "exact_correctness_on_answered_counts": 0.0,
+         "exact_keys": [],
++        "extra_valid_keys": [],
++        "extra_valid_type_marks": 0,
++        "family_aggregate_keys": [],
++        "family_aggregates": 0,
+         "hallucinated_keys": [],
+         "hallucinations": 0,
+         "legacy_new_agreement": {
+@@ -151,6 +163,10 @@
+         "eligible_opening_count_items": 2,
+         "exact_correctness_on_answered_counts": 0.0,
+         "exact_keys": [],
++        "extra_valid_keys": [],
++        "extra_valid_type_marks": 0,
++        "family_aggregate_keys": [],
++        "family_aggregates": 0,
+         "hallucinated_keys": [],
+         "hallucinations": 0,
+         "legacy_new_agreement": {
+@@ -199,7 +215,7 @@
+         "critical_duplicate_counts": 0,
+         "dimension_derived_fake_identities": 0,
+         "duplicate_counts": 0,
+-        "duplicate_observations_suppressed": 1,
++        "duplicate_observations_suppressed": 0,
+         "eligible_keys": [
+           "WD1",
+           "WD2",
+@@ -236,6 +252,13 @@
+           "WD2",
+           "WD3"
+         ],
++        "extra_valid_keys": [],
++        "extra_valid_type_marks": 0,
++        "family_aggregate_keys": [
++          "door_total",
++          "window_total"
++        ],
++        "family_aggregates": 2,
+         "hallucinated_keys": [],
+         "hallucinations": 0,
+         "legacy_new_agreement": {
+@@ -256,6 +279,8 @@
+     "duplicate_counts": 0,
+     "eligible_opening_count_items": 24,
+     "exact_correctness_on_answered_counts": 1.0,
++    "extra_valid_type_marks": 0,
++    "family_aggregates": 2,
+     "hallucinations": 0,
+     "legacy_new_agreement": {
+       "agree": 15,
+@@ -294,17 +319,20 @@
+         "authoritative": false,
+         "authority_state": "new_shadow",
+         "engine_id": "shadow_opening_count",
+-        "engine_version": "1.0.0",
++        "engine_version": "1.1.0",
+         "families": [
+           "door_count",
+           "opening_count",
+           "window_count"
+         ],
++        "family_aggregates_emitted": [],
+         "gold_consulted": false,
+         "pages_considered": [
+           53,
+           54
+         ],
++        "raster_authority_rejections": [],
++        "raster_schedule_pages": [],
+         "type_count_is_not_physical_reconstruction": true
+       },
+       "entity_evidence": [],
+@@ -335,6 +363,10 @@
+         "eligible_opening_count_items": 3,
+         "exact_correctness_on_answered_counts": 0.0,
+         "exact_keys": [],
++        "extra_valid_keys": [],
++        "extra_valid_type_marks": 0,
++        "family_aggregate_keys": [],
++        "family_aggregates": 0,
+         "hallucinated_keys": [],
+         "hallucinations": 0,
+         "legacy_new_agreement": {
+@@ -350,7 +382,7 @@
+         53,
+         54
+       ],
+-      "shadow_result_id": "shadow_run_9e34ed019c3d19bf1626",
++      "shadow_result_id": "shadow_run_bdc4196e32a9dce0cbf6",
+       "source_pdf": "/workspace/benchmarks/sources/1727358888238-bq-nd-drawing.pdf",
+       "source_status": "ok"
+     },
+@@ -361,18 +393,21 @@
+         "authoritative": false,
+         "authority_state": "new_shadow",
+         "engine_id": "shadow_opening_count",
+-        "engine_version": "1.0.0",
++        "engine_version": "1.1.0",
+         "families": [
+           "door_count",
+           "opening_count",
+           "window_count"
+         ],
++        "family_aggregates_emitted": [],
+         "gold_consulted": false,
+         "pages_considered": [
+           205,
+           225,
+           236
+         ],
++        "raster_authority_rejections": [],
++        "raster_schedule_pages": [],
+         "type_count_is_not_physical_reconstruction": true
+       },
+       "entity_evidence": [],
+@@ -402,6 +437,10 @@
+         "eligible_opening_count_items": 2,
+         "exact_correctness_on_answered_counts": 0.0,
+         "exact_keys": [],
++        "extra_valid_keys": [],
++        "extra_valid_type_marks": 0,
++        "family_aggregate_keys": [],
++        "family_aggregates": 0,
+         "hallucinated_keys": [],
+         "hallucinations": 0,
+         "legacy_new_agreement": {
+@@ -418,7 +457,7 @@
+         225,
+         236
+       ],
+-      "shadow_result_id": "shadow_run_a0f679fdc13be5a44d0e",
++      "shadow_result_id": "shadow_run_cc5e5f2ff335723748e4",
+       "source_pdf": "/workspace/benchmarks/sources/1785347143869-bqs-drawings.pdf",
+       "source_status": "ok"
+     },
+@@ -429,16 +468,19 @@
+         "authoritative": false,
+         "authority_state": "new_shadow",
+         "engine_id": "shadow_opening_count",
+-        "engine_version": "1.0.0",
++        "engine_version": "1.1.0",
+         "families": [
+           "door_count",
+           "opening_count",
+           "window_count"
+         ],
++        "family_aggregates_emitted": [],
+         "gold_consulted": false,
+         "pages_considered": [
+           166
+         ],
++        "raster_authority_rejections": [],
++        "raster_schedule_pages": [],
+         "type_count_is_not_physical_reconstruction": true
+       },
+       "entity_evidence": [],
+@@ -469,6 +511,10 @@
+         "eligible_opening_count_items": 3,
+         "exact_correctness_on_answered_counts": 0.0,
+         "exact_keys": [],
++        "extra_valid_keys": [],
++        "extra_valid_type_marks": 0,
++        "family_aggregate_keys": [],
++        "family_aggregates": 0,
+         "hallucinated_keys": [],
+         "hallucinations": 0,
+         "legacy_new_agreement": {
+@@ -483,7 +529,7 @@
+       "pages": [
+         166
+       ],
+-      "shadow_result_id": "shadow_run_f2873a71cdebf19c9e47",
++      "shadow_result_id": "shadow_run_64dfe7e8c5789dc3d665",
+       "source_pdf": "/workspace/benchmarks/sources/1739211305954-tender-document-for-construction-of-science-laboratory-at-ghazi-primary-school.pdf",
+       "source_status": "ok"
+     },
+@@ -524,7 +570,7 @@
+             "page_number": 160,
+             "plan_geometry_signature": null,
+             "producer_module": "shadow_opening_count",
+-            "producer_version": "1.0.0",
++            "producer_version": "1.1.0",
+             "scale_source": null,
+             "source_coords": null,
+             "source_pdf": "/workspace/benchmarks/sources/umma-university-hostels-builders-work.pdf",
+@@ -572,7 +618,7 @@
+             "page_number": 162,
+             "plan_geometry_signature": null,
+             "producer_module": "shadow_opening_count",
+-            "producer_version": "1.0.0",
++            "producer_version": "1.1.0",
+             "scale_source": null,
+             "source_coords": null,
+             "source_pdf": "/workspace/benchmarks/sources/umma-university-hostels-builders-work.pdf",
+@@ -620,7 +666,7 @@
+             "page_number": 162,
+             "plan_geometry_signature": null,
+             "producer_module": "shadow_opening_count",
+-            "producer_version": "1.0.0",
++            "producer_version": "1.1.0",
+             "scale_source": null,
+             "source_coords": null,
+             "source_pdf": "/workspace/benchmarks/sources/umma-university-hostels-builders-work.pdf",
+@@ -668,7 +714,7 @@
+             "page_number": 162,
+             "plan_geometry_signature": null,
+             "producer_module": "shadow_opening_count",
+-            "producer_version": "1.0.0",
++            "producer_version": "1.1.0",
+             "scale_source": null,
+             "source_coords": null,
+             "source_pdf": "/workspace/benchmarks/sources/umma-university-hostels-builders-work.pdf",
+@@ -716,7 +762,7 @@
+             "page_number": 160,
+             "plan_geometry_signature": null,
+             "producer_module": "shadow_opening_count",
+-            "producer_version": "1.0.0",
++            "producer_version": "1.1.0",
+             "scale_source": null,
+             "source_coords": null,
+             "source_pdf": "/workspace/benchmarks/sources/umma-university-hostels-builders-work.pdf",
+@@ -764,7 +810,7 @@
+             "page_number": 160,
+             "plan_geometry_signature": null,
+             "producer_module": "shadow_opening_count",
+-            "producer_version": "1.0.0",
++            "producer_version": "1.1.0",
+             "scale_source": null,
+             "source_coords": null,
+             "source_pdf": "/workspace/benchmarks/sources/umma-university-hostels-builders-work.pdf",
+@@ -812,7 +858,7 @@
+             "page_number": 161,
+             "plan_geometry_signature": null,
+             "producer_module": "shadow_opening_count",
+-            "producer_version": "1.0.0",
++            "producer_version": "1.1.0",
+             "scale_source": null,
+             "source_coords": null,
+             "source_pdf": "/workspace/benchmarks/sources/umma-university-hostels-builders-work.pdf",
+@@ -860,7 +906,7 @@
+             "page_number": 161,
+             "plan_geometry_signature": null,
+             "producer_module": "shadow_opening_count",
+-            "producer_version": "1.0.0",
++            "producer_version": "1.1.0",
+             "scale_source": null,
+             "source_coords": null,
+             "source_pdf": "/workspace/benchmarks/sources/umma-university-hostels-builders-work.pdf",
+@@ -908,7 +954,7 @@
+             "page_number": 161,
+             "plan_geometry_signature": null,
+             "producer_module": "shadow_opening_count",
+-            "producer_version": "1.0.0",
++            "producer_version": "1.1.0",
+             "scale_source": null,
+             "source_coords": null,
+             "source_pdf": "/workspace/benchmarks/sources/umma-university-hostels-builders-work.pdf",
+@@ -956,7 +1002,7 @@
+             "page_number": 161,
+             "plan_geometry_signature": null,
+             "producer_module": "shadow_opening_count",
+-            "producer_version": "1.0.0",
++            "producer_version": "1.1.0",
+             "scale_source": null,
+             "source_coords": null,
+             "source_pdf": "/workspace/benchmarks/sources/umma-university-hostels-builders-work.pdf",
+@@ -1004,7 +1050,7 @@
+             "page_number": 161,
+             "plan_geometry_signature": null,
+             "producer_module": "shadow_opening_count",
+-            "producer_version": "1.0.0",
++            "producer_version": "1.1.0",
+             "scale_source": null,
+             "source_coords": null,
+             "source_pdf": "/workspace/benchmarks/sources/umma-university-hostels-builders-work.pdf",
+@@ -1052,7 +1098,7 @@
+             "page_number": 161,
+             "plan_geometry_signature": null,
+             "producer_module": "shadow_opening_count",
+-            "producer_version": "1.0.0",
++            "producer_version": "1.1.0",
+             "scale_source": null,
+             "source_coords": null,
+             "source_pdf": "/workspace/benchmarks/sources/umma-university-hostels-builders-work.pdf",
+@@ -1100,7 +1146,7 @@
+             "page_number": 160,
+             "plan_geometry_signature": null,
+             "producer_module": "shadow_opening_count",
+-            "producer_version": "1.0.0",
++            "producer_version": "1.1.0",
+             "scale_source": null,
+             "source_coords": null,
+             "source_pdf": "/workspace/benchmarks/sources/umma-university-hostels-builders-work.pdf",
+@@ -1148,7 +1194,7 @@
+             "page_number": 160,
+             "plan_geometry_signature": null,
+             "producer_module": "shadow_opening_count",
+-            "producer_version": "1.0.0",
++            "producer_version": "1.1.0",
+             "scale_source": null,
+             "source_coords": null,
+             "source_pdf": "/workspace/benchmarks/sources/umma-university-hostels-builders-work.pdf",
+@@ -1196,7 +1242,7 @@
+             "page_number": 160,
+             "plan_geometry_signature": null,
+             "producer_module": "shadow_opening_count",
+-            "producer_version": "1.0.0",
++            "producer_version": "1.1.0",
+             "scale_source": null,
+             "source_coords": null,
+             "source_pdf": "/workspace/benchmarks/sources/umma-university-hostels-builders-work.pdf",
+@@ -1215,12 +1261,16 @@
+         "authoritative": false,
+         "authority_state": "new_shadow",
+         "engine_id": "shadow_opening_count",
+-        "engine_version": "1.0.0",
++        "engine_version": "1.1.0",
+         "families": [
+           "door_count",
+           "opening_count",
+           "window_count"
+         ],
++        "family_aggregates_emitted": [
++          "door_total",
++          "window_total"
++        ],
+         "gold_consulted": false,
+         "pages_considered": [
+           159,
+@@ -1228,6 +1278,8 @@
+           161,
+           178
+         ],
++        "raster_authority_rejections": [],
++        "raster_schedule_pages": [],
+         "type_count_is_not_physical_reconstruction": true
+       },
+       "entity_evidence": [
+@@ -1586,7 +1638,10 @@
+             "source_sheet": null,
+             "spatially_reconstructed": false,
+             "trade_type": "doors",
+-            "viewport_id": null
++            "view_types": [
++              "schedule"
++            ],
++            "viewport_id": "page_160_main"
+           },
+           "quantity_id": "qty_07122ff57caa4abe0192",
+           "reason_codes": [
+@@ -1622,7 +1677,10 @@
+             "source_sheet": null,
+             "spatially_reconstructed": false,
+             "trade_type": "doors",
+-            "viewport_id": null
++            "view_types": [
++              "schedule"
++            ],
++            "viewport_id": "page_162_main"
+           },
+           "quantity_id": "qty_dcdc038aed099950d8b7",
+           "reason_codes": [
+@@ -1658,7 +1716,10 @@
+             "source_sheet": null,
+             "spatially_reconstructed": false,
+             "trade_type": "doors",
+-            "viewport_id": null
++            "view_types": [
++              "schedule"
++            ],
++            "viewport_id": "page_162_main"
+           },
+           "quantity_id": "qty_505f253d38c3daf3cb10",
+           "reason_codes": [
+@@ -1694,7 +1755,10 @@
+             "source_sheet": null,
+             "spatially_reconstructed": false,
+             "trade_type": "doors",
+-            "viewport_id": null
++            "view_types": [
++              "schedule"
++            ],
++            "viewport_id": "page_162_main"
+           },
+           "quantity_id": "qty_2c27375af6021bc80061",
+           "reason_codes": [
+@@ -1730,7 +1794,10 @@
+             "source_sheet": null,
+             "spatially_reconstructed": false,
+             "trade_type": "doors",
+-            "viewport_id": null
++            "view_types": [
++              "schedule"
++            ],
++            "viewport_id": "page_160_main"
+           },
+           "quantity_id": "qty_651c159a6e63d1ffbf5d",
+           "reason_codes": [
+@@ -1766,7 +1833,10 @@
+             "source_sheet": null,
+             "spatially_reconstructed": false,
+             "trade_type": "doors",
+-            "viewport_id": null
++            "view_types": [
++              "schedule"
++            ],
++            "viewport_id": "page_160_main"
+           },
+           "quantity_id": "qty_5833302a02c14b124ecd",
+           "reason_codes": [
+@@ -1802,7 +1872,10 @@
+             "source_sheet": null,
+             "spatially_reconstructed": false,
+             "trade_type": "doors",
+-            "viewport_id": null
++            "view_types": [
++              "schedule"
++            ],
++            "viewport_id": "page_161_main"
+           },
+           "quantity_id": "qty_b8c1dffd2c3f0ad3717c",
+           "reason_codes": [
+@@ -1838,7 +1911,10 @@
+             "source_sheet": null,
+             "spatially_reconstructed": false,
+             "trade_type": "doors",
+-            "viewport_id": null
++            "view_types": [
++              "schedule"
++            ],
++            "viewport_id": "page_161_main"
+           },
+           "quantity_id": "qty_aa1bcf5f35d1d851e36f",
+           "reason_codes": [
+@@ -1874,7 +1950,10 @@
+             "source_sheet": null,
+             "spatially_reconstructed": false,
+             "trade_type": "doors",
+-            "viewport_id": null
++            "view_types": [
++              "schedule"
++            ],
++            "viewport_id": "page_161_main"
+           },
+           "quantity_id": "qty_f42724ce8e9a99e7379d",
+           "reason_codes": [
+@@ -1910,7 +1989,10 @@
+             "source_sheet": null,
+             "spatially_reconstructed": false,
+             "trade_type": "doors",
+-            "viewport_id": null
++            "view_types": [
++              "schedule"
++            ],
++            "viewport_id": "page_161_main"
+           },
+           "quantity_id": "qty_4a8bf092b334532478b6",
+           "reason_codes": [
+@@ -1946,7 +2028,10 @@
+             "source_sheet": null,
+             "spatially_reconstructed": false,
+             "trade_type": "doors",
+-            "viewport_id": null
++            "view_types": [
++              "schedule"
++            ],
++            "viewport_id": "page_161_main"
+           },
+           "quantity_id": "qty_2c0d75f00f95d04d9617",
+           "reason_codes": [
+@@ -1982,7 +2067,10 @@
+             "source_sheet": null,
+             "spatially_reconstructed": false,
+             "trade_type": "doors",
+-            "viewport_id": null
++            "view_types": [
++              "schedule"
++            ],
++            "viewport_id": "page_161_main"
+           },
+           "quantity_id": "qty_35c92a901064f6af1a26",
+           "reason_codes": [
+@@ -1995,6 +2083,98 @@
+           "unit": "ea",
+           "value": 1.0
+         },
++        {
++          "abstained": false,
++          "authority": "schedule_extracted",
++          "blocking_reasons": [],
++          "confidence": 0.55,
++          "evidence_ids": [
++            "ev_78ddaa04712ccceb5620",
++            "ev_86e8aa89d23a222fb021",
++            "ev_6ecd825c07832a2805e9",
++            "ev_9aef6426a5b215b0630f",
++            "ev_ab30245094a26305288d",
++            "ev_1c67dfff47d5086c42ed",
++            "ev_42898162d28991e0abc7",
++            "ev_a9b6cf76a19dca9357de",
++            "ev_5c9f12beb55f0ec0e5a9",
++            "ev_269b349d22777fe26171",
++            "ev_f24ccbdee778c4783e77",
++            "ev_07b732d8ce7f7f0a6b13"
++          ],
++          "family": "door_count",
++          "formula": "sum_of_authoritative_type_counts",
++          "formula_version": "1.0.0",
++          "input_entity_ids": [
++            "ent_dd7b6adcca10635eb988",
++            "ent_b9184f3d324078c1a9d0",
++            "ent_87304cf366eefc45d303",
++            "ent_def8a602647adb6ce4e7",
++            "ent_2aac1c07601a508527a6",
++            "ent_b30107aa1484fc20ebf6",
++            "ent_9c1221082c5a974305cd",
++            "ent_7a7cda22d24d52a1f481",
++            "ent_a8c25db5fd8428ac8ba6",
++            "ent_5fc59e6c2f747c8916f4",
++            "ent_9b0eb5cf6d1549182ce2",
++            "ent_987d72854735ea693840"
++          ],
++          "metadata": {
++            "count_kind": "family_aggregate",
++            "source_quantity_ids": [
++              "qty_07122ff57caa4abe0192",
++              "qty_dcdc038aed099950d8b7",
++              "qty_505f253d38c3daf3cb10",
++              "qty_2c27375af6021bc80061",
++              "qty_651c159a6e63d1ffbf5d",
++              "qty_5833302a02c14b124ecd",
++              "qty_b8c1dffd2c3f0ad3717c",
++              "qty_aa1bcf5f35d1d851e36f",
++              "qty_f42724ce8e9a99e7379d",
++              "qty_4a8bf092b334532478b6",
++              "qty_2c0d75f00f95d04d9617",
++              "qty_35c92a901064f6af1a26"
++            ],
++            "source_semantic_keys": [
++              "D1",
++              "D10",
++              "D11",
++              "D12",
++              "D2",
++              "D3",
++              "D4",
++              "D5",
++              "D6",
++              "D7",
++              "D8",
++              "D9"
++            ],
++            "source_values": [
++              10.0,
++              3.0,
++              1.0,
++              2.0,
++              160.0,
++              308.0,
++              308.0,
++              1.0,
++              1.0,
++              12.0,
++              6.0,
++              1.0
++            ],
++            "spatially_reconstructed": false
++          },
++          "quantity_id": "qty_3f59a8f00b5a655e8e64",
++          "reason_codes": [
++            "sum_of_authoritative_type_counts"
++          ],
++          "schema_version": "1.0.0",
++          "semantic_key": "door_total",
++          "status": "provisional",
++          "unit": "ea",
++          "value": 813.0
++        },
+         {
+           "abstained": false,
+           "authority": "schedule_extracted",
+@@ -2018,7 +2198,10 @@
+             "source_sheet": null,
+             "spatially_reconstructed": false,
+             "trade_type": "windows",
+-            "viewport_id": null
++            "view_types": [
++              "schedule"
++            ],
++            "viewport_id": "page_160_main"
+           },
+           "quantity_id": "qty_aa56a9a9062b9c2bc35f",
+           "reason_codes": [
+@@ -2054,7 +2237,10 @@
+             "source_sheet": null,
+             "spatially_reconstructed": false,
+             "trade_type": "windows",
+-            "viewport_id": null
++            "view_types": [
++              "schedule"
++            ],
++            "viewport_id": "page_160_main"
+           },
+           "quantity_id": "qty_946e442d68660b78c242",
+           "reason_codes": [
+@@ -2090,7 +2276,10 @@
+             "source_sheet": null,
+             "spatially_reconstructed": false,
+             "trade_type": "windows",
+-            "viewport_id": null
++            "view_types": [
++              "schedule"
++            ],
++            "viewport_id": "page_160_main"
+           },
+           "quantity_id": "qty_bf3427b21b1ef16e1b00",
+           "reason_codes": [
+@@ -2102,6 +2291,53 @@
+           "status": "provisional",
+           "unit": "ea",
+           "value": 4.0
++        },
++        {
++          "abstained": false,
++          "authority": "schedule_extracted",
++          "blocking_reasons": [],
++          "confidence": 0.55,
++          "evidence_ids": [
++            "ev_e3f9e6247a17ecaa6346",
++            "ev_fdcff625b0d699b07ea6",
++            "ev_1163b6acd66962275b17"
++          ],
++          "family": "window_count",
++          "formula": "sum_of_authoritative_type_counts",
++          "formula_version": "1.0.0",
++          "input_entity_ids": [
++            "ent_a350b7b4d441c37eb618",
++            "ent_158e361be812a26def50",
++            "ent_6fc189cfcf738dacb3f6"
++          ],
++          "metadata": {
++            "count_kind": "family_aggregate",
++            "source_quantity_ids": [
++              "qty_aa56a9a9062b9c2bc35f",
++              "qty_946e442d68660b78c242",
++              "qty_bf3427b21b1ef16e1b00"
++            ],
++            "source_semantic_keys": [
++              "WD1",
++              "WD2",
++              "WD3"
++            ],
++            "source_values": [
++              172.0,
++              184.0,
++              4.0
++            ],
++            "spatially_reconstructed": false
++          },
++          "quantity_id": "qty_99e962412c1c0bf21813",
++          "reason_codes": [
++            "sum_of_authoritative_type_counts"
++          ],
++          "schema_version": "1.0.0",
++          "semantic_key": "window_total",
++          "status": "provisional",
++          "unit": "ea",
++          "value": 360.0
+         }
+       ],
+       "metrics": {
+@@ -2141,7 +2377,7 @@
+         "critical_duplicate_counts": 0,
+         "dimension_derived_fake_identities": 0,
+         "duplicate_counts": 0,
+-        "duplicate_observations_suppressed": 1,
++        "duplicate_observations_suppressed": 0,
+         "eligible_keys": [
+           "WD1",
+           "WD2",
+@@ -2178,6 +2414,13 @@
+           "WD2",
+           "WD3"
+         ],
++        "extra_valid_keys": [],
++        "extra_valid_type_marks": 0,
++        "family_aggregate_keys": [
++          "door_total",
++          "window_total"
++        ],
++        "family_aggregates": 2,
+         "hallucinated_keys": [],
+         "hallucinations": 0,
+         "legacy_new_agreement": {
+@@ -2195,7 +2438,7 @@
+         161,
+         178
+       ],
+-      "shadow_result_id": "shadow_run_bf6d441125b3cdb37dac",
++      "shadow_result_id": "shadow_run_75764758cc6d253e50a3",
+       "source_pdf": "/workspace/benchmarks/sources/umma-university-hostels-builders-work.pdf",
+       "source_status": "ok"
+     },
+@@ -2206,18 +2449,21 @@
+         "authoritative": false,
+         "authority_state": "new_shadow",
+         "engine_id": "shadow_opening_count",
+-        "engine_version": "1.0.0",
++        "engine_version": "1.1.0",
+         "families": [
+           "door_count",
+           "opening_count",
+           "window_count"
+         ],
++        "family_aggregates_emitted": [],
+         "gold_consulted": false,
+         "pages_considered": [
+           40,
+           41,
+           42
+         ],
++        "raster_authority_rejections": [],
++        "raster_schedule_pages": [],
+         "type_count_is_not_physical_reconstruction": true
+       },
+       "entity_evidence": [],
+@@ -2246,6 +2492,10 @@
+         "eligible_opening_count_items": 1,
+         "exact_correctness_on_answered_counts": 0.0,
+         "exact_keys": [],
++        "extra_valid_keys": [],
++        "extra_valid_type_marks": 0,
++        "family_aggregate_keys": [],
++        "family_aggregates": 0,
+         "hallucinated_keys": [],
+         "hallucinations": 0,
+         "legacy_new_agreement": {
+@@ -2262,7 +2512,7 @@
+         41,
+         42
+       ],
+-      "shadow_result_id": "shadow_run_df32f7bded6c7749b196",
++      "shadow_result_id": "shadow_run_0415f72c3db1e8d78d6f",
+       "source_pdf": "/workspace/benchmarks/sources/lamu-ishakani-ecd-classrooms-boq.pdf",
+       "source_status": "ok"
+     }
+-- 
+2.43.0
+

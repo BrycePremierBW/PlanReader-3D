@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+import errno
+import io
 import json
+import os
 import sqlite3
 import subprocess
 import sys
@@ -63,6 +66,13 @@ from pb_provider_gold_isolation import (
     assert_registered_providers_gold_free,
     inspect_provider_isolation,
     inspect_registered_production_providers,
+    local_module_source_files,
+)
+from pb_provider_runtime_isolation import (
+    ESCAPE_GOLD_RELATIVE_PATHS,
+    assert_staged_workspace_has_no_gold_resources,
+    run_staged_provider_extract,
+    stage_production_provider_workspace,
 )
 from pb_quantity_takeoff_adapter import (
     CommercialMeasurementAuthority as M5MeasurementAuthority,
@@ -984,21 +994,85 @@ def test_gold_join_cannot_reextract_after_seal(tmp_path: Path) -> None:
     assert scored["used_result_fingerprint"] == sealed.frozen.result_fingerprint
 
 
+def _without_source_pdf(rows: list[dict]) -> list[dict]:
+    cleaned = []
+    for row in rows:
+        item = json.loads(json.dumps(row))
+        metadata = item.get("metadata")
+        if isinstance(metadata, dict):
+            metadata.pop("source_pdf", None)
+        cleaned.append(item)
+    return cleaned
+
+
 def test_runtime_isolation_subprocess_matches_frozen_extract(tmp_path: Path) -> None:
     pdf = _schedule_pdf(tmp_path)
     baseline = [item.to_dict() for item in OpeningCountControlAdapter().extract_quantities(pdf, pages=[0])]
+    stage = tmp_path / "stage"
+    workspace = stage_production_provider_workspace(stage, pdf)
+    assert_staged_workspace_has_no_gold_resources(workspace)
+    assert "pb_shadow_opening_count_eval.py" not in workspace.listed_relative_files()
+    assert not (workspace.root / "benchmarks").exists()
+    copied = set(local_module_source_files("pb_opening_count_control_adapter"))
+    assert copied
+    same_pdf_baseline = [
+        item.to_dict()
+        for item in OpeningCountControlAdapter().extract_quantities(workspace.source_pdf, pages=[0])
+    ]
     out = tmp_path / "isolated.json"
+    proc = run_staged_provider_extract(workspace, out)
+    assert proc.returncode == 0
+    isolated = json.loads(out.read_text(encoding="utf-8"))
+    assert isolated == same_pdf_baseline
+    assert _without_source_pdf(isolated) == _without_source_pdf(baseline)
+    cli_out = tmp_path / "cli.json"
     script = Path("scripts/run_isolated_opening_count_extract.py")
-    proc = subprocess.run(
-        [sys.executable, str(script), str(pdf), str(out)],
+    cli = subprocess.run(
+        [sys.executable, str(script), str(pdf), str(cli_out), str(tmp_path / "cli-stage")],
         cwd="/workspace",
+        env={**os.environ, "PYTHONPATH": "/workspace"},
         check=True,
         capture_output=True,
         text=True,
     )
-    assert proc.returncode == 0
-    isolated = json.loads(out.read_text(encoding="utf-8"))
-    assert isolated == baseline
+    assert cli.returncode == 0
+    assert _without_source_pdf(json.loads(cli_out.read_text(encoding="utf-8"))) == _without_source_pdf(baseline)
+
+
+def test_staged_workspace_listing_excludes_gold_eval(tmp_path: Path) -> None:
+    pdf = _schedule_pdf(tmp_path)
+    workspace = stage_production_provider_workspace(tmp_path / "stage", pdf)
+    listing = "\n".join(workspace.listed_relative_files())
+    for token in (
+        "expected_boq",
+        "pb_shadow_opening_count_eval",
+        "benchmark_results",
+        "shadow_reports",
+        "item_mappings",
+        "holdout_suite",
+    ):
+        assert token not in listing
+    assert_staged_workspace_has_no_gold_resources(workspace)
+
+
+def test_staged_workspace_os_open_io_open_gold_absent(tmp_path: Path) -> None:
+    """Gold paths fail from absence (ENOENT), not from Python hooks."""
+    pdf = _schedule_pdf(tmp_path)
+    workspace = stage_production_provider_workspace(tmp_path / "stage", pdf)
+    assert getattr(os.open, "_planreader_gold_denied", False) is False
+    previous = os.getcwd()
+    try:
+        os.chdir(workspace.root)
+        for relative in ESCAPE_GOLD_RELATIVE_PATHS:
+            assert not Path(relative).exists()
+            with pytest.raises(FileNotFoundError) as os_info:
+                os.open(relative, os.O_RDONLY)
+            assert os_info.value.errno == errno.ENOENT
+            with pytest.raises(FileNotFoundError) as io_info:
+                io.open(relative, "r")
+            assert io_info.value.errno == errno.ENOENT
+    finally:
+        os.chdir(previous)
 
 
 def test_opening_count_frozen_shadow_metrics_unchanged() -> None:
@@ -1014,4 +1088,210 @@ def test_opening_count_frozen_shadow_metrics_unchanged() -> None:
     assert int(metrics["hallucinations"]) == 0
     assert int(metrics["conflicts"]) == 0
     assert int(metrics["critical_duplicate_counts"]) == 0
+
+
+def test_new_selective_ineligible_selects_legacy(tmp_path: Path) -> None:
+    router = _router(tmp_path)
+    router.set_state(
+        "opening_count",
+        MigrationAuthorityState.NEW_SELECTIVE.value,
+        project_id="proj_1",
+        provider=_descriptor(),
+        reason="test_only_not_a_promotion",
+    )
+    context = _context()
+    family_ineligible = router.route(
+        family="opening_count",
+        context=context,
+        legacy_quantities=(_qty("W1", 6, quantity_id="legacy_w1"),),
+        new_result=ProviderResult.build(
+            descriptor=_descriptor(),
+            context=context,
+            quantities=(_qty("W1", 99, quantity_id="new_w1"),),
+        ),
+        eligibility=EligibilityDecision(False, "opening_count", ("not_schedule_sheet",), "tag", ()),
+    )
+    assert family_ineligible.selected[0].selected_authority == "legacy"
+    assert family_ineligible.selected[0].fallback_reason == "not_provider_eligible"
+    assert family_ineligible.selected[0].quantity.quantity_id == "legacy_w1"
+
+    key_ineligible = router.route(
+        family="opening_count",
+        context=context,
+        legacy_quantities=(_qty("D1", 2, quantity_id="legacy_d1"),),
+        new_result=ProviderResult.build(
+            descriptor=_descriptor(),
+            context=context,
+            quantities=(_qty("D1", 99, quantity_id="new_d1"),),
+        ),
+        eligibility=EligibilityDecision(True, "opening_count", ("other_sheet",), "tag", ("W1",)),
+    )
+    assert key_ineligible.selected[0].claim.semantic_key == "D1"
+    assert key_ineligible.selected[0].selected_authority == "legacy"
+    assert key_ineligible.selected[0].fallback_reason == "not_provider_eligible"
+    assert key_ineligible.selected[0].quantity.quantity_id == "legacy_d1"
+
+
+def test_new_authoritative_conflict_does_not_substitute_legacy(tmp_path: Path) -> None:
+    router = _router(tmp_path)
+    router.set_state(
+        "opening_count",
+        MigrationAuthorityState.NEW_AUTHORITATIVE.value,
+        project_id="proj_1",
+        provider=_descriptor(),
+        reason="test_only_not_a_promotion",
+    )
+    context = _context()
+    routed = router.route(
+        family="opening_count",
+        context=context,
+        legacy_quantities=(_qty("W1", 6, quantity_id="legacy_w1"),),
+        new_result=ProviderResult.build(
+            descriptor=_descriptor(),
+            context=context,
+            quantities=(_qty("W1", 6, quantity_id="n1"), _qty("W1", 9, quantity_id="n2")),
+        ),
+        eligibility=EligibilityDecision(True, "opening_count", ("test",), "tag", ("W1",)),
+    )
+    assert routed.selected[0].selected_authority == "new_authoritative_abstention"
+    assert routed.selected[0].quantity is None
+    assert routed.selected[0].fallback_reason == "authoritative_conflict_no_legacy_substitution"
+
+
+def test_binder_rejects_provider_self_certified_identity() -> None:
+    trusted_looking_sha = "cd" * 32
+    qty = _qty(
+        "W1",
+        6,
+        extra_meta={
+            "project_id": "provider_forged_project",
+            "source_sha256": trusted_looking_sha,
+            "revision_id": "rev-looks-current",
+        },
+    )
+    with pytest.raises(SourceTraceBindingError, match="project"):
+        bind_commercial_source_trace(qty, _context())
+    sha_only = _qty("W1", 6, extra_meta={"source_sha256": trusted_looking_sha})
+    with pytest.raises(SourceTraceBindingError, match="source SHA"):
+        bind_commercial_source_trace(sha_only, _context())
+    revision_only = _qty("W1", 6, extra_meta={"revision_id": "rev-looks-current"})
+    with pytest.raises(SourceTraceBindingError, match="revision"):
+        bind_commercial_source_trace(revision_only, _context())
+
+
+def test_binder_rejects_provider_self_certified_scale_status() -> None:
+    qty = _qty(
+        "LEN",
+        3.0,
+        family="figured_dimension",
+        extra_meta={"source_page": 1, "scale_status": "resolved", "scale_id": "provider_trusted_scale"},
+        authority=MeasurementAuthorityType.PDF_SCALED.value,
+    )
+    with pytest.raises(MeasurementAuthorityBindingError, match="unresolved"):
+        bind_commercial_measurement_authority(
+            qty,
+            scaled_mm=3000.0,
+            scale_calibration=unknown_calibration(1),
+        )
+
+
+def test_migration_report_formulas() -> None:
+    answered = tuple(_qty(f"W{index}", 1.0) for index in range(1, 16))
+    report = build_migration_report(
+        family="opening_count",
+        descriptor=_descriptor(),
+        migration_state=MigrationAuthorityState.NEW_SHADOW.value,
+        source_set_fingerprint="src",
+        evaluated_commit="test",
+        eligible=24,
+        eligible_keys=(),
+        frozen_new=answered,
+        exact_among_answered=1.0,
+        precision=1.0,
+        recall=15 / 24,
+        hallucinations=0,
+        conflicts=0,
+        duplicates=0,
+        missing_provenance=0,
+        holdout_status="NOT_RUN",
+        gate_decision="HOLD",
+        gate_reasons=("remain_new_shadow",),
+    )
+    accuracy = report.payload["accuracy"]
+    integrity = report.payload["integrity"]
+    assert report.payload["population"]["eligible"] == 24
+    assert report.payload["population"]["answered"] == 15
+    assert accuracy["coverage"] == pytest.approx(0.625)
+    assert accuracy["exact_correctness_among_answered"] == 1.0
+    assert accuracy["precision"] == 1.0
+    assert accuracy["recall"] == pytest.approx(15 / 24)
+    assert integrity["provenance_completeness"] is True
+    incomplete = build_migration_report(
+        family="opening_count",
+        descriptor=_descriptor(),
+        migration_state=MigrationAuthorityState.NEW_SHADOW.value,
+        source_set_fingerprint="src",
+        evaluated_commit="test",
+        eligible=24,
+        eligible_keys=(),
+        frozen_new=answered,
+        missing_provenance=2,
+        holdout_status="NOT_RUN",
+        gate_decision="HOLD",
+        gate_reasons=("missing_provenance",),
+    )
+    assert incomplete.payload["integrity"]["provenance_completeness"] is False
+    assert incomplete.payload["integrity"]["missing_provenance"] == 2
+    assert incomplete.payload["benchmark_integrity"]["holdout_status"] == "NOT_RUN"
+
+
+def test_router_never_sums_aggregate_and_instance(tmp_path: Path) -> None:
+    router = _router(tmp_path)
+    router.set_state(
+        "opening_count",
+        MigrationAuthorityState.NEW_SELECTIVE.value,
+        project_id="proj_1",
+        provider=_descriptor(),
+        reason="test_only_not_a_promotion",
+    )
+    context = _context()
+    routed = router.route(
+        family="opening_count",
+        context=context,
+        legacy_quantities=(_qty("door_total", 12, quantity_id="legacy_total"), _qty("D1", 4, quantity_id="legacy_d1")),
+        new_result=ProviderResult.build(
+            descriptor=_descriptor(),
+            context=context,
+            quantities=(_qty("door_total", 12, quantity_id="new_total"), _qty("D1", 4, quantity_id="new_d1")),
+        ),
+        eligibility=EligibilityDecision(True, "opening_count", ("test",), "tag", ()),
+    )
+    values = [item.quantity.value for item in routed.selected if item.quantity is not None]
+    assert 16 not in values
+    assert {item.claim.semantic_key for item in routed.selected} == {"D1", "door_total"}
+    assert {item.quantity.value for item in routed.selected if item.quantity is not None} == {4.0, 12.0}
+    assert all(item.selected_authority in {"legacy", "new"} for item in routed.selected)
+    arbitration = arbitrate_claims(
+        family="opening_count",
+        project_id="proj_1",
+        revision_id="rev-a",
+        new_quantities=(_qty("door_total", 12), _qty("D1", 4)),
+    )
+    assert "aggregate_instance_overlap" in arbitration.kinds
+
+
+def test_opening_count_context_omits_invented_scale_snapshot() -> None:
+    context = _context(canonical_graph_snapshot_id=None, measurement_authority_snapshot_id=None)
+    assert context.canonical_graph_snapshot_id is None
+    assert context.measurement_authority_snapshot_id is None
+    fingerprint = context.fingerprint()
+    assert fingerprint
+    assert _context(source_sha256="cd" * 32, measurement_authority_snapshot_id=None).fingerprint() != fingerprint
+    assert _context(revision_id="rev-b", current_revision_id="rev-b", measurement_authority_snapshot_id=None).fingerprint() != fingerprint
+    assert _context(evidence_snapshot_id="evsnap_other", measurement_authority_snapshot_id=None).fingerprint() != fingerprint
+    invented_scale = _context(canonical_graph_snapshot_id=None, measurement_authority_snapshot_id="bogus_opening_scale")
+    assert invented_scale.fingerprint() != fingerprint
+    decision = production_opening_count_eligibility(context)
+    assert decision.eligible is True
+    assert OpeningCountControlAdapter().eligibility(context).eligible is True
 

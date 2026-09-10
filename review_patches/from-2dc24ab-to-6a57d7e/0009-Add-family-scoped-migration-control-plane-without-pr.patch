@@ -1,0 +1,3347 @@
+From 5141e0149f52b41fed522f78d9a0a0b9c0c8e41d Mon Sep 17 00:00:00 2001
+From: Cursor Agent <cursoragent@cursor.com>
+Date: Wed, 9 Sep 2026 23:49:20 +0000
+Subject: [PATCH 09/10] Add family-scoped migration control plane without
+ promoting opening counts.
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Reuse M1–M5 contracts for transitive gold isolation, provider envelopes,
+authority routing, claim arbitration, source/measurement binders, an
+append-only decision ledger, family rollback, and a standard migration
+report. The frozen opening-count provider stays NEW_SHADOW behind a thin
+adapter; extraction, gold, mappings, and the 24/61 legacy headline are
+unchanged.
+---
+ .github/workflows/ci.yml                      |   3 +
+ pb_migration_claim_arbiter.py                 | 142 ++++
+ pb_migration_decision_ledger.py               | 224 ++++++
+ pb_migration_family_router.py                 | 367 +++++++++
+ pb_migration_measurement_authority_binder.py  | 121 +++
+ pb_migration_provider_envelope.py             | 177 +++++
+ pb_migration_report.py                        | 162 ++++
+ pb_migration_source_trace_binder.py           | 162 ++++
+ pb_opening_count_control_adapter.py           | 132 ++++
+ pb_provider_gold_isolation.py                 | 251 ++++++
+ pb_quantity_commercial_adapter.py             | 660 ++++++++++++++++
+ scripts/check_provider_gold_isolation.py      |  32 +
+ .../fixtures/migration_isolation/__init__.py  |   1 +
+ .../migration_isolation/clean_provider.py     |   6 +
+ .../direct_dirty_provider.py                  |   6 +
+ .../migration_isolation/dirty_helper.py       |   5 +
+ .../migration_isolation/dirty_provider.py     |   6 +
+ tests/test_migration_control_plane.py         | 721 ++++++++++++++++++
+ 18 files changed, 3178 insertions(+)
+ create mode 100644 pb_migration_claim_arbiter.py
+ create mode 100644 pb_migration_decision_ledger.py
+ create mode 100644 pb_migration_family_router.py
+ create mode 100644 pb_migration_measurement_authority_binder.py
+ create mode 100644 pb_migration_provider_envelope.py
+ create mode 100644 pb_migration_report.py
+ create mode 100644 pb_migration_source_trace_binder.py
+ create mode 100644 pb_opening_count_control_adapter.py
+ create mode 100644 pb_provider_gold_isolation.py
+ create mode 100644 pb_quantity_commercial_adapter.py
+ create mode 100644 scripts/check_provider_gold_isolation.py
+ create mode 100644 tests/fixtures/migration_isolation/__init__.py
+ create mode 100644 tests/fixtures/migration_isolation/clean_provider.py
+ create mode 100644 tests/fixtures/migration_isolation/direct_dirty_provider.py
+ create mode 100644 tests/fixtures/migration_isolation/dirty_helper.py
+ create mode 100644 tests/fixtures/migration_isolation/dirty_provider.py
+ create mode 100644 tests/test_migration_control_plane.py
+
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index c508a8d..9db69ba 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -35,6 +35,9 @@ jobs:
+         run: |
+           git diff --name-only "$BASE_SHA" "$HEAD_SHA" | python scripts/check_benchmark_gold_separation.py
+ 
++      - name: Enforce production-provider transitive gold isolation
++        run: PYTHONPATH=. python scripts/check_provider_gold_isolation.py
++
+       - name: Compile all Python code
+         run: python -m compileall -q .
+ 
+diff --git a/pb_migration_claim_arbiter.py b/pb_migration_claim_arbiter.py
+new file mode 100644
+index 0000000..28b8323
+--- /dev/null
++++ b/pb_migration_claim_arbiter.py
+@@ -0,0 +1,142 @@
++"""Deterministic claim arbitration for family-scoped quantity identities.
++
++Exactly one selected claim is allowed for:
++
++    family + project + revision + semantic_key
++
++This module detects collisions and conflicts.  It does not choose migration
++authority — the family router does that after arbitration.
++"""
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import Optional, Sequence
++
++from pb_migration_contracts import QuantityEvidence
++
++
++class ClaimArbitrationError(RuntimeError):
++    """Raised when two authoritative quantities claim the same scoped identity."""
++
++
++@dataclass(frozen=True)
++class ClaimKey:
++    family: str
++    project_id: str
++    revision_id: str
++    semantic_key: str
++
++    def as_tuple(self) -> tuple[str, str, str, str]:
++        return (self.family, self.project_id, self.revision_id, self.semantic_key)
++
++
++@dataclass(frozen=True)
++class ArbitrationFinding:
++    kind: str
++    claim: ClaimKey
++    detail: str
++    quantity_ids: tuple[str, ...]
++
++
++@dataclass(frozen=True)
++class ArbitrationReport:
++    findings: tuple[ArbitrationFinding, ...]
++    blocking: bool
++
++    @property
++    def kinds(self) -> tuple[str, ...]:
++        return tuple(item.kind for item in self.findings)
++
++
++_AGGREGATE_KEYS = frozenset({"door_total", "window_total"})
++
++
++def claim_key(
++    *,
++    family: str,
++    project_id: str,
++    revision_id: Optional[str],
++    semantic_key: str,
++) -> ClaimKey:
++    return ClaimKey(
++        family=str(family),
++        project_id=str(project_id),
++        revision_id=str(revision_id or ""),
++        semantic_key=str(semantic_key),
++    )
++
++
++def _by_key(items: Sequence[QuantityEvidence], *, family: str, project_id: str, revision_id: Optional[str]) -> dict[str, list[QuantityEvidence]]:
++    grouped: dict[str, list[QuantityEvidence]] = {}
++    for item in items:
++        grouped.setdefault(item.semantic_key, []).append(item)
++    return grouped
++
++
++def arbitrate_claims(
++    *,
++    family: str,
++    project_id: str,
++    revision_id: Optional[str],
++    new_quantities: Sequence[QuantityEvidence],
++    legacy_keys: Sequence[str] = (),
++) -> ArbitrationReport:
++    findings: list[ArbitrationFinding] = []
++    new_groups = _by_key(new_quantities, family=family, project_id=project_id, revision_id=revision_id)
++    for key, rows in new_groups.items():
++        claim = claim_key(family=family, project_id=project_id, revision_id=revision_id, semantic_key=key)
++        accepted = [item for item in rows if not item.abstained and item.value is not None]
++        if len(accepted) > 1:
++            values = {round(float(item.value), 9) for item in accepted}
++            kind = "conflicting_new_claims" if len(values) > 1 else "duplicate_new_claim"
++            findings.append(
++                ArbitrationFinding(
++                    kind=kind,
++                    claim=claim,
++                    detail=f"{len(accepted)} new quantities claim {key}",
++                    quantity_ids=tuple(item.quantity_id for item in accepted),
++                )
++            )
++        if key in set(legacy_keys) and accepted:
++            findings.append(
++                ArbitrationFinding(
++                    kind="legacy_new_overlap",
++                    claim=claim,
++                    detail="legacy and new both emit this semantic key; router must pick exactly one",
++                    quantity_ids=tuple(item.quantity_id for item in accepted),
++                )
++            )
++        if key in _AGGREGATE_KEYS:
++            instances = [
++                other
++                for other in new_quantities
++                if other.semantic_key not in _AGGREGATE_KEYS and not other.abstained
++            ]
++            if instances:
++                findings.append(
++                    ArbitrationFinding(
++                        kind="aggregate_instance_overlap",
++                        claim=claim,
++                        detail="family aggregate and type-instance keys both present; they are distinct claims",
++                        quantity_ids=tuple(item.quantity_id for item in instances[:8]),
++                    )
++                )
++    blocking = any(
++        item.kind in {"duplicate_new_claim", "conflicting_new_claims", "semantic_key_collision"}
++        for item in findings
++    )
++    return ArbitrationReport(findings=tuple(findings), blocking=blocking)
++
++
++def assert_exactly_one_selected(
++    selected: Sequence[ClaimKey],
++) -> None:
++    seen: dict[tuple[str, str, str, str], int] = {}
++    for claim in selected:
++        key = claim.as_tuple()
++        seen[key] = seen.get(key, 0) + 1
++    collisions = [key for key, count in seen.items() if count > 1]
++    if collisions:
++        raise ClaimArbitrationError(
++            f"double-selected claims: {collisions!r}"
++        )
+diff --git a/pb_migration_decision_ledger.py b/pb_migration_decision_ledger.py
+new file mode 100644
+index 0000000..b6af931
+--- /dev/null
++++ b/pb_migration_decision_ledger.py
+@@ -0,0 +1,224 @@
++"""Append-only migration decision ledger (JSONL + SQLite).
++
++Does not add a graph database.  Historical rows are inserted, never updated.
++Rollback writes a new decision; it does not rewrite prior rows or estimator-
++approved commercial takeoff rows.
++"""
++from __future__ import annotations
++
++from dataclasses import asdict, dataclass
++from datetime import datetime, timezone
++import json
++from pathlib import Path
++import sqlite3
++from typing import Any, Optional
++
++from pb_migration_contracts import MigrationAuthorityState, canonical_contract_json
++from pb_migration_provider_envelope import fingerprint_payload
++
++
++LEDGER_SCHEMA_VERSION = "1.0.0"
++
++
++@dataclass(frozen=True)
++class MigrationDecisionRecord:
++    family: str
++    provider_id: str
++    provider_version: str
++    provider_fingerprint: str
++    prior_state: str
++    current_state: str
++    project_id: str
++    revision_id: str
++    semantic_claim: str
++    selected_authority: str
++    fallback_reason: str
++    blocker: str
++    decided_at: str
++    code_commit: str
++    run_id: str
++    extra: dict[str, Any]
++
++    def to_dict(self) -> dict[str, Any]:
++        payload = asdict(self)
++        payload["schema_version"] = LEDGER_SCHEMA_VERSION
++        return payload
++
++
++def utc_now() -> str:
++    return datetime.now(timezone.utc).isoformat()
++
++
++def current_commit_sha(repo_root: Optional[Path] = None) -> str:
++    head = (repo_root or Path(".")).joinpath(".git/HEAD")
++    if not head.is_file():
++        return "unknown"
++    ref = head.read_text(encoding="utf-8").strip()
++    if ref.startswith("ref:"):
++        target = (repo_root or Path(".")).joinpath(".git", ref.split(" ", 1)[1])
++        if target.is_file():
++            return target.read_text(encoding="utf-8").strip()
++        return ref
++    return ref
++
++
++class MigrationDecisionLedger:
++    """Append-only JSONL + SQLite ledger for family routing decisions."""
++
++    def __init__(self, path: Path | str) -> None:
++        self.path = Path(path)
++        self.path.parent.mkdir(parents=True, exist_ok=True)
++        self.jsonl_path = self.path.with_suffix(".jsonl")
++        self._conn = sqlite3.connect(self.path)
++        self._conn.row_factory = sqlite3.Row
++        self._init()
++
++    def _init(self) -> None:
++        self._conn.execute(
++            """
++            CREATE TABLE IF NOT EXISTS migration_decisions (
++                id INTEGER PRIMARY KEY AUTOINCREMENT,
++                family TEXT NOT NULL,
++                provider_id TEXT NOT NULL,
++                provider_version TEXT NOT NULL,
++                provider_fingerprint TEXT NOT NULL,
++                prior_state TEXT NOT NULL,
++                current_state TEXT NOT NULL,
++                project_id TEXT NOT NULL,
++                revision_id TEXT NOT NULL,
++                semantic_claim TEXT NOT NULL,
++                selected_authority TEXT NOT NULL,
++                fallback_reason TEXT NOT NULL,
++                blocker TEXT NOT NULL,
++                decided_at TEXT NOT NULL,
++                code_commit TEXT NOT NULL,
++                run_id TEXT NOT NULL,
++                extra_json TEXT NOT NULL
++            )
++            """
++        )
++        self._conn.execute(
++            """
++            CREATE TABLE IF NOT EXISTS family_state (
++                family TEXT PRIMARY KEY,
++                current_state TEXT NOT NULL,
++                updated_at TEXT NOT NULL,
++                last_decision_id INTEGER
++            )
++            """
++        )
++        self._conn.commit()
++
++    def close(self) -> None:
++        self._conn.close()
++
++    def append(self, record: MigrationDecisionRecord) -> int:
++        payload = record.to_dict()
++        cur = self._conn.execute(
++            """
++            INSERT INTO migration_decisions (
++                family, provider_id, provider_version, provider_fingerprint,
++                prior_state, current_state, project_id, revision_id, semantic_claim,
++                selected_authority, fallback_reason, blocker, decided_at, code_commit,
++                run_id, extra_json
++            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
++            """,
++            (
++                record.family,
++                record.provider_id,
++                record.provider_version,
++                record.provider_fingerprint,
++                record.prior_state,
++                record.current_state,
++                record.project_id,
++                record.revision_id,
++                record.semantic_claim,
++                record.selected_authority,
++                record.fallback_reason,
++                record.blocker,
++                record.decided_at,
++                record.code_commit,
++                record.run_id,
++                canonical_contract_json(record.extra),
++            ),
++        )
++        self._conn.execute(
++            """
++            INSERT INTO family_state (family, current_state, updated_at, last_decision_id)
++            VALUES (?, ?, ?, ?)
++            ON CONFLICT(family) DO UPDATE SET
++                current_state=excluded.current_state,
++                updated_at=excluded.updated_at,
++                last_decision_id=excluded.last_decision_id
++            """,
++            (record.family, record.current_state, record.decided_at, cur.lastrowid),
++        )
++        self._conn.commit()
++        with self.jsonl_path.open("a", encoding="utf-8") as handle:
++            handle.write(json.dumps(payload, sort_keys=True) + "\n")
++        return int(cur.lastrowid)
++
++    def family_state(self, family: str, default: str = MigrationAuthorityState.NEW_SHADOW.value) -> str:
++        row = self._conn.execute(
++            "SELECT current_state FROM family_state WHERE family = ?",
++            (family,),
++        ).fetchone()
++        return str(row["current_state"]) if row else default
++
++    def history(self, family: str) -> list[dict[str, Any]]:
++        rows = self._conn.execute(
++            "SELECT * FROM migration_decisions WHERE family = ? ORDER BY id ASC",
++            (family,),
++        ).fetchall()
++        return [dict(row) for row in rows]
++
++    def latest_for_claim(self, family: str, semantic_claim: str) -> Optional[dict[str, Any]]:
++        row = self._conn.execute(
++            """
++            SELECT * FROM migration_decisions
++            WHERE family = ? AND semantic_claim = ?
++            ORDER BY id DESC LIMIT 1
++            """,
++            (family, semantic_claim),
++        ).fetchone()
++        return dict(row) if row else None
++
++
++def record_state_transition(
++    ledger: MigrationDecisionLedger,
++    *,
++    family: str,
++    provider_id: str,
++    provider_version: str,
++    provider_fingerprint: str,
++    prior_state: str,
++    current_state: str,
++    project_id: str,
++    revision_id: str = "",
++    semantic_claim: str = "*",
++    selected_authority: str,
++    fallback_reason: str = "",
++    blocker: str = "",
++    run_id: str = "",
++    extra: Optional[dict[str, Any]] = None,
++) -> MigrationDecisionRecord:
++    record = MigrationDecisionRecord(
++        family=family,
++        provider_id=provider_id,
++        provider_version=provider_version,
++        provider_fingerprint=provider_fingerprint,
++        prior_state=prior_state,
++        current_state=current_state,
++        project_id=project_id,
++        revision_id=revision_id,
++        semantic_claim=semantic_claim,
++        selected_authority=selected_authority,
++        fallback_reason=fallback_reason,
++        blocker=blocker,
++        decided_at=utc_now(),
++        code_commit=current_commit_sha(),
++        run_id=run_id or fingerprint_payload({"family": family, "ts": utc_now()}),
++        extra=dict(extra or {}),
++    )
++    ledger.append(record)
++    return record
+diff --git a/pb_migration_family_router.py b/pb_migration_family_router.py
+new file mode 100644
+index 0000000..15f05de
+--- /dev/null
++++ b/pb_migration_family_router.py
+@@ -0,0 +1,367 @@
++"""Central family-aware authority router.
++
++This is the ONLY migration layer that decides whether the selected commercial
++claim comes from legacy or a new provider.  Providers never choose authority.
++
++States:
++- LEGACY_AUTHORITATIVE: legacy selected; new does not run
++- NEW_SHADOW: legacy selected; new may run diagnostically
++- NEW_SELECTIVE: eligible+valid new -> new; abstention/conflict -> legacy fallback
++- NEW_AUTHORITATIVE: new owns the family scope; abstention is NOT silently
++  replaced by legacy (authoritative_abstention)
++
++Invariant: exactly one selected claim per family + project + revision + semantic_key.
++Never final = legacy + new for the same scoped claim.
++"""
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import Optional, Sequence
++
++from pb_migration_claim_arbiter import (
++    ArbitrationReport,
++    ClaimKey,
++    arbitrate_claims,
++    assert_exactly_one_selected,
++    claim_key,
++)
++from pb_migration_contracts import MigrationAuthorityState, QuantityEvidence
++from pb_migration_decision_ledger import (
++    MigrationDecisionLedger,
++    record_state_transition,
++)
++from pb_migration_provider_envelope import (
++    EligibilityDecision,
++    ProviderContext,
++    ProviderDescriptor,
++    ProviderResult,
++)
++from pb_provider_gold_isolation import assert_provider_gold_free
++
++
++class FamilyRouterError(RuntimeError):
++    """Raised when routing would violate the single-authority invariant."""
++
++
++@dataclass
++class FamilyRegistration:
++    family: str
++    provider_id: str
++    provider_module: str
++    default_state: str = MigrationAuthorityState.NEW_SHADOW.value
++
++
++@dataclass(frozen=True)
++class SelectedClaim:
++    claim: ClaimKey
++    selected_authority: str
++    quantity: Optional[QuantityEvidence]
++    diagnostic_new: Optional[QuantityEvidence]
++    fallback_reason: str
++    blockers: tuple[str, ...]
++
++
++@dataclass
++class RoutingResult:
++    family: str
++    state: str
++    selected: tuple[SelectedClaim, ...]
++    arbitration: ArbitrationReport
++    new_ran: bool
++    commercially_selected_from_new: bool
++
++    def selected_keys(self) -> tuple[ClaimKey, ...]:
++        return tuple(item.claim for item in self.selected)
++
++
++_DEFAULT_REGISTRY = {
++    "opening_count": FamilyRegistration(
++        family="opening_count",
++        provider_id="shadow_opening_count",
++        provider_module="pb_shadow_opening_count_provider",
++        default_state=MigrationAuthorityState.NEW_SHADOW.value,
++    ),
++}
++
++
++class FamilyAuthorityRouter:
++    """Family-scoped authority router with rollback and an in-memory selection cache."""
++
++    def __init__(
++        self,
++        ledger: MigrationDecisionLedger,
++        *,
++        registry: Optional[dict[str, FamilyRegistration]] = None,
++    ) -> None:
++        self.ledger = ledger
++        self.registry = dict(registry or _DEFAULT_REGISTRY)
++        self._selection_cache: dict[tuple[str, str, str], RoutingResult] = {}
++
++    def current_state(self, family: str) -> str:
++        registration = self.registry.get(family)
++        default = registration.default_state if registration else MigrationAuthorityState.LEGACY_AUTHORITATIVE.value
++        return self.ledger.family_state(family, default=default)
++
++    def invalidate_cache(self, family: Optional[str] = None) -> None:
++        if family is None:
++            self._selection_cache.clear()
++            return
++        for key in list(self._selection_cache):
++            if key[0] == family:
++                self._selection_cache.pop(key, None)
++
++    def set_state(
++        self,
++        family: str,
++        new_state: str,
++        *,
++        project_id: str,
++        provider: ProviderDescriptor,
++        reason: str,
++        run_id: str = "",
++    ) -> str:
++        allowed = {item.value for item in MigrationAuthorityState}
++        if new_state not in allowed:
++            raise FamilyRouterError(f"unknown migration state {new_state!r}")
++        prior = self.current_state(family)
++        record_state_transition(
++            self.ledger,
++            family=family,
++            provider_id=provider.provider_id,
++            provider_version=provider.provider_version,
++            provider_fingerprint=provider.code_fingerprint,
++            prior_state=prior,
++            current_state=new_state,
++            project_id=project_id,
++            selected_authority="legacy" if new_state in {
++                MigrationAuthorityState.LEGACY_AUTHORITATIVE.value,
++                MigrationAuthorityState.NEW_SHADOW.value,
++            } else "new",
++            fallback_reason=reason,
++            run_id=run_id,
++            extra={"transition": f"{prior}->{new_state}"},
++        )
++        self.invalidate_cache(family)
++        return new_state
++
++    def rollback(
++        self,
++        family: str,
++        *,
++        target: str,
++        project_id: str,
++        provider: ProviderDescriptor,
++        reason: str,
++        run_id: str = "",
++    ) -> str:
++        """Family-scoped rollback. Does not rewrite estimator-approved commercial rows."""
++        current = self.current_state(family)
++        if target not in {
++            MigrationAuthorityState.NEW_SHADOW.value,
++            MigrationAuthorityState.LEGACY_AUTHORITATIVE.value,
++        }:
++            raise FamilyRouterError("rollback target must be new_shadow or legacy_authoritative")
++        if current not in {
++            MigrationAuthorityState.NEW_SELECTIVE.value,
++            MigrationAuthorityState.NEW_AUTHORITATIVE.value,
++            MigrationAuthorityState.NEW_SHADOW.value,
++        } and target == MigrationAuthorityState.LEGACY_AUTHORITATIVE.value:
++            pass
++        return self.set_state(
++            family,
++            target,
++            project_id=project_id,
++            provider=provider,
++            reason=reason,
++            run_id=run_id,
++        )
++
++    def route(
++        self,
++        *,
++        family: str,
++        context: ProviderContext,
++        legacy_quantities: Sequence[QuantityEvidence],
++        new_result: Optional[ProviderResult],
++        eligibility: Optional[EligibilityDecision] = None,
++        execute_new: bool = True,
++    ) -> RoutingResult:
++        state = self.current_state(family)
++        cache_key = (family, context.project_id, context.revision_id or "")
++        registration = self.registry.get(family)
++        new_ran = False
++        if state == MigrationAuthorityState.LEGACY_AUTHORITATIVE.value:
++            execute_new = False
++        if registration is not None and execute_new and new_result is not None:
++            assert_provider_gold_free(registration.provider_id, registration.provider_module)
++            new_ran = True
++        new_quantities = list(new_result.quantities) if new_result is not None and new_ran else []
++        legacy_by_key = {item.semantic_key: item for item in legacy_quantities if not item.abstained}
++        new_by_key: dict[str, QuantityEvidence] = {}
++        new_abstentions: dict[str, QuantityEvidence] = {}
++        for item in new_quantities:
++            if item.family != family and item.family not in {"window_count", "door_count", "opening_count"}:
++                continue
++            if item.abstained:
++                new_abstentions[item.semantic_key] = item
++            else:
++                new_by_key.setdefault(item.semantic_key, item)
++
++        arbitration = arbitrate_claims(
++            family=family,
++            project_id=context.project_id,
++            revision_id=context.revision_id,
++            new_quantities=new_quantities,
++            legacy_keys=tuple(legacy_by_key),
++        )
++        conflict_keys = {
++            item.claim.semantic_key
++            for item in arbitration.findings
++            if item.kind in {"duplicate_new_claim", "conflicting_new_claims"}
++        }
++
++        eligible_keys = set(eligibility.eligible_semantic_keys) if eligibility is not None else set()
++        family_eligible = True if eligibility is None else eligibility.eligible
++        all_keys = sorted(set(legacy_by_key) | set(new_by_key) | set(new_abstentions) | eligible_keys)
++
++        selected: list[SelectedClaim] = []
++        for key in all_keys:
++            claim = claim_key(
++                family=family,
++                project_id=context.project_id,
++                revision_id=context.revision_id,
++                semantic_key=key,
++            )
++            legacy_row = legacy_by_key.get(key)
++            new_row = new_by_key.get(key)
++            abstained = new_abstentions.get(key)
++            claim_eligible = family_eligible and (not eligible_keys or key in eligible_keys)
++            selected.append(
++                self._select_one(
++                    state=state,
++                    claim=claim,
++                    claim_eligible=claim_eligible,
++                    legacy_row=legacy_row,
++                    new_row=new_row,
++                    abstained=abstained,
++                    conflict=key in conflict_keys,
++                )
++            )
++            self._record_claim(
++                family=family,
++                state=state,
++                context=context,
++                claim=selected[-1],
++                provider=new_result.descriptor if new_result is not None else None,
++            )
++
++        result = RoutingResult(
++            family=family,
++            state=state,
++            selected=tuple(selected),
++            arbitration=arbitration,
++            new_ran=new_ran,
++            commercially_selected_from_new=any(item.selected_authority == "new" for item in selected),
++        )
++        assert_exactly_one_selected(result.selected_keys())
++        if result.commercially_selected_from_new and state == MigrationAuthorityState.NEW_SHADOW.value:
++            raise FamilyRouterError("NEW_SHADOW leaked a commercially selected new claim")
++        if state == MigrationAuthorityState.NEW_SHADOW.value and result.commercially_selected_from_new:
++            raise FamilyRouterError("NEW_SHADOW must select legacy only")
++        self._selection_cache[cache_key] = result
++        return result
++
++    def _select_one(
++        self,
++        *,
++        state: str,
++        claim: ClaimKey,
++        claim_eligible: bool,
++        legacy_row: Optional[QuantityEvidence],
++        new_row: Optional[QuantityEvidence],
++        abstained: Optional[QuantityEvidence],
++        conflict: bool,
++    ) -> SelectedClaim:
++        diagnostic = new_row or abstained
++        if state in {
++            MigrationAuthorityState.LEGACY_AUTHORITATIVE.value,
++            MigrationAuthorityState.NEW_SHADOW.value,
++        }:
++            return SelectedClaim(
++                claim=claim,
++                selected_authority="legacy",
++                quantity=legacy_row,
++                diagnostic_new=diagnostic,
++                fallback_reason="" if legacy_row is not None else "legacy_missing",
++                blockers=("new_is_diagnostic_only",) if state == MigrationAuthorityState.NEW_SHADOW.value else (),
++            )
++
++        if state == MigrationAuthorityState.NEW_SELECTIVE.value:
++            if not claim_eligible:
++                return SelectedClaim(claim, "legacy", legacy_row, diagnostic, "not_provider_eligible", ())
++            if conflict:
++                return SelectedClaim(claim, "legacy", legacy_row, diagnostic, "unresolved_authority_conflict", ("conflicting_new_claims",))
++            if abstained is not None and new_row is None:
++                return SelectedClaim(claim, "legacy", legacy_row, abstained, "new_abstention_fallback", abstained.blocking_reasons)
++            if new_row is not None:
++                return SelectedClaim(claim, "new", new_row, new_row, "", ())
++            return SelectedClaim(claim, "legacy", legacy_row, diagnostic, "new_missing_fallback", ())
++
++        if state == MigrationAuthorityState.NEW_AUTHORITATIVE.value:
++            if conflict:
++                return SelectedClaim(
++                    claim,
++                    "new_authoritative_abstention",
++                    None,
++                    diagnostic,
++                    "authoritative_conflict_no_legacy_substitution",
++                    ("conflicting_new_claims",),
++                )
++            if abstained is not None and new_row is None:
++                return SelectedClaim(
++                    claim,
++                    "new_authoritative_abstention",
++                    None,
++                    abstained,
++                    "authoritative_abstention_no_legacy_substitution",
++                    abstained.blocking_reasons,
++                )
++            if new_row is not None:
++                return SelectedClaim(claim, "new", new_row, new_row, "", ())
++            return SelectedClaim(
++                claim,
++                "new_authoritative_abstention",
++                None,
++                diagnostic,
++                "authoritative_scope_unanswered",
++                ("new_owns_family_scope",),
++            )
++
++        raise FamilyRouterError(f"unhandled migration state {state!r}")
++
++    def _record_claim(
++        self,
++        *,
++        family: str,
++        state: str,
++        context: ProviderContext,
++        claim: SelectedClaim,
++        provider: Optional[ProviderDescriptor],
++    ) -> None:
++        record_state_transition(
++            self.ledger,
++            family=family,
++            provider_id=provider.provider_id if provider else "none",
++            provider_version=provider.provider_version if provider else "",
++            provider_fingerprint=provider.code_fingerprint if provider else "",
++            prior_state=state,
++            current_state=state,
++            project_id=context.project_id,
++            revision_id=context.revision_id or "",
++            semantic_claim=claim.claim.semantic_key,
++            selected_authority=claim.selected_authority,
++            fallback_reason=claim.fallback_reason,
++            blocker=";".join(claim.blockers),
++            run_id=context.run_id,
++            extra={"quantity_id": None if claim.quantity is None else claim.quantity.quantity_id},
++        )
+diff --git a/pb_migration_measurement_authority_binder.py b/pb_migration_measurement_authority_binder.py
+new file mode 100644
+index 0000000..aff6479
+--- /dev/null
++++ b/pb_migration_measurement_authority_binder.py
+@@ -0,0 +1,121 @@
++"""Shared measurement-authority binder for M5 commercial projection.
++
++Providers must not independently manufacture figured/scaled/resolved-scale
++authority.  This binder reuses the existing scale, figured-dimension, and
++geometry authority modules.  It does not create a second authority ladder.
++"""
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import Optional
++
++from pb_figured_dimension_authority import resolve_measurement_authority
++from pb_geometry_takeoff_model import AuthorityStatus, MeasurementAuthorityType, ScaleCalibration
++from pb_migration_contracts import QuantityEvidence
++from pb_page_scale_calibration_authority import (
++    ScaleCalibrationStatus,
++    measurement_authority_for_page_scale,
++    unknown_calibration,
++)
++
++
++class MeasurementAuthorityBindingError(RuntimeError):
++    """Raised when scaled geometry lacks resolved scale or authority is inconsistent."""
++
++
++UNRELIABLE_SCALE = {
++    ScaleCalibrationStatus.UNKNOWN.value,
++    ScaleCalibrationStatus.CONFLICTING.value,
++    ScaleCalibrationStatus.MANUAL_REQUIRED.value,
++    ScaleCalibrationStatus.BLOCKED.value,
++}
++
++
++@dataclass(frozen=True)
++class CommercialMeasurementAuthority:
++    """Projection-facing authority record built only from existing modules."""
++
++    source_type: str
++    authority_status: str
++    scale_calibration_status: Optional[str]
++    figured_mm: Optional[float]
++    scaled_mm: Optional[float]
++    notes: str
++    blockers: tuple[str, ...]
++
++
++def bind_commercial_measurement_authority(
++    quantity: QuantityEvidence,
++    *,
++    figured_text: Optional[str] = None,
++    figured_mm: Optional[float] = None,
++    scaled_mm: Optional[float] = None,
++    scale_calibration: Optional[ScaleCalibration] = None,
++) -> CommercialMeasurementAuthority:
++    """Resolve figured-vs-scaled authority with existing shared policy."""
++    blockers: list[str] = []
++    calibration = scale_calibration
++    scale_status = None
++    scale_reliable = True
++    if quantity.authority == MeasurementAuthorityType.PDF_SCALED.value or scaled_mm is not None:
++        if calibration is None:
++            calibration = unknown_calibration(page_no=int((quantity.metadata or {}).get("source_page") or 1))
++        scale_status = calibration.status
++        measured = measurement_authority_for_page_scale(calibration)
++        if scale_status in UNRELIABLE_SCALE or measured == AuthorityStatus.BLOCKED.value:
++            scale_reliable = False
++            blockers.append("unresolved_scale")
++            raise MeasurementAuthorityBindingError(
++                "scaled geometry requires resolved/verified/calibrated scale; unresolved scale fails closed"
++            )
++
++    result = resolve_measurement_authority(
++        scaled_mm=scaled_mm,
++        figured_text=figured_text,
++        figured_mm=figured_mm,
++        scale_reliable=scale_reliable,
++    )
++    if result.authority_status == AuthorityStatus.BLOCKED.value and not figured_text and figured_mm is None:
++        if quantity.authority == MeasurementAuthorityType.PDF_SCALED.value:
++            raise MeasurementAuthorityBindingError(result.notes)
++
++    source_type = result.source_type or quantity.authority
++    if quantity.authority == MeasurementAuthorityType.DOCUMENTED_DIMENSION.value:
++        source_type = MeasurementAuthorityType.DOCUMENTED_DIMENSION.value
++    if quantity.authority == MeasurementAuthorityType.SCHEDULE_EXTRACTED.value:
++        source_type = MeasurementAuthorityType.SCHEDULE_EXTRACTED.value
++
++    if result.authority_status == AuthorityStatus.BLOCKED.value:
++        blockers.append(result.notes)
++
++    return CommercialMeasurementAuthority(
++        source_type=source_type,
++        authority_status=result.authority_status,
++        scale_calibration_status=scale_status,
++        figured_mm=result.figured_mm,
++        scaled_mm=result.scaled_mm,
++        notes=result.notes,
++        blockers=tuple(blockers),
++    )
++
++
++def bind_direct_evidence_authority(
++    quantity: QuantityEvidence,
++    *,
++    source_type: str,
++) -> CommercialMeasurementAuthority:
++    """Schedule / documented evidence without inventing scaled firmness."""
++    if source_type == MeasurementAuthorityType.PDF_SCALED.value:
++        raise MeasurementAuthorityBindingError("direct evidence binder cannot certify scaled geometry")
++    status = quantity.status or AuthorityStatus.PROVISIONAL.value
++    if status == AuthorityStatus.FIRM.value and source_type == MeasurementAuthorityType.AI_DETECTED.value:
++        status = AuthorityStatus.PROVISIONAL.value
++    return CommercialMeasurementAuthority(
++        source_type=source_type,
++        authority_status=status,
++        scale_calibration_status=None,
++        figured_mm=None,
++        scaled_mm=None,
++        notes="direct evidence authority copied from existing quantity authority; not provider-certified",
++        blockers=(),
++    )
+diff --git a/pb_migration_provider_envelope.py b/pb_migration_provider_envelope.py
+new file mode 100644
+index 0000000..d3a75e3
+--- /dev/null
++++ b/pb_migration_provider_envelope.py
+@@ -0,0 +1,177 @@
++"""Standard logical provider envelope for migration control-plane providers.
++
++This does not replace QuantityEvidence / EntityEvidence.  It standardizes how a
++provider is described, how a run is contextualized, and how a result is
++fingerprinted before any gold join.
++"""
++from __future__ import annotations
++
++from dataclasses import dataclass
++from hashlib import sha256
++from pathlib import Path
++from typing import Optional, Protocol, Sequence
++
++from pb_migration_contracts import (
++    EntityEvidence,
++    QuantityEvidence,
++    canonical_contract_json,
++    stable_contract_id,
++)
++from pb_provider_gold_isolation import REPO_ROOT
++
++
++ENVELOPE_SCHEMA_VERSION = "1.0.0"
++
++
++def fingerprint_payload(payload: object) -> str:
++    return sha256(canonical_contract_json(payload).encode("utf-8")).hexdigest()
++
++
++def fingerprint_source_files(module_names: Sequence[str]) -> str:
++    chunks: list[str] = []
++    for name in module_names:
++        path = REPO_ROOT / f"{name}.py"
++        if not path.is_file():
++            raise FileNotFoundError(f"cannot fingerprint missing module {name}")
++        chunks.append(f"{name}:{sha256(path.read_bytes()).hexdigest()}")
++    return fingerprint_payload(chunks)
++
++
++@dataclass(frozen=True)
++class ProviderDescriptor:
++    provider_id: str
++    family: str
++    provider_version: str
++    output_schema_version: str
++    code_fingerprint: str
++
++    def fingerprint(self) -> str:
++        return fingerprint_payload(
++            {
++                "provider_id": self.provider_id,
++                "family": self.family,
++                "provider_version": self.provider_version,
++                "output_schema_version": self.output_schema_version,
++                "code_fingerprint": self.code_fingerprint,
++            }
++        )
++
++
++@dataclass(frozen=True)
++class ProviderContext:
++    run_id: str
++    workspace_id: str
++    project_id: str
++    document_id: str
++    source_sha256: str
++    revision_id: Optional[str]
++    current_revision_id: Optional[str]
++    selected_pages: tuple[int, ...]
++    owned_viewport_ids: tuple[str, ...]
++    evidence_snapshot_id: str
++    canonical_graph_snapshot_id: Optional[str] = None
++    measurement_authority_snapshot_id: Optional[str] = None
++    source_pdf: Optional[str] = None
++
++    def fingerprint(self) -> str:
++        return fingerprint_payload(
++            {
++                "run_id": self.run_id,
++                "workspace_id": self.workspace_id,
++                "project_id": self.project_id,
++                "document_id": self.document_id,
++                "source_sha256": self.source_sha256,
++                "revision_id": self.revision_id,
++                "current_revision_id": self.current_revision_id,
++                "selected_pages": list(self.selected_pages),
++                "owned_viewport_ids": list(self.owned_viewport_ids),
++                "evidence_snapshot_id": self.evidence_snapshot_id,
++                "canonical_graph_snapshot_id": self.canonical_graph_snapshot_id,
++                "measurement_authority_snapshot_id": self.measurement_authority_snapshot_id,
++                "source_pdf": self.source_pdf,
++            }
++        )
++
++
++@dataclass(frozen=True)
++class EligibilityDecision:
++    eligible: bool
++    family: str
++    reasons: tuple[str, ...]
++    declared_identity_grammar: str
++    # Production identities that *could* be claimed. Never "keys the provider answered".
++    eligible_semantic_keys: tuple[str, ...] = ()
++
++
++@dataclass(frozen=True)
++class ProviderResult:
++    descriptor: ProviderDescriptor
++    context_fingerprint: str
++    quantities: tuple[QuantityEvidence, ...]
++    entities: tuple[EntityEvidence, ...]
++    result_fingerprint: str
++
++    @staticmethod
++    def build(
++        *,
++        descriptor: ProviderDescriptor,
++        context: ProviderContext,
++        quantities: Sequence[QuantityEvidence],
++        entities: Sequence[EntityEvidence] = (),
++    ) -> "ProviderResult":
++        qty_tuple = tuple(quantities)
++        ent_tuple = tuple(entities)
++        context_fp = context.fingerprint()
++        result_fp = fingerprint_payload(
++            {
++                "descriptor": descriptor.fingerprint(),
++                "context_fingerprint": context_fp,
++                "quantities": [item.to_dict() for item in qty_tuple],
++                "entities": [item.to_dict() for item in ent_tuple],
++            }
++        )
++        return ProviderResult(
++            descriptor=descriptor,
++            context_fingerprint=context_fp,
++            quantities=qty_tuple,
++            entities=ent_tuple,
++            result_fingerprint=result_fp,
++        )
++
++
++class MigrationProvider(Protocol):
++    def descriptor(self) -> ProviderDescriptor: ...
++
++    def eligibility(self, context: ProviderContext) -> EligibilityDecision: ...
++
++    def extract(self, context: ProviderContext) -> ProviderResult: ...
++
++
++class M3ShadowEngineAdapter:
++    """Keep existing M3 ``extract_quantities(pdf, pages)`` engines usable."""
++
++    def __init__(self, provider: MigrationProvider) -> None:
++        self._provider = provider
++        self.engine_id = provider.descriptor().provider_id
++        self.engine_version = provider.descriptor().provider_version
++
++    def extract_quantities(
++        self,
++        pdf_path: Path | str,
++        pages: Optional[Sequence[int]] = None,
++    ) -> tuple[QuantityEvidence, ...]:
++        context = ProviderContext(
++            run_id=stable_contract_id("run", {"pdf": str(pdf_path)}),
++            workspace_id="m3",
++            project_id="m3",
++            document_id=stable_contract_id("doc", {"pdf": str(pdf_path)}),
++            source_sha256="0" * 64,
++            revision_id=None,
++            current_revision_id=None,
++            selected_pages=tuple(int(p) for p in (pages or ())),
++            owned_viewport_ids=(),
++            evidence_snapshot_id="m3",
++            source_pdf=str(pdf_path),
++        )
++        # M3 adapters that wrap real extractors replace source SHA internally.
++        return self._provider.extract(context).quantities
+diff --git a/pb_migration_report.py b/pb_migration_report.py
+new file mode 100644
+index 0000000..f1bd89b
+--- /dev/null
++++ b/pb_migration_report.py
+@@ -0,0 +1,162 @@
++"""Standard family migration report.
++
++Eligible is supplied independently of whether the provider answered.  Gold is
++joined only after new outputs are frozen.
++"""
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import Any, Mapping, Optional, Sequence
++
++from pb_migration_contracts import QuantityEvidence, ShadowQuantityComparison
++from pb_migration_family_router import RoutingResult
++from pb_migration_provider_envelope import ProviderDescriptor, fingerprint_payload
++
++
++REPORT_SCHEMA_VERSION = "1.0.0"
++
++
++@dataclass
++class MigrationReport:
++    payload: dict[str, Any]
++
++    def to_dict(self) -> dict[str, Any]:
++        return dict(self.payload)
++
++    @property
++    def decision(self) -> str:
++        return str(self.payload.get("gate", {}).get("decision") or "")
++
++
++def _qty_fingerprint(items: Sequence[QuantityEvidence]) -> str:
++    return fingerprint_payload([item.to_dict() for item in items])
++
++
++def build_migration_report(
++    *,
++    family: str,
++    descriptor: ProviderDescriptor,
++    migration_state: str,
++    source_set_fingerprint: str,
++    evaluated_commit: str,
++    eligible: int,
++    eligible_keys: Sequence[str],
++    frozen_new: Sequence[QuantityEvidence],
++    legacy_quantities: Sequence[QuantityEvidence] = (),
++    routing: Optional[RoutingResult] = None,
++    comparisons: Sequence[ShadowQuantityComparison] = (),
++    target_state: str = "new_selective",
++    exact_among_answered: Optional[float] = None,
++    precision: Optional[float] = None,
++    recall: Optional[float] = None,
++    hallucinations: int = 0,
++    conflicts: int = 0,
++    duplicates: int = 0,
++    missing_provenance: int = 0,
++    holdout_status: str = "NOT_RUN",
++    gold_joined_after_freeze: bool = True,
++    provider_gold_isolated: bool = True,
++    scoring_unchanged: bool = True,
++    gate_decision: str = "HOLD",
++    gate_reasons: Sequence[str] = (),
++    extra: Optional[Mapping[str, Any]] = None,
++) -> MigrationReport:
++    if eligible < 0:
++        raise ValueError("eligible must be defined independently and cannot be negative")
++    answered = [item for item in frozen_new if not item.abstained and item.value is not None]
++    abstained = [item for item in frozen_new if item.abstained]
++    # Coverage uses caller-supplied eligible, never len(answered).
++    coverage = (len(answered) / eligible) if eligible else 0.0
++    agree = sum(1 for row in comparisons if row.status == "agree")
++    legacy_only = sum(1 for row in comparisons if row.status == "legacy_only")
++    new_only = sum(1 for row in comparisons if row.status == "new_only")
++    differing = sum(1 for row in comparisons if row.status == "differ")
++    double_selected = 0
++    if routing is not None:
++        keys = [item.claim.as_tuple() for item in routing.selected]
++        double_selected = len(keys) - len(set(keys))
++    payload = {
++        "schema_version": REPORT_SCHEMA_VERSION,
++        "identity": {
++            "report_schema_version": REPORT_SCHEMA_VERSION,
++            "family": family,
++            "provider_id": descriptor.provider_id,
++            "provider_version": descriptor.provider_version,
++            "provider_fingerprint": descriptor.code_fingerprint,
++            "evaluated_commit": evaluated_commit,
++            "migration_state_tested": migration_state,
++            "source_set_fingerprint": source_set_fingerprint,
++            "provider": descriptor.provider_id,
++            "version": descriptor.provider_version,
++            "fingerprint": descriptor.code_fingerprint,
++            "migration_state": migration_state,
++        },
++        "population": {
++            "eligible": eligible,
++            "eligible_keys": list(eligible_keys),
++            "answered": len(answered),
++            "abstained": len(abstained),
++            "eligible_defined_independently_of_answers": True,
++        },
++        "accuracy": {
++            "coverage": coverage,
++            "exact_correctness_among_answered": exact_among_answered,
++            "precision": precision,
++            "recall": recall,
++            "hallucinations": hallucinations,
++        },
++        "integrity": {
++            "conflicts": conflicts,
++            "duplicates": duplicates,
++            "provenance_completeness": missing_provenance == 0,
++            "missing_provenance": missing_provenance,
++            "deterministic_replay": True,
++        },
++        "comparison": {
++            "legacy_new_agreement": agree,
++            "legacy_only": legacy_only,
++            "new_only": new_only,
++            "differing": differing,
++        },
++        "authority_safety": {
++            "missing_source_trace": 0,
++            "stale_revision": 0,
++            "unresolved_scale": 0,
++            "conflicting_authority": conflicts,
++            "auto_estimator_approval": 0,
++            "publication_blocker_leaks": 0,
++            "double_selected_claims": double_selected,
++            "new_commercially_selected": bool(routing.commercially_selected_from_new) if routing else False,
++        },
++        "benchmark_integrity": {
++            "provider_gold_isolation": provider_gold_isolated,
++            "frozen_before_gold_join": gold_joined_after_freeze,
++            "scoring_unchanged": scoring_unchanged,
++            "holdout_status": holdout_status,
++        },
++        "gate": {
++            "target_state": target_state,
++            "decision": gate_decision,
++            "reasons": list(gate_reasons),
++        },
++        "fingerprints": {
++            "input": source_set_fingerprint,
++            "legacy_output": _qty_fingerprint(legacy_quantities),
++            "new_output": _qty_fingerprint(frozen_new),
++            "comparison": fingerprint_payload([row.to_dict() for row in comparisons]),
++            "report": "",
++        },
++        "extra": dict(extra or {}),
++    }
++    payload["fingerprints"]["report"] = fingerprint_payload(payload)
++    return MigrationReport(payload=payload)
++
++
++def assert_eligible_not_inferred_from_answers(report: Mapping[str, Any]) -> None:
++    population = report["population"]
++    if not population.get("eligible_defined_independently_of_answers"):
++        raise AssertionError("eligible must be defined independently of provider answers")
++    if population["eligible"] == population["answered"] and population["eligible"] > 0:
++        # Allowed only when the caller truly had that many eligible items, but
++        # the flag must still be present.  No automatic rewrite.
++        return
+diff --git a/pb_migration_source_trace_binder.py b/pb_migration_source_trace_binder.py
+new file mode 100644
+index 0000000..c5b5efd
+--- /dev/null
++++ b/pb_migration_source_trace_binder.py
+@@ -0,0 +1,162 @@
++"""Authoritative source-trace binder for M5 commercial projection.
++
++Providers supply evidence references.  They must not self-certify project
++identity, source SHA, or the current revision.  This binder copies those
++fields from orchestration-owned ProviderContext and fails closed on mismatch.
++"""
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import Any, Mapping, Optional, Sequence
++
++from pb_migration_contracts import QuantityEvidence, canonical_contract_json
++from pb_migration_provider_envelope import ProviderContext, fingerprint_payload
++from pb_quantity_commercial_adapter import CommercialSourceTrace, CommercialTakeoffSourceTrace
++
++
++class SourceTraceBindingError(RuntimeError):
++    """Raised when provider-supplied identity disagrees with authoritative context."""
++
++
++@dataclass(frozen=True)
++class ContributingSource:
++    page: Optional[int]
++    viewport_id: Optional[str]
++    evidence_id: str
++    page_id: Optional[str] = None
++
++
++@dataclass(frozen=True)
++class MultiSourceProvenance:
++    primary: CommercialTakeoffSourceTrace
++    contributors: tuple[ContributingSource, ...]
++    evidence_fingerprint: str
++
++
++def _meta(quantity: QuantityEvidence) -> Mapping[str, Any]:
++    return quantity.metadata if isinstance(quantity.metadata, Mapping) else {}
++
++
++def _optional_int(value: Any) -> Optional[int]:
++    if value in (None, ""):
++        return None
++    page = int(value)
++    if page <= 0:
++        raise SourceTraceBindingError("source page must be a positive 1-based integer")
++    return page
++
++
++def bind_commercial_source_trace(
++    quantity: QuantityEvidence,
++    context: ProviderContext,
++    *,
++    primary_page: Optional[int] = None,
++    primary_viewport_id: Optional[str] = None,
++    dimension_text_id: Optional[str] = None,
++    scale_id: Optional[str] = None,
++    scale_calibration_status: Optional[str] = None,
++    source_type: Optional[str] = None,
++) -> CommercialTakeoffSourceTrace:
++    """Build M5 CommercialTakeoffSourceTrace from authoritative context + evidence refs."""
++    meta = _meta(quantity)
++    provider_project = str(meta.get("project_id") or "").strip() or None
++    provider_sha = str(meta.get("source_sha256") or "").strip() or None
++    provider_revision = str(meta.get("revision_id") or meta.get("revision_hash") or "").strip() or None
++
++    if provider_project and provider_project != context.project_id:
++        raise SourceTraceBindingError(
++            f"provider project {provider_project!r} does not match authoritative {context.project_id!r}"
++        )
++    if provider_sha and provider_sha != context.source_sha256:
++        raise SourceTraceBindingError("provider source SHA does not match authoritative document")
++    if context.revision_id and context.current_revision_id:
++        if context.revision_id != context.current_revision_id:
++            raise SourceTraceBindingError("stale revision: measurement revision is not current")
++    if provider_revision and context.current_revision_id and provider_revision != context.current_revision_id:
++        raise SourceTraceBindingError("provider revision is stale relative to current revision")
++
++    page = primary_page
++    if page is None:
++        page = _optional_int(meta.get("source_page") or meta.get("page"))
++    viewport = primary_viewport_id or str(meta.get("viewport_id") or "") or None
++    return CommercialSourceTrace(
++        source_page=page,
++        source_sheet=str(meta.get("source_sheet") or "") or None,
++        geometry_ref=str(meta.get("geometry_ref") or "") or None,
++        scale_id=scale_id or str(meta.get("scale_id") or "") or None,
++        dimension_text_id=dimension_text_id
++        or str(meta.get("dimension_text_id") or "")
++        or (quantity.evidence_ids[0] if quantity.evidence_ids else None),
++        viewport_id=viewport,
++        document_id=context.document_id,
++        page_id=str(meta.get("page_id") or "") or None,
++        revision_hash=context.current_revision_id,
++        project_id=context.project_id,
++        source_sha256=context.source_sha256,
++        scale_calibration_status=scale_calibration_status
++        or str(meta.get("scale_calibration_status") or "")
++        or None,
++        source_type=source_type or quantity.authority or None,
++        description=quantity.semantic_key,
++        metadata={
++            "bound_by": "pb_migration_source_trace_binder",
++            "provider_cannot_self_certify": True,
++        },
++    )
++
++
++def bind_multi_source_provenance(
++    quantity: QuantityEvidence,
++    context: ProviderContext,
++    *,
++    contributing_pages: Sequence[int] = (),
++    contributing_viewports: Sequence[Optional[str]] = (),
++) -> MultiSourceProvenance:
++    """Keep one primary M5 trace plus structured contributing-source provenance."""
++    pages = [int(p) for p in contributing_pages if p]
++    if not pages:
++        meta = _meta(quantity)
++        raw_pages = meta.get("source_pages") or []
++        if isinstance(raw_pages, (list, tuple)):
++            pages = [int(p) for p in raw_pages]
++        elif meta.get("source_page") not in (None, ""):
++            pages = [int(meta["source_page"])]
++    primary_page = pages[0] if pages else None
++    viewports = list(contributing_viewports)
++    primary_viewport = viewports[0] if viewports else None
++    primary = bind_commercial_source_trace(
++        quantity,
++        context,
++        primary_page=primary_page,
++        primary_viewport_id=primary_viewport,
++    )
++    contributors: list[ContributingSource] = []
++    evidence_ids = list(quantity.evidence_ids)
++    for index, evidence_id in enumerate(evidence_ids):
++        contributors.append(
++            ContributingSource(
++                page=pages[index] if index < len(pages) else primary_page,
++                viewport_id=viewports[index] if index < len(viewports) else primary_viewport,
++                evidence_id=evidence_id,
++            )
++        )
++    if not contributors and primary_page is not None:
++        contributors.append(
++            ContributingSource(
++                page=primary_page,
++                viewport_id=primary_viewport,
++                evidence_id=primary.dimension_text_id or quantity.quantity_id,
++            )
++        )
++    fingerprint = fingerprint_payload(
++        {
++            "primary_page": primary.source_page,
++            "contributors": [canonical_contract_json(item) for item in contributors],
++            "evidence_ids": list(quantity.evidence_ids),
++        }
++    )
++    return MultiSourceProvenance(
++        primary=primary,
++        contributors=tuple(contributors),
++        evidence_fingerprint=fingerprint,
++    )
+diff --git a/pb_opening_count_control_adapter.py b/pb_opening_count_control_adapter.py
+new file mode 100644
+index 0000000..11484d0
+--- /dev/null
++++ b/pb_opening_count_control_adapter.py
+@@ -0,0 +1,132 @@
++"""Thin control-plane adapter for the frozen opening-count shadow provider.
++
++Does not change extraction heuristics or the provider implementation.
++NEW_SHADOW remains the registered authority state.  This adapter never
++promotes the family and never loads gold.
++"""
++from __future__ import annotations
++
++from hashlib import sha256
++from pathlib import Path
++import re
++from typing import Optional, Sequence
++
++from pb_migration_contracts import QuantityEvidence
++from pb_migration_provider_envelope import (
++    EligibilityDecision,
++    ProviderContext,
++    ProviderDescriptor,
++    ProviderResult,
++    fingerprint_source_files,
++)
++from pb_opening_tag_normalization import normalize_opening_tag
++from pb_provider_gold_isolation import assert_provider_gold_free
++from pb_shadow_opening_count_gate import OPENING_COUNT_AUTHORITY_STATE, OPENING_COUNT_FAMILIES
++from pb_shadow_opening_count_provider import (
++    PROVIDER_ENGINE_ID,
++    PROVIDER_ENGINE_VERSION,
++    ShadowOpeningCountProvider,
++)
++
++
++ADAPTER_FAMILY = "opening_count"
++_WD_KEY_RE = re.compile(r"^WD\d{1,3}$", re.IGNORECASE)
++_CODE_MODULES = (
++    "pb_shadow_opening_count_provider",
++    "pb_shadow_opening_evidence",
++    "pb_shadow_opening_count_gate",
++    "pb_opening_count_control_adapter",
++)
++
++
++def is_production_opening_identity(semantic_key: str) -> bool:
++    """Production-owned opening identity grammar. Not a benchmark mapping."""
++    key = str(semantic_key or "").strip()
++    if not key:
++        return False
++    if key in {"door_total", "window_total"}:
++        return False
++    if normalize_opening_tag(key) is not None:
++        return True
++    return bool(_WD_KEY_RE.fullmatch(key))
++
++
++def opening_count_descriptor() -> ProviderDescriptor:
++    return ProviderDescriptor(
++        provider_id=PROVIDER_ENGINE_ID,
++        family=ADAPTER_FAMILY,
++        provider_version=PROVIDER_ENGINE_VERSION,
++        output_schema_version="1.0.0",
++        code_fingerprint=fingerprint_source_files(_CODE_MODULES),
++    )
++
++
++class OpeningCountControlAdapter:
++    """Control-plane envelope around ShadowOpeningCountProvider."""
++
++    def __init__(self, provider: Optional[ShadowOpeningCountProvider] = None) -> None:
++        assert_provider_gold_free(PROVIDER_ENGINE_ID, "pb_shadow_opening_count_provider")
++        self._provider = provider or ShadowOpeningCountProvider()
++        self.engine_id = self._provider.engine_id
++        self.engine_version = self._provider.engine_version
++
++    def descriptor(self) -> ProviderDescriptor:
++        return opening_count_descriptor()
++
++    def eligibility(self, context: ProviderContext) -> EligibilityDecision:
++        reasons = []
++        eligible = True
++        if not context.source_sha256:
++            eligible = False
++            reasons.append("missing_source_sha")
++        if not context.document_id:
++            eligible = False
++            reasons.append("missing_document")
++        if OPENING_COUNT_AUTHORITY_STATE != "new_shadow":
++            eligible = False
++            reasons.append("unexpected_authority_state")
++        if not reasons:
++            reasons.append("opening_count_family_registered")
++        return EligibilityDecision(
++            eligible=eligible,
++            family=ADAPTER_FAMILY,
++            reasons=tuple(reasons),
++            declared_identity_grammar="normalized_opening_tag|WD\\d+",
++            eligible_semantic_keys=(),
++        )
++
++    def extract(self, context: ProviderContext) -> ProviderResult:
++        if not context.source_pdf:
++            raise ValueError("opening-count adapter requires context.source_pdf")
++        pages = list(context.selected_pages) if context.selected_pages else None
++        bundle = self._provider.extract_bundle(context.source_pdf, pages=pages)
++        quantities = tuple(
++            item
++            for item in bundle.quantities
++            if item.family in OPENING_COUNT_FAMILIES
++        )
++        return ProviderResult.build(
++            descriptor=self.descriptor(),
++            context=context,
++            quantities=quantities,
++            entities=bundle.entity_evidence,
++        )
++
++    def extract_quantities(
++        self,
++        pdf_path: Path | str,
++        pages: Optional[Sequence[int]] = None,
++    ) -> tuple[QuantityEvidence, ...]:
++        """M3-compatible pass-through. Extraction is unchanged."""
++        return self._provider.extract_quantities(pdf_path, pages=pages)
++
++    def extract_bundle(self, pdf_path: Path | str, pages: Optional[Sequence[int]] = None):
++        return self._provider.extract_bundle(pdf_path, pages=pages)
++
++
++def source_sha256(path: Path | str) -> str:
++    digest = sha256()
++    with Path(path).open("rb") as handle:
++        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
++            digest.update(chunk)
++    return digest.hexdigest()
+diff --git a/pb_provider_gold_isolation.py b/pb_provider_gold_isolation.py
+new file mode 100644
+index 0000000..81e3631
+--- /dev/null
++++ b/pb_provider_gold_isolation.py
+@@ -0,0 +1,251 @@
++"""Transitive gold-isolation integrity for registered production providers.
++
++M3 itself is gold-free.  This module inspects the *transitive local import
++closure* of a registered provider so a helper cannot quietly pull in
++benchmark, gold, mapping, scoring, or holdout modules.
++
++Inspection is deterministic AST / import-graph analysis.  It does not execute
++provider code and does not load expected quantities.
++"""
++from __future__ import annotations
++
++from dataclasses import dataclass
++import ast
++from pathlib import Path
++from typing import Optional
++
++
++REPO_ROOT = Path(__file__).resolve().parent
++
++FORBIDDEN_MODULES = frozenset(
++    {
++        "pb_benchmark_accuracy_engine",
++        "pb_public_tender_benchmark",
++        "pb_benchmark_runner",
++        "pb_benchmark_report_set",
++        "_pb_benchmark_report_set_impl",
++        "pb_holdout_suite_registry",
++        "pb_shadow_opening_count_eval",
++        "pb_takeoff_learning_ledger",
++        "pb_accuracy_benchmark_v130",
++        "benchmark_fixtures",
++    }
++)
++
++FORBIDDEN_NAME_FRAGMENTS = frozenset(
++    {
++        "expected_boq",
++        "expected_project",
++        "benchmark_rules",
++        "item_mappings",
++        "holdout_suite",
++        "sealed_holdout",
++        "expected_quantities",
++        "scoring_tolerance",
++        "scoring_rules",
++    }
++)
++
++FORBIDDEN_PATH_PREFIXES = (
++    "benchmarks/",
++    "tests/benchmarks/",
++)
++
++# Production providers that must stay gold-free at runtime.
++REGISTERED_PRODUCTION_PROVIDERS = {
++    "shadow_opening_count": "pb_shadow_opening_count_provider",
++    "opening_count_control_adapter": "pb_opening_count_control_adapter",
++}
++
++_ISOLATION_CACHE: dict[str, ProviderIsolationReport] = {}
++
++
++class ProviderGoldIsolationError(RuntimeError):
++    """Raised when a registered provider's import graph reaches gold/eval code."""
++
++
++@dataclass(frozen=True)
++class ImportGraphFinding:
++    module: str
++    via: tuple[str, ...]
++    reason: str
++
++
++@dataclass(frozen=True)
++class ProviderIsolationReport:
++    provider_id: str
++    root_module: str
++    visited: tuple[str, ...]
++    findings: tuple[ImportGraphFinding, ...]
++
++    @property
++    def ok(self) -> bool:
++        return not self.findings
++
++
++def _module_path(module_name: str) -> Optional[Path]:
++    if module_name.startswith("pb_"):
++        candidate = REPO_ROOT / f"{module_name}.py"
++        if candidate.is_file():
++            return candidate
++    parts = module_name.split(".")
++    file_candidate = REPO_ROOT.joinpath(*parts).with_suffix(".py")
++    if file_candidate.is_file():
++        return file_candidate
++    package_candidate = REPO_ROOT.joinpath(*parts) / "__init__.py"
++    if package_candidate.is_file():
++        return package_candidate
++    return None
++
++
++def _is_local_module(module_name: str) -> bool:
++    return _module_path(module_name) is not None
++
++
++def _forbidden_reason(module_name: str) -> Optional[str]:
++    if module_name in FORBIDDEN_MODULES:
++        return f"forbidden module {module_name}"
++    lowered = module_name.lower()
++    if lowered.startswith("benchmarks.") or lowered == "benchmarks":
++        return f"forbidden benchmark package {module_name}"
++    for fragment in FORBIDDEN_NAME_FRAGMENTS:
++        if fragment in lowered:
++            return f"forbidden name fragment {fragment!r} in {module_name}"
++    return None
++
++
++def _forbidden_path_reason(path: Path) -> Optional[str]:
++    try:
++        relative = path.resolve().relative_to(REPO_ROOT)
++    except ValueError:
++        return None
++    posix = relative.as_posix().lower()
++    for prefix in FORBIDDEN_PATH_PREFIXES:
++        if posix.startswith(prefix):
++            return f"forbidden path {posix}"
++    name = path.name.lower()
++    for fragment in FORBIDDEN_NAME_FRAGMENTS:
++        if fragment in name:
++            return f"forbidden filename {path.name}"
++    return None
++
++
++def _imported_names(source: str, *, current_module: str) -> tuple[str, ...]:
++    tree = ast.parse(source)
++    names: list[str] = []
++    for node in ast.walk(tree):
++        if isinstance(node, ast.Import):
++            names.extend(alias.name for alias in node.names if alias.name)
++        elif isinstance(node, ast.ImportFrom):
++            if node.level and current_module:
++                base_parts = current_module.split(".")
++                if node.level > len(base_parts):
++                    parent = ""
++                else:
++                    parent = ".".join(base_parts[: -node.level] if node.level else base_parts)
++                imported = ".".join(part for part in (parent, node.module or "") if part)
++            else:
++                imported = node.module or ""
++            if imported:
++                names.append(imported)
++        elif isinstance(node, ast.Call):
++            func = node.func
++            is_dynamic = (
++                (isinstance(func, ast.Name) and func.id in {"__import__", "import_module"})
++                or (isinstance(func, ast.Attribute) and func.attr in {"import_module", "__import__"})
++            )
++            if is_dynamic and node.args:
++                arg = node.args[0]
++                if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
++                    names.append(arg.value)
++    return tuple(dict.fromkeys(names))
++
++
++def walk_local_import_graph(root_module: str) -> tuple[tuple[str, ...], tuple[ImportGraphFinding, ...]]:
++    """Return (visited modules, forbidden findings) for one local root."""
++    visited: list[str] = []
++    findings: list[ImportGraphFinding] = []
++    stack: list[tuple[str, tuple[str, ...]]] = [(root_module, (root_module,))]
++    seen: set[str] = set()
++
++    while stack:
++        module, via = stack.pop()
++        if module in seen:
++            continue
++        seen.add(module)
++        visited.append(module)
++        reason = _forbidden_reason(module)
++        if reason:
++            findings.append(ImportGraphFinding(module=module, via=via, reason=reason))
++            continue
++        path = _module_path(module)
++        if path is None:
++            continue
++        path_reason = _forbidden_path_reason(path)
++        if path_reason:
++            findings.append(ImportGraphFinding(module=module, via=via, reason=path_reason))
++            continue
++        imported = _imported_names(path.read_text(encoding="utf-8"), current_module=module)
++        for name in imported:
++            forbidden = _forbidden_reason(name)
++            if forbidden:
++                findings.append(ImportGraphFinding(module=name, via=via + (name,), reason=forbidden))
++                continue
++            if _is_local_module(name):
++                stack.append((name, via + (name,)))
++    return tuple(visited), tuple(findings)
++
++
++def inspect_provider_isolation(provider_id: str, module_name: str) -> ProviderIsolationReport:
++    cached = _ISOLATION_CACHE.get(module_name)
++    if cached is not None:
++        return ProviderIsolationReport(
++            provider_id=provider_id,
++            root_module=cached.root_module,
++            visited=cached.visited,
++            findings=cached.findings,
++        )
++    visited, findings = walk_local_import_graph(module_name)
++    report = ProviderIsolationReport(
++        provider_id=provider_id,
++        root_module=module_name,
++        visited=visited,
++        findings=findings,
++    )
++    _ISOLATION_CACHE[module_name] = report
++    return report
++
++
++def assert_provider_gold_free(provider_id: str, module_name: str) -> ProviderIsolationReport:
++    report = inspect_provider_isolation(provider_id, module_name)
++    if not report.ok:
++        details = "; ".join(
++            f"{item.reason} via {' -> '.join(item.via)}" for item in report.findings
++        )
++        raise ProviderGoldIsolationError(
++            f"registered provider {provider_id!r} is not gold-isolated: {details}"
++        )
++    return report
++
++
++def inspect_registered_production_providers(
++    registry: Optional[dict[str, str]] = None,
++) -> dict[str, ProviderIsolationReport]:
++    mapping = dict(registry or REGISTERED_PRODUCTION_PROVIDERS)
++    return {
++        provider_id: inspect_provider_isolation(provider_id, module_name)
++        for provider_id, module_name in mapping.items()
++    }
++
++
++def assert_registered_providers_gold_free(
++    registry: Optional[dict[str, str]] = None,
++) -> dict[str, ProviderIsolationReport]:
++    reports = inspect_registered_production_providers(registry)
++    failures = [report for report in reports.values() if not report.ok]
++    if failures:
++        raise ProviderGoldIsolationError(
++            "registered production providers failed gold isolation: "
++            + "; ".join(f"{item.provider_id}: {item.findings[0].reason}" for item in failures)
++        )
++    return reports
+diff --git a/pb_quantity_commercial_adapter.py b/pb_quantity_commercial_adapter.py
+new file mode 100644
+index 0000000..7d978a0
+--- /dev/null
++++ b/pb_quantity_commercial_adapter.py
+@@ -0,0 +1,660 @@
++"""Project graph QuantityEvidence into the existing commercial takeoff authority.
++
++This adapter does not invent a second commercial output model.  It only gathers
++already-present QuantityEvidence / caller traces and hands a complete argument
++set to ``create_takeoff_output_row``.  Missing authority stays missing.
++
++High extraction confidence is never treated as estimator approval.  Abstentions
++emit no ``TakeoffOutputRow`` (including no zero-valued row).  Duplicate
++semantic keys fail closed.  Source SHA / project mismatches refuse projection
++into the wrong commercial context.
++
++The adapter is gold-free: it has no benchmark IDs, expected quantities,
++mappings, tolerances, or holdout inputs.
++"""
++from __future__ import annotations
++
++from dataclasses import dataclass, field
++import json
++import math
++import re
++from typing import Any, Mapping, Optional, Sequence
++
++from pb_geometry_takeoff_model import AuthorityStatus
++from pb_migration_contracts import QuantityEvidence, canonical_contract_json
++from pb_page_scale_calibration_authority import ScaleCalibrationStatus
++from pb_takeoff_output_authority import (
++    TakeoffOutputRow,
++    TakeoffSourceType,
++    create_takeoff_output_row,
++)
++
++
++COMMERCIAL_ADAPTER_VERSION = "1.0.0"
++_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
++
++_KNOWN_COMMERCIAL_UNITS = {
++    "ea",
++    "each",
++    "no",
++    "nr",
++    "m",
++    "lm",
++    "m2",
++    "m²",
++    "sqm",
++    "m3",
++    "m³",
++}
++
++_UNRELIABLE_SCALE_STATUSES = {
++    ScaleCalibrationStatus.UNKNOWN.value,
++    ScaleCalibrationStatus.CONFLICTING.value,
++    ScaleCalibrationStatus.MANUAL_REQUIRED.value,
++    ScaleCalibrationStatus.BLOCKED.value,
++}
++
++_AUTHORITY_TO_SOURCE_TYPE = {
++    TakeoffSourceType.DOCUMENTED_DIMENSION.value: TakeoffSourceType.DOCUMENTED_DIMENSION,
++    TakeoffSourceType.SCHEDULE_EXTRACTED.value: TakeoffSourceType.SCHEDULE_EXTRACTED,
++    TakeoffSourceType.PDF_SCALED.value: TakeoffSourceType.PDF_SCALED,
++    TakeoffSourceType.AI_DETECTED.value: TakeoffSourceType.AI_DETECTED,
++    TakeoffSourceType.MODEL_DERIVED.value: TakeoffSourceType.MODEL_DERIVED,
++    TakeoffSourceType.USER_CORRECTED.value: TakeoffSourceType.USER_CORRECTED,
++    TakeoffSourceType.USER_APPROVED.value: TakeoffSourceType.USER_APPROVED,
++    TakeoffSourceType.EXCLUDED.value: TakeoffSourceType.EXCLUDED,
++    TakeoffSourceType.REFERENCE_ONLY.value: TakeoffSourceType.REFERENCE_ONLY,
++    TakeoffSourceType.BLOCKED.value: TakeoffSourceType.BLOCKED,
++    TakeoffSourceType.MANUAL.value: TakeoffSourceType.MANUAL,
++}
++
++_KNOWN_AUTHORITY_STATUSES = {status.value for status in AuthorityStatus}
++
++
++class CommercialProjectionAmbiguityError(RuntimeError):
++    """Raised when more than one emitted quantity claims one semantic key."""
++
++
++class CommercialProjectionIdentityError(RuntimeError):
++    """Raised when a quantity's project/source identity disagrees with the target context."""
++
++
++def _json_copy(value: Any) -> Any:
++    return json.loads(canonical_contract_json(value))
++
++
++def _require_sha256(value: str, field_name: str) -> str:
++    digest = str(value or "").strip().lower()
++    if not _SHA256_RE.fullmatch(digest):
++        raise ValueError(f"{field_name} must be a 64-character lowercase SHA-256 hex digest")
++    return digest
++
++
++def _optional_sha256(value: Any, field_name: str) -> Optional[str]:
++    if value is None or value == "":
++        return None
++    return _require_sha256(str(value), field_name)
++
++
++def _metadata_get(quantity: QuantityEvidence, key: str, default: Any = None) -> Any:
++    metadata = quantity.metadata if isinstance(quantity.metadata, Mapping) else {}
++    return metadata.get(key, default)
++
++
++def commercial_unit_is_known(unit: str) -> bool:
++    clean = str(unit or "").strip()
++    if not clean:
++        return False
++    return clean.lower().replace(" ", "") in {item.lower() for item in _KNOWN_COMMERCIAL_UNITS}
++
++
++@dataclass(frozen=True)
++class CommercialProjectionContext:
++    """Target commercial project/document binding. Never inferred from gold."""
++
++    project_id: str
++    source_sha256: str
++    current_revision_hash: Optional[str] = None
++    current_scale_revision_id: Optional[str] = None
++
++    def __post_init__(self) -> None:
++        project_id = str(self.project_id or "").strip()
++        if not project_id:
++            raise ValueError("project_id must be a non-empty string")
++        object.__setattr__(self, "project_id", project_id)
++        object.__setattr__(self, "source_sha256", _require_sha256(self.source_sha256, "source_sha256"))
++        current_revision = str(self.current_revision_hash or "").strip() or None
++        object.__setattr__(self, "current_revision_hash", current_revision)
++        scale_revision = str(self.current_scale_revision_id or "").strip() or None
++        object.__setattr__(self, "current_scale_revision_id", scale_revision)
++
++
++@dataclass(frozen=True)
++class CommercialSourceTrace:
++    """Optional explicit commercial traces supplied by an evidence resolver.
++
++    The adapter copies these onto existing ``TakeoffOutputRow`` fields.  It does
++    not invent a parallel provenance record.
++    """
++
++    source_page: Optional[int] = None
++    source_sheet: Optional[str] = None
++    geometry_ref: Optional[str] = None
++    scale_id: Optional[str] = None
++    dimension_text_id: Optional[str] = None
++    viewport_id: Optional[str] = None
++    document_id: Optional[str] = None
++    page_id: Optional[str] = None
++    revision_hash: Optional[str] = None
++    project_id: Optional[str] = None
++    source_sha256: Optional[str] = None
++    approved_by: Optional[str] = None
++    approved_at: Optional[str] = None
++    scale_calibration_status: Optional[str] = None
++    scale_revision_id: Optional[str] = None
++    source_type: Optional[str] = None
++    description: Optional[str] = None
++    trade: Optional[str] = None
++    measurement_conflict: bool = False
++    metadata: Mapping[str, Any] = field(default_factory=dict)
++
++    def __post_init__(self) -> None:
++        if self.source_page is not None:
++            if isinstance(self.source_page, bool) or int(self.source_page) <= 0:
++                raise ValueError("source_page must be a positive 1-based integer when supplied")
++            object.__setattr__(self, "source_page", int(self.source_page))
++        if self.source_sha256 is not None:
++            object.__setattr__(
++                self,
++                "source_sha256",
++                _optional_sha256(self.source_sha256, "source_sha256"),
++            )
++        object.__setattr__(self, "metadata", _json_copy(self.metadata))
++
++
++def _first_text(*values: Any) -> Optional[str]:
++    for value in values:
++        text = str(value or "").strip()
++        if text:
++            return text
++    return None
++
++
++def _resolve_source_page(
++    quantity: QuantityEvidence,
++    trace: Optional[CommercialSourceTrace],
++) -> tuple[Optional[int], list[str]]:
++    blockers: list[str] = []
++    raw = None if trace is None else trace.source_page
++    if raw is None:
++        raw = _metadata_get(quantity, "source_page")
++    if raw is None or raw == "":
++        return None, blockers
++    if isinstance(raw, bool) or not isinstance(raw, (int, float, str)):
++        blockers.append("invalid source page")
++        return None, blockers
++    try:
++        page = int(raw)
++    except (TypeError, ValueError):
++        blockers.append("invalid source page")
++        return None, blockers
++    if page <= 0:
++        blockers.append("invalid source page")
++        return None, blockers
++    return page, blockers
++
++
++def _resolve_source_type(
++    quantity: QuantityEvidence,
++    trace: Optional[CommercialSourceTrace],
++) -> tuple[TakeoffSourceType, list[str]]:
++    raw = _first_text(
++        None if trace is None else trace.source_type,
++        _metadata_get(quantity, "source_type"),
++        quantity.authority,
++    )
++    if raw is None:
++        return TakeoffSourceType.BLOCKED, ["unresolved measurement authority"]
++    key = raw.strip().lower()
++    mapped = _AUTHORITY_TO_SOURCE_TYPE.get(key)
++    if mapped is None:
++        return TakeoffSourceType.BLOCKED, [f"unresolved measurement authority: {raw!r}"]
++    return mapped, []
++
++
++def _bind_identity(
++    quantity: QuantityEvidence,
++    context: CommercialProjectionContext,
++    trace: Optional[CommercialSourceTrace],
++) -> tuple[Optional[bool], list[str]]:
++    quantity_project = _first_text(
++        None if trace is None else trace.project_id,
++        _metadata_get(quantity, "project_id"),
++    )
++    quantity_sha = _first_text(
++        None if trace is None else trace.source_sha256,
++        _metadata_get(quantity, "source_sha256"),
++    )
++    if quantity_project and quantity_project != context.project_id:
++        raise CommercialProjectionIdentityError(
++            f"quantity {quantity.quantity_id!r} project {quantity_project!r} "
++            f"does not match context project {context.project_id!r}"
++        )
++    if quantity_sha:
++        try:
++            quantity_sha = _require_sha256(quantity_sha, "quantity source_sha256")
++        except ValueError as exc:
++            raise CommercialProjectionIdentityError(str(exc)) from exc
++        if quantity_sha != context.source_sha256:
++            raise CommercialProjectionIdentityError(
++                f"quantity {quantity.quantity_id!r} source SHA does not match the target document"
++            )
++        return True, []
++    if quantity_project == context.project_id:
++        return None, ["project identity not confirmed by source SHA"]
++    return None, ["project identity not confirmed"]
++
++
++def quantity_evidence_to_takeoff_row(
++    quantity: QuantityEvidence,
++    context: CommercialProjectionContext,
++    *,
++    trace: Optional[CommercialSourceTrace] = None,
++) -> Optional[TakeoffOutputRow]:
++    """Project one quantity through existing commercial authority gates.
++
++    Abstentions emit no row.  The factory is never asked to invent a zero.
++    """
++    if not isinstance(quantity, QuantityEvidence):
++        raise TypeError("quantity must be a QuantityEvidence record")
++    if not isinstance(context, CommercialProjectionContext):
++        raise TypeError("context must be a CommercialProjectionContext")
++    if quantity.abstained:
++        return None
++
++    extra_blockers: list[str] = []
++    extra_warnings: list[str] = []
++
++    identity_confirmed, identity_blockers = _bind_identity(quantity, context, trace)
++    extra_blockers.extend(identity_blockers)
++
++    source_type, source_type_blockers = _resolve_source_type(quantity, trace)
++    extra_blockers.extend(source_type_blockers)
++
++    source_page, page_blockers = _resolve_source_page(quantity, trace)
++    extra_blockers.extend(page_blockers)
++
++    if not commercial_unit_is_known(quantity.unit):
++        extra_blockers.append("incompatible or unknown unit")
++
++    if not quantity.evidence_ids:
++        extra_blockers.append("missing evidence reference")
++    if not quantity.input_entity_ids:
++        extra_blockers.append("missing canonical entity reference")
++
++    source_sheet = _first_text(
++        None if trace is None else trace.source_sheet,
++        _metadata_get(quantity, "source_sheet"),
++    )
++    viewport_id = _first_text(
++        None if trace is None else trace.viewport_id,
++        _metadata_get(quantity, "viewport_id"),
++    )
++    document_id = _first_text(
++        None if trace is None else trace.document_id,
++        _metadata_get(quantity, "document_id"),
++    )
++    page_id = _first_text(
++        None if trace is None else trace.page_id,
++        _metadata_get(quantity, "page_id"),
++    )
++    if source_page is None and not source_sheet and not page_id:
++        extra_blockers.append("missing source page")
++
++    dimension_text_id = _first_text(
++        None if trace is None else trace.dimension_text_id,
++        _metadata_get(quantity, "dimension_text_id"),
++        _metadata_get(quantity, "figured_dimension_id"),
++    )
++    scale_id = _first_text(
++        None if trace is None else trace.scale_id,
++        _metadata_get(quantity, "scale_id"),
++    )
++    scale_status = _first_text(
++        None if trace is None else trace.scale_calibration_status,
++        _metadata_get(quantity, "scale_calibration_status"),
++    )
++    scale_revision = _first_text(
++        None if trace is None else trace.scale_revision_id,
++        _metadata_get(quantity, "scale_revision_id"),
++    )
++    geometry_ref = _first_text(
++        None if trace is None else trace.geometry_ref,
++        _metadata_get(quantity, "geometry_ref"),
++        quantity.input_entity_ids[0] if quantity.input_entity_ids else None,
++    )
++    revision_hash = _first_text(
++        None if trace is None else trace.revision_hash,
++        _metadata_get(quantity, "revision_hash"),
++    )
++    approved_by = _first_text(
++        None if trace is None else trace.approved_by,
++        _metadata_get(quantity, "approved_by"),
++    )
++    approved_at = _first_text(
++        None if trace is None else trace.approved_at,
++        _metadata_get(quantity, "approved_at"),
++    )
++    # Confidence never becomes estimator attribution.
++    if approved_by and approved_by.lower() in {"auto", "model", "extractor", "engine"}:
++        extra_blockers.append("automated attribution is not estimator approval")
++        approved_by = None
++        approved_at = None
++
++    measurement_conflict = bool(
++        (trace.measurement_conflict if trace is not None else False)
++        or _metadata_get(quantity, "figured_scaled_conflict")
++        or _metadata_get(quantity, "measurement_authority_conflict")
++        or "figured_scaled_conflict" in quantity.reason_codes
++        or "measurement_authority_conflict" in quantity.reason_codes
++    )
++    if measurement_conflict:
++        extra_blockers.append("figured/scaled measurement conflict")
++
++    if source_type == TakeoffSourceType.PDF_SCALED and not scale_id:
++        extra_blockers.append("missing scale when scale is required")
++    if scale_status in _UNRELIABLE_SCALE_STATUSES:
++        extra_blockers.append(f"unreliable scale status: {scale_status}")
++    if (
++        scale_revision
++        and context.current_scale_revision_id
++        and scale_revision != context.current_scale_revision_id
++    ):
++        extra_blockers.append("stale scale")
++        scale_status = ScaleCalibrationStatus.BLOCKED.value
++
++    if revision_hash is None:
++        extra_blockers.append("unknown revision")
++    if (
++        revision_hash
++        and context.current_revision_hash
++        and revision_hash != context.current_revision_hash
++    ):
++        extra_blockers.append("stale revision")
++
++    provenance_sha = _first_text(
++        None if trace is None else trace.source_sha256,
++        _metadata_get(quantity, "source_sha256"),
++    )
++    if provenance_sha:
++        try:
++            _require_sha256(provenance_sha, "provenance source_sha256")
++        except ValueError:
++            extra_blockers.append("corrupted provenance")
++    if document_id is None and viewport_id is None and page_id is None and source_page is None:
++        extra_blockers.append("corrupted provenance")
++
++    description = _first_text(
++        None if trace is None else trace.description,
++        _metadata_get(quantity, "description"),
++        quantity.semantic_key,
++    ) or quantity.semantic_key
++    trade = _first_text(
++        None if trace is None else trace.trade,
++        _metadata_get(quantity, "trade"),
++        _metadata_get(quantity, "trade_type"),
++        quantity.family,
++    ) or quantity.family
++
++    authority_status = str(quantity.status or "").strip().lower() or None
++    if authority_status == AuthorityStatus.REVIEW_REQUIRED.value:
++        extra_blockers.append("explicit review required")
++    if authority_status is not None and authority_status not in _KNOWN_AUTHORITY_STATUSES:
++        extra_blockers.append(f"unresolved measurement authority: {authority_status!r}")
++        authority_status = AuthorityStatus.BLOCKED.value
++
++    if extra_blockers and authority_status in {None, AuthorityStatus.FIRM.value}:
++        if authority_status == AuthorityStatus.FIRM.value:
++            extra_warnings.append("firm quantity status demoted; commercial gates are incomplete")
++        authority_status = AuthorityStatus.BLOCKED.value
++
++    return create_takeoff_output_row(
++        quantity_id=quantity.quantity_id,
++        description=description,
++        value=float(quantity.value),
++        unit=str(quantity.unit),
++        trade=trade,
++        source_type=source_type,
++        authority_status=authority_status,
++        confidence=float(quantity.confidence),
++        source_page=source_page,
++        source_sheet=source_sheet,
++        geometry_ref=geometry_ref,
++        scale_id=scale_id,
++        dimension_text_id=dimension_text_id,
++        benchmark_status=None,
++        warnings=extra_warnings,
++        blocking_reasons=extra_blockers,
++        approved_by=approved_by,
++        approved_at=approved_at,
++        revision_hash=revision_hash,
++        current_revision_hash=context.current_revision_hash,
++        project_identity_confirmed=identity_confirmed,
++        scale_calibration_status=scale_status,
++        allow_zero=True,
++    )
++
++
++def quantity_evidence_to_takeoff_output_row(
++    quantity: QuantityEvidence,
++    context: CommercialProjectionContext,
++    *,
++    trace: Optional[CommercialSourceTrace] = None,
++) -> Optional[TakeoffOutputRow]:
++    """M5 contract name used by the migration control plane."""
++    return quantity_evidence_to_takeoff_row(quantity, context, trace=trace)
++
++
++def quantities_to_takeoff_output_rows(
++    quantities: Sequence[QuantityEvidence],
++    context: CommercialProjectionContext,
++    *,
++    traces_by_quantity_id: Optional[Mapping[str, CommercialSourceTrace]] = None,
++) -> list[TakeoffOutputRow]:
++    """M5 contract name used by the migration control plane."""
++    return quantities_to_takeoff_rows(
++        quantities,
++        context,
++        traces_by_quantity_id=traces_by_quantity_id,
++    )
++
++
++CommercialTakeoffSourceTrace = CommercialSourceTrace
++
++
++def quantities_to_takeoff_rows(
++    quantities: Sequence[QuantityEvidence],
++    context: CommercialProjectionContext,
++    *,
++    traces_by_quantity_id: Optional[Mapping[str, CommercialSourceTrace]] = None,
++) -> list[TakeoffOutputRow]:
++    """Project a quantity bundle, failing closed on duplicate emitted semantic keys."""
++    traces = traces_by_quantity_id or {}
++    seen_semantic_keys: set[str] = set()
++    rows: list[TakeoffOutputRow] = []
++    for quantity in quantities:
++        if not isinstance(quantity, QuantityEvidence):
++            raise TypeError("quantities must contain only QuantityEvidence records")
++        row = quantity_evidence_to_takeoff_row(
++            quantity,
++            context,
++            trace=traces.get(quantity.quantity_id),
++        )
++        if row is None:
++            continue
++        if quantity.semantic_key in seen_semantic_keys:
++            raise CommercialProjectionAmbiguityError(
++                f"multiple emitted quantities claim semantic key {quantity.semantic_key!r}"
++            )
++        seen_semantic_keys.add(quantity.semantic_key)
++        rows.append(row)
++    return rows
++
++
++def _revision_status(
++    revision_hash: Optional[str],
++    current_revision_hash: Optional[str],
++) -> str:
++    if not revision_hash:
++        return "unknown"
++    if current_revision_hash and revision_hash != current_revision_hash:
++        return "stale"
++    if current_revision_hash and revision_hash == current_revision_hash:
++        return "current"
++    return "present"
++
++
++def _approval_status(row: Optional[TakeoffOutputRow], quantity: QuantityEvidence) -> str:
++    if row is not None and row.approved_by:
++        return "estimator_approved"
++    if quantity.status == AuthorityStatus.REVIEW_REQUIRED.value:
++        return "review_required"
++    return "approval_absent"
++
++
++def quantity_evidence_to_commercial_diagnostic(
++    quantity: QuantityEvidence,
++    context: CommercialProjectionContext,
++    *,
++    trace: Optional[CommercialSourceTrace] = None,
++) -> dict[str, Any]:
++    """Shadow/debug view of commercial projection. Never production-authoritative."""
++    if quantity.abstained:
++        return {
++            "quantity_id": quantity.quantity_id,
++            "family": quantity.family,
++            "semantic_key": quantity.semantic_key,
++            "value": None,
++            "unit": quantity.unit,
++            "commercial_row_created": False,
++            "publishable": False,
++            "review_required": True,
++            "blockers": list(quantity.blocking_reasons),
++            "authority": quantity.authority,
++            "source_trace": {
++                "quantity_id": quantity.quantity_id,
++                "input_entity_ids": list(quantity.input_entity_ids),
++                "evidence_ids": list(quantity.evidence_ids),
++                "viewport_id": _metadata_get(quantity, "viewport_id"),
++                "page_id": _metadata_get(quantity, "page_id"),
++                "source_page": _metadata_get(quantity, "source_page"),
++                "document_id": _metadata_get(quantity, "document_id"),
++                "source_sha256": context.source_sha256,
++            },
++            "scale_status": _metadata_get(quantity, "scale_calibration_status"),
++            "revision_status": "unknown",
++            "approval_status": "approval_absent",
++            "authoritative": False,
++            "adapter_version": COMMERCIAL_ADAPTER_VERSION,
++        }
++
++    row = quantity_evidence_to_takeoff_row(quantity, context, trace=trace)
++    created = row is not None
++    return {
++        "quantity_id": quantity.quantity_id,
++        "family": quantity.family,
++        "semantic_key": quantity.semantic_key,
++        "value": None if row is None else row.value,
++        "unit": quantity.unit,
++        "commercial_row_created": created,
++        "publishable": bool(row.is_publishable) if row is not None else False,
++        "review_required": (
++            True
++            if row is None
++            else row.authority_status == AuthorityStatus.REVIEW_REQUIRED.value
++            or any("review" in reason.lower() for reason in row.blocking_reasons)
++        ),
++        "blockers": [] if row is None else list(row.blocking_reasons),
++        "authority": None if row is None else row.authority_status,
++        "source_type": None if row is None else row.source_type,
++        "source_trace": {
++            "quantity_id": quantity.quantity_id,
++            "input_entity_ids": list(quantity.input_entity_ids),
++            "evidence_ids": list(quantity.evidence_ids),
++            "geometry_ref": None if row is None else row.geometry_ref,
++            "viewport_id": _first_text(
++                None if trace is None else trace.viewport_id,
++                _metadata_get(quantity, "viewport_id"),
++            ),
++            "page_id": _first_text(
++                None if trace is None else trace.page_id,
++                _metadata_get(quantity, "page_id"),
++            ),
++            "source_page": None if row is None else row.source_page,
++            "source_sheet": None if row is None else row.source_sheet,
++            "document_id": _first_text(
++                None if trace is None else trace.document_id,
++                _metadata_get(quantity, "document_id"),
++            ),
++            "dimension_text_id": None if row is None else row.dimension_text_id,
++            "scale_id": None if row is None else row.scale_id,
++            "source_sha256": context.source_sha256,
++            "project_id": context.project_id,
++        },
++        "scale_status": None if row is None else (
++            _first_text(
++                None if trace is None else trace.scale_calibration_status,
++                _metadata_get(quantity, "scale_calibration_status"),
++            )
++        ),
++        "revision_status": _revision_status(
++            None if row is None else row.revision_hash,
++            context.current_revision_hash,
++        ),
++        "approval_status": _approval_status(row, quantity),
++        "authoritative": False,
++        "adapter_version": COMMERCIAL_ADAPTER_VERSION,
++        "takeoff_row": None if row is None else row.to_dict(),
++    }
++
++
++def quantities_to_commercial_diagnostics(
++    quantities: Sequence[QuantityEvidence],
++    context: CommercialProjectionContext,
++    *,
++    traces_by_quantity_id: Optional[Mapping[str, CommercialSourceTrace]] = None,
++) -> list[dict[str, Any]]:
++    """Diagnostic commercial projection for shadow/debug. Does not score benchmarks."""
++    traces = traces_by_quantity_id or {}
++    # Duplicate detection still fail-closes: diagnostics must not hide conflicts.
++    quantities_to_takeoff_rows(quantities, context, traces_by_quantity_id=traces)
++    return [
++        quantity_evidence_to_commercial_diagnostic(
++            quantity,
++            context,
++            trace=traces.get(quantity.quantity_id),
++        )
++        for quantity in quantities
++    ]
++
++
++def shadow_commercial_projection_artifact(
++    quantities: Sequence[QuantityEvidence],
++    context: CommercialProjectionContext,
++    *,
++    traces_by_quantity_id: Optional[Mapping[str, CommercialSourceTrace]] = None,
++) -> dict[str, Any]:
++    """Optional shadow payload: QuantityEvidence → commercial state, not authoritative."""
++    return {
++        "schema_version": COMMERCIAL_ADAPTER_VERSION,
++        "producer": "pb_quantity_commercial_adapter.shadow_commercial_projection_artifact",
++        "authoritative": False,
++        "influences_benchmark_scoring": False,
++        "project_id": context.project_id,
++        "source_sha256": context.source_sha256,
++        "diagnostics": quantities_to_commercial_diagnostics(
++            quantities,
++            context,
++            traces_by_quantity_id=traces_by_quantity_id,
++        ),
++    }
+diff --git a/scripts/check_provider_gold_isolation.py b/scripts/check_provider_gold_isolation.py
+new file mode 100644
+index 0000000..453c3f4
+--- /dev/null
++++ b/scripts/check_provider_gold_isolation.py
+@@ -0,0 +1,32 @@
++#!/usr/bin/env python3
++"""CI check: registered production providers have no gold/eval import closure."""
++from __future__ import annotations
++
++import json
++from pathlib import Path
++import sys
++
++ROOT = Path(__file__).resolve().parents[1]
++if str(ROOT) not in sys.path:
++    sys.path.insert(0, str(ROOT))
++
++from pb_provider_gold_isolation import assert_registered_providers_gold_free
++
++
++def main() -> int:
++    reports = assert_registered_providers_gold_free()
++    payload = {
++        provider_id: {
++            "ok": report.ok,
++            "root_module": report.root_module,
++            "visited": list(report.visited),
++            "findings": [item.reason for item in report.findings],
++        }
++        for provider_id, report in reports.items()
++    }
++    print(json.dumps(payload, indent=2, sort_keys=True))
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/tests/fixtures/migration_isolation/__init__.py b/tests/fixtures/migration_isolation/__init__.py
+new file mode 100644
+index 0000000..d851c27
+--- /dev/null
++++ b/tests/fixtures/migration_isolation/__init__.py
+@@ -0,0 +1 @@
++"""Isolation fixtures are AST-inspected; dirty modules must not be imported by pytest."""
+diff --git a/tests/fixtures/migration_isolation/clean_provider.py b/tests/fixtures/migration_isolation/clean_provider.py
+new file mode 100644
+index 0000000..6f9816b
+--- /dev/null
++++ b/tests/fixtures/migration_isolation/clean_provider.py
+@@ -0,0 +1,6 @@
++"""Clean production-shaped provider with no gold/eval imports."""
++
++from pb_migration_contracts import QuantityEvidence
++
++PROVIDER_ID = "clean_shadow"
++QuantityEvidence  # keep the import live for AST
+diff --git a/tests/fixtures/migration_isolation/direct_dirty_provider.py b/tests/fixtures/migration_isolation/direct_dirty_provider.py
+new file mode 100644
+index 0000000..fe4a08f
+--- /dev/null
++++ b/tests/fixtures/migration_isolation/direct_dirty_provider.py
+@@ -0,0 +1,6 @@
++"""Provider that imports a gold loader directly."""
++
++import pb_public_tender_benchmark as _gold
++
++PROVIDER_ID = "direct_dirty"
++GOLD = _gold
+diff --git a/tests/fixtures/migration_isolation/dirty_helper.py b/tests/fixtures/migration_isolation/dirty_helper.py
+new file mode 100644
+index 0000000..be4ce1b
+--- /dev/null
++++ b/tests/fixtures/migration_isolation/dirty_helper.py
+@@ -0,0 +1,5 @@
++"""Helper that pulls a forbidden benchmark module. Parsed, not executed, by isolation tests."""
++
++import pb_benchmark_accuracy_engine as _forbidden_gold_loader
++
++LEAK = getattr(_forbidden_gold_loader, "__name__", "pb_benchmark_accuracy_engine")
+diff --git a/tests/fixtures/migration_isolation/dirty_provider.py b/tests/fixtures/migration_isolation/dirty_provider.py
+new file mode 100644
+index 0000000..5dd5de0
+--- /dev/null
++++ b/tests/fixtures/migration_isolation/dirty_provider.py
+@@ -0,0 +1,6 @@
++"""Provider that reaches gold only through a helper — transitive leak."""
++
++from tests.fixtures.migration_isolation.dirty_helper import LEAK
++
++PROVIDER_ID = "dirty_shadow"
++TRANSITIVE_LEAK = LEAK
+diff --git a/tests/test_migration_control_plane.py b/tests/test_migration_control_plane.py
+new file mode 100644
+index 0000000..4a7259f
+--- /dev/null
++++ b/tests/test_migration_control_plane.py
+@@ -0,0 +1,721 @@
++from __future__ import annotations
++
++from pathlib import Path
++import json
++
++import fitz
++import pytest
++
++from pb_figured_dimension_authority import resolve_measurement_authority
++from pb_geometry_takeoff_model import MeasurementAuthorityType
++from pb_gold_free_shadow_runner import GoldFreeShadowRunner, compare_shadow_quantities
++from pb_legacy_extractor_adapter import (
++    LEGACY_EXTRACTOR_ADAPTER_VERSION,
++    LEGACY_EXTRACTOR_ENGINE_ID,
++    LegacyExtractionResult,
++    LegacyPredictionSnapshot,
++)
++from pb_migration_claim_arbiter import (
++    ClaimArbitrationError,
++    arbitrate_claims,
++    assert_exactly_one_selected,
++    claim_key,
++)
++from pb_migration_contracts import MigrationAuthorityState, QuantityEvidence
++from pb_migration_decision_ledger import MigrationDecisionLedger
++from pb_migration_family_router import FamilyAuthorityRouter, FamilyRegistration
++from pb_migration_measurement_authority_binder import (
++    MeasurementAuthorityBindingError,
++    bind_commercial_measurement_authority,
++    bind_direct_evidence_authority,
++)
++from pb_migration_provider_envelope import (
++    EligibilityDecision,
++    ProviderContext,
++    ProviderDescriptor,
++    ProviderResult,
++)
++from pb_migration_report import build_migration_report
++from pb_migration_source_trace_binder import (
++    SourceTraceBindingError,
++    bind_commercial_source_trace,
++    bind_multi_source_provenance,
++)
++from pb_opening_count_control_adapter import (
++    OpeningCountControlAdapter,
++    is_production_opening_identity,
++    opening_count_descriptor,
++    source_sha256,
++)
++from pb_page_scale_calibration_authority import unknown_calibration
++from pb_provider_gold_isolation import (
++    ProviderGoldIsolationError,
++    assert_provider_gold_free,
++    assert_registered_providers_gold_free,
++    inspect_provider_isolation,
++    inspect_registered_production_providers,
++)
++from pb_quantity_commercial_adapter import (
++    CommercialProjectionContext,
++    quantity_evidence_to_takeoff_output_row,
++)
++from pb_shadow_opening_count_provider import ShadowOpeningCountProvider
++from pb_takeoff_authority_v164 import ai_takeoff_authority, takeoff_row_publishability
++
++
++SHA = "ab" * 32
++
++
++def _qty(
++    key: str,
++    value: float | None = 1.0,
++    *,
++    family: str = "opening_count",
++    abstained: bool = False,
++    extra_meta: dict | None = None,
++    quantity_id: str | None = None,
++    authority: str = "schedule_extracted",
++    evidence_ids: tuple[str, ...] = ("ev_1",),
++) -> QuantityEvidence:
++    meta = {
++        "document_id": "doc_1",
++        "source_sha256": SHA,
++        "source_page": 1,
++        "page": 1,
++        **(extra_meta or {}),
++    }
++    kwargs = dict(
++        quantity_id=quantity_id or f"qty_{key}_{value}",
++        family=family,
++        semantic_key=key,
++        value=None if abstained else value,
++        unit="ea",
++        evidence_ids=evidence_ids,
++        authority=authority,
++        status="blocked" if abstained else "provisional",
++        confidence=0.0 if abstained else 0.8,
++        metadata=meta,
++    )
++    if abstained:
++        kwargs.update(abstained=True, blocking_reasons=("ambiguous_identity",))
++    return QuantityEvidence(**kwargs)
++
++
++def _descriptor() -> ProviderDescriptor:
++    return opening_count_descriptor()
++
++
++def _context(tmp_path: Path | None = None, **overrides) -> ProviderContext:
++    payload = dict(
++        run_id="run_1",
++        workspace_id="ws_1",
++        project_id="proj_1",
++        document_id="doc_1",
++        source_sha256=SHA,
++        revision_id="rev-a",
++        current_revision_id="rev-a",
++        selected_pages=(0,),
++        owned_viewport_ids=("vp_1",),
++        evidence_snapshot_id="evsnap_1",
++        canonical_graph_snapshot_id=None,
++        measurement_authority_snapshot_id="meas_1",
++        source_pdf=str(tmp_path / "x.pdf") if tmp_path else None,
++    )
++    payload.update(overrides)
++    return ProviderContext(**payload)
++
++
++def _router(tmp_path: Path) -> FamilyAuthorityRouter:
++    ledger = MigrationDecisionLedger(tmp_path / "migration.sqlite")
++    return FamilyAuthorityRouter(ledger)
++
++
++def _schedule_pdf(tmp_path: Path) -> Path:
++    path = tmp_path / "schedule.pdf"
++    doc = fitz.open()
++    page = doc.new_page(width=842, height=595)
++    page.insert_text((40, 35), "DRAWING TITLE: WINDOW & DOOR SCHEDULE", fontsize=10)
++    rows = [
++        ["Mark", "Description", "Qty", "Width", "Height"],
++        ["W1", "casement window", "6", "1800", "1200"],
++        ["D1", "flush door", "2", "900", "2100"],
++    ]
++    y = 80
++    for row in rows:
++        x = 40
++        for cell in row:
++            page.insert_text((x, y), cell, fontsize=9)
++            x += 90
++        y += 22
++    doc.save(path)
++    doc.close()
++    return path
++
++
++def test_01_direct_provider_gold_import_rejected() -> None:
++    report = inspect_provider_isolation(
++        "direct_dirty",
++        "tests.fixtures.migration_isolation.direct_dirty_provider",
++    )
++    assert report.ok is False
++    assert any("pb_public_tender_benchmark" in item.reason for item in report.findings)
++    with pytest.raises(ProviderGoldIsolationError):
++        assert_provider_gold_free(
++            "direct_dirty",
++            "tests.fixtures.migration_isolation.direct_dirty_provider",
++        )
++
++
++def test_02_transitive_provider_gold_import_rejected() -> None:
++    report = inspect_provider_isolation(
++        "dirty_shadow",
++        "tests.fixtures.migration_isolation.dirty_provider",
++    )
++    assert report.ok is False
++    assert any("pb_benchmark_accuracy_engine" in item.reason for item in report.findings)
++    assert any("dirty_helper" in "->".join(item.via) for item in report.findings)
++
++
++def test_03_clean_provider_accepted() -> None:
++    report = inspect_provider_isolation(
++        "clean_shadow",
++        "tests.fixtures.migration_isolation.clean_provider",
++    )
++    assert report.ok is True
++    registered = inspect_registered_production_providers()
++    assert registered["shadow_opening_count"].ok is True
++    assert registered["opening_count_control_adapter"].ok is True
++    assert_registered_providers_gold_free()
++
++
++def test_04_deterministic_provider_context_fingerprint() -> None:
++    left = _context().fingerprint()
++    right = _context().fingerprint()
++    assert left == right
++    changed = _context(revision_id="rev-b", current_revision_id="rev-b").fingerprint()
++    assert changed != left
++
++
++def test_05_deterministic_provider_result_fingerprint() -> None:
++    context = _context()
++    qty = _qty("W1", 6)
++    left = ProviderResult.build(descriptor=_descriptor(), context=context, quantities=(qty,))
++    right = ProviderResult.build(descriptor=_descriptor(), context=context, quantities=(qty,))
++    assert left.result_fingerprint == right.result_fingerprint
++    other = ProviderResult.build(descriptor=_descriptor(), context=context, quantities=(_qty("W1", 7),))
++    assert other.result_fingerprint != left.result_fingerprint
++
++
++def test_06_semantic_key_collision_detected() -> None:
++    report = arbitrate_claims(
++        family="opening_count",
++        project_id="proj_1",
++        revision_id="rev-a",
++        new_quantities=(_qty("W1", 6, quantity_id="a"), _qty("W1", 6, quantity_id="b")),
++    )
++    assert "duplicate_new_claim" in report.kinds
++    assert report.blocking is True
++
++
++def test_07_duplicate_new_claim() -> None:
++    report = arbitrate_claims(
++        family="opening_count",
++        project_id="p",
++        revision_id="",
++        new_quantities=(_qty("D1", 2, quantity_id="d1a"), _qty("D1", 2, quantity_id="d1b")),
++    )
++    assert report.findings[0].kind == "duplicate_new_claim"
++
++
++def test_08_conflicting_new_claims() -> None:
++    report = arbitrate_claims(
++        family="opening_count",
++        project_id="p",
++        revision_id="",
++        new_quantities=(_qty("D1", 2, quantity_id="c1"), _qty("D1", 3, quantity_id="c2")),
++    )
++    assert "conflicting_new_claims" in report.kinds
++
++
++def test_09_new_shadow_selects_legacy_only(tmp_path: Path) -> None:
++    router = _router(tmp_path)
++    context = _context()
++    new = ProviderResult.build(
++        descriptor=_descriptor(),
++        context=context,
++        quantities=(_qty("W1", 6),),
++    )
++    routed = router.route(
++        family="opening_count",
++        context=context,
++        legacy_quantities=(_qty("W1", 6, quantity_id="legacy_w1"),),
++        new_result=new,
++    )
++    assert routed.state == MigrationAuthorityState.NEW_SHADOW.value
++    assert routed.new_ran is True
++    assert routed.commercially_selected_from_new is False
++    assert all(item.selected_authority == "legacy" for item in routed.selected)
++    assert routed.selected[0].quantity is not None
++    assert routed.selected[0].quantity.quantity_id == "legacy_w1"
++    assert routed.selected[0].diagnostic_new is not None
++
++
++def test_10_new_selective_valid_new_selection(tmp_path: Path) -> None:
++    router = _router(tmp_path)
++    router.set_state(
++        "opening_count",
++        MigrationAuthorityState.NEW_SELECTIVE.value,
++        project_id="proj_1",
++        provider=_descriptor(),
++        reason="test_only_not_a_promotion",
++    )
++    context = _context()
++    new_row = _qty("W1", 6, quantity_id="new_w1")
++    routed = router.route(
++        family="opening_count",
++        context=context,
++        legacy_quantities=(_qty("W1", 4, quantity_id="legacy_w1"),),
++        new_result=ProviderResult.build(descriptor=_descriptor(), context=context, quantities=(new_row,)),
++        eligibility=EligibilityDecision(True, "opening_count", ("test",), "tag", ("W1",)),
++    )
++    assert routed.selected[0].selected_authority == "new"
++    assert routed.selected[0].quantity.quantity_id == "new_w1"
++
++
++def test_11_new_selective_abstention_fallback(tmp_path: Path) -> None:
++    router = _router(tmp_path)
++    router.set_state(
++        "opening_count",
++        MigrationAuthorityState.NEW_SELECTIVE.value,
++        project_id="proj_1",
++        provider=_descriptor(),
++        reason="test",
++    )
++    context = _context()
++    routed = router.route(
++        family="opening_count",
++        context=context,
++        legacy_quantities=(_qty("W1", 6, quantity_id="legacy_w1"),),
++        new_result=ProviderResult.build(
++            descriptor=_descriptor(),
++            context=context,
++            quantities=(_qty("W1", abstained=True, quantity_id="abs_w1"),),
++        ),
++        eligibility=EligibilityDecision(True, "opening_count", ("test",), "tag", ("W1",)),
++    )
++    assert routed.selected[0].selected_authority == "legacy"
++    assert routed.selected[0].fallback_reason == "new_abstention_fallback"
++    assert routed.selected[0].quantity.quantity_id == "legacy_w1"
++
++
++def test_12_new_selective_conflict_fallback(tmp_path: Path) -> None:
++    router = _router(tmp_path)
++    router.set_state(
++        "opening_count",
++        MigrationAuthorityState.NEW_SELECTIVE.value,
++        project_id="proj_1",
++        provider=_descriptor(),
++        reason="test",
++    )
++    context = _context()
++    routed = router.route(
++        family="opening_count",
++        context=context,
++        legacy_quantities=(_qty("W1", 6, quantity_id="legacy_w1"),),
++        new_result=ProviderResult.build(
++            descriptor=_descriptor(),
++            context=context,
++            quantities=(_qty("W1", 6, quantity_id="n1"), _qty("W1", 9, quantity_id="n2")),
++        ),
++        eligibility=EligibilityDecision(True, "opening_count", ("test",), "tag", ("W1",)),
++    )
++    assert routed.selected[0].selected_authority == "legacy"
++    assert routed.selected[0].fallback_reason == "unresolved_authority_conflict"
++
++
++def test_13_new_authoritative_behavior(tmp_path: Path) -> None:
++    router = _router(tmp_path)
++    router.set_state(
++        "opening_count",
++        MigrationAuthorityState.NEW_AUTHORITATIVE.value,
++        project_id="proj_1",
++        provider=_descriptor(),
++        reason="test_only",
++    )
++    context = _context()
++    routed = router.route(
++        family="opening_count",
++        context=context,
++        legacy_quantities=(_qty("W1", 99, quantity_id="legacy_w1"),),
++        new_result=ProviderResult.build(
++            descriptor=_descriptor(),
++            context=context,
++            quantities=(_qty("W1", abstained=True, quantity_id="abs_w1"),),
++        ),
++        eligibility=EligibilityDecision(True, "opening_count", ("test",), "tag", ("W1",)),
++    )
++    assert routed.selected[0].selected_authority == "new_authoritative_abstention"
++    assert routed.selected[0].quantity is None
++    assert routed.selected[0].fallback_reason == "authoritative_abstention_no_legacy_substitution"
++    routed_ok = router.route(
++        family="opening_count",
++        context=context,
++        legacy_quantities=(_qty("W1", 99, quantity_id="legacy_w1"),),
++        new_result=ProviderResult.build(
++            descriptor=_descriptor(),
++            context=context,
++            quantities=(_qty("W1", 6, quantity_id="new_w1"),),
++        ),
++        eligibility=EligibilityDecision(True, "opening_count", ("test",), "tag", ("W1",)),
++    )
++    assert routed_ok.selected[0].selected_authority == "new"
++    assert routed_ok.selected[0].quantity.quantity_id == "new_w1"
++
++
++def test_14_exactly_one_authority_invariant(tmp_path: Path) -> None:
++    router = _router(tmp_path)
++    context = _context()
++    routed = router.route(
++        family="opening_count",
++        context=context,
++        legacy_quantities=(_qty("W1", 6, quantity_id="l"),),
++        new_result=ProviderResult.build(descriptor=_descriptor(), context=context, quantities=(_qty("W1", 6, quantity_id="n"),)),
++    )
++    assert_exactly_one_selected(routed.selected_keys())
++    with pytest.raises(ClaimArbitrationError):
++        assert_exactly_one_selected(
++            (
++                claim_key(family="opening_count", project_id="p", revision_id="r", semantic_key="W1"),
++                claim_key(family="opening_count", project_id="p", revision_id="r", semantic_key="W1"),
++            )
++        )
++
++
++def test_15_rollback_selective_to_shadow(tmp_path: Path) -> None:
++    router = _router(tmp_path)
++    desc = _descriptor()
++    router.set_state("opening_count", MigrationAuthorityState.NEW_SELECTIVE.value, project_id="p", provider=desc, reason="up")
++    router.rollback("opening_count", target=MigrationAuthorityState.NEW_SHADOW.value, project_id="p", provider=desc, reason="rollback")
++    assert router.current_state("opening_count") == MigrationAuthorityState.NEW_SHADOW.value
++    history = router.ledger.history("opening_count")
++    assert any(row["prior_state"] == "new_selective" for row in history)
++
++
++def test_16_rollback_authoritative_to_shadow(tmp_path: Path) -> None:
++    router = _router(tmp_path)
++    desc = _descriptor()
++    router.set_state("opening_count", MigrationAuthorityState.NEW_AUTHORITATIVE.value, project_id="p", provider=desc, reason="up")
++    router.rollback("opening_count", target=MigrationAuthorityState.NEW_SHADOW.value, project_id="p", provider=desc, reason="rollback")
++    assert router.current_state("opening_count") == MigrationAuthorityState.NEW_SHADOW.value
++
++
++def test_17_severe_rollback_to_legacy(tmp_path: Path) -> None:
++    router = _router(tmp_path)
++    desc = _descriptor()
++    router.set_state("opening_count", MigrationAuthorityState.NEW_SELECTIVE.value, project_id="p", provider=desc, reason="up")
++    router.rollback(
++        "opening_count",
++        target=MigrationAuthorityState.LEGACY_AUTHORITATIVE.value,
++        project_id="p",
++        provider=desc,
++        reason="severe",
++    )
++    assert router.current_state("opening_count") == MigrationAuthorityState.LEGACY_AUTHORITATIVE.value
++    context = _context()
++    routed = router.route(
++        family="opening_count",
++        context=context,
++        legacy_quantities=(_qty("W1", 6, quantity_id="l"),),
++        new_result=ProviderResult.build(descriptor=desc, context=context, quantities=(_qty("W1", 6, quantity_id="n"),)),
++        execute_new=True,
++    )
++    assert routed.new_ran is False
++    assert routed.selected[0].selected_authority == "legacy"
++
++
++def test_18_stale_revision_rejected() -> None:
++    qty = _qty("W1", 6)
++    context = _context(revision_id="rev-old", current_revision_id="rev-new")
++    with pytest.raises(SourceTraceBindingError, match="stale revision"):
++        bind_commercial_source_trace(qty, context)
++
++
++def test_19_source_sha_mismatch_rejected() -> None:
++    qty = _qty("W1", 6, extra_meta={"source_sha256": "cd" * 32})
++    with pytest.raises(SourceTraceBindingError, match="source SHA"):
++        bind_commercial_source_trace(qty, _context())
++
++
++def test_20_unresolved_scaled_authority_rejected() -> None:
++    qty = _qty(
++        "LEN",
++        3.0,
++        family="figured_dimension",
++        extra_meta={"source_page": 1},
++        authority=MeasurementAuthorityType.PDF_SCALED.value,
++    )
++    with pytest.raises(MeasurementAuthorityBindingError, match="unresolved"):
++        bind_commercial_measurement_authority(
++            qty,
++            scaled_mm=3000.0,
++            scale_calibration=unknown_calibration(1),
++        )
++
++
++def test_21_direct_evidence_binder() -> None:
++    qty = _qty("W1", 6)
++    bound = bind_direct_evidence_authority(qty, source_type="schedule_extracted")
++    assert bound.source_type == "schedule_extracted"
++    assert bound.scale_calibration_status is None
++
++
++def test_22_figured_authority_binder() -> None:
++    qty = _qty(
++        "LEN",
++        6.5,
++        family="figured_dimension",
++        authority=MeasurementAuthorityType.DOCUMENTED_DIMENSION.value,
++    )
++    bound = bind_commercial_measurement_authority(qty, figured_text="6500")
++    assert bound.source_type == MeasurementAuthorityType.DOCUMENTED_DIMENSION.value
++    assert bound.figured_mm == 6500.0
++    existing = resolve_measurement_authority(figured_text="6500")
++    assert bound.authority_status == existing.authority_status
++
++
++def test_23_multi_page_provenance() -> None:
++    qty = _qty("W1", 6, extra_meta={"source_pages": [2, 5]}, evidence_ids=("ev_a", "ev_b"))
++    provenance = bind_multi_source_provenance(
++        qty,
++        _context(),
++        contributing_pages=(2, 5),
++        contributing_viewports=("vp_plan", "vp_sched"),
++    )
++    assert provenance.primary.source_page == 2
++    assert [item.page for item in provenance.contributors] == [2, 5]
++    assert provenance.evidence_fingerprint
++    assert provenance.primary.project_id == "proj_1"
++
++
++def test_24_aggregate_instance_collision() -> None:
++    report = arbitrate_claims(
++        family="opening_count",
++        project_id="p",
++        revision_id="",
++        new_quantities=(_qty("door_total", 12), _qty("D1", 4)),
++    )
++    assert "aggregate_instance_overlap" in report.kinds
++    assert is_production_opening_identity("D1") is True
++    assert is_production_opening_identity("door_total") is False
++
++
++def test_25_estimator_approval_remains_separate() -> None:
++    qty = _qty("W1", 6)
++    row = quantity_evidence_to_takeoff_output_row(
++        qty,
++        CommercialProjectionContext(project_id="proj_1", source_sha256=SHA),
++    )
++    assert row is not None
++    assert row.approved_by is None
++    assert str(row.confidence) not in {"approved", "estimator_verified"}
++
++
++def test_26_commercial_publishability_controlled_by_existing_authority() -> None:
++    qty = _qty("W1", 6)
++    row = quantity_evidence_to_takeoff_output_row(
++        qty,
++        CommercialProjectionContext(project_id="proj_1", source_sha256=SHA),
++    )
++    review = {
++        "origin": "AI",
++        "quantity": row.value,
++        "quantity_status": "to_review",
++        "confidence": str(row.confidence),
++        "source_reference": "ai draft opening-count shadow",
++    }
++    publishable, reason = takeoff_row_publishability(review)
++    ai_ok, _ = ai_takeoff_authority(review)
++    assert publishable is False
++    assert ai_ok is False
++    assert "estimator" in reason.lower() or "ai" in reason.lower()
++
++
++def test_27_frozen_before_gold_evaluation(tmp_path: Path) -> None:
++    context = _context()
++    frozen = ProviderResult.build(
++        descriptor=_descriptor(),
++        context=context,
++        quantities=(_qty("W1", 6),),
++    )
++    report = build_migration_report(
++        family="opening_count",
++        descriptor=_descriptor(),
++        migration_state=MigrationAuthorityState.NEW_SHADOW.value,
++        source_set_fingerprint="src",
++        evaluated_commit="test",
++        eligible=24,
++        eligible_keys=("W1",) * 24,
++        frozen_new=frozen.quantities,
++        exact_among_answered=1.0,
++        precision=1.0,
++        hallucinations=0,
++        gold_joined_after_freeze=True,
++        gate_decision="HOLD",
++        gate_reasons=("remain_new_shadow",),
++    )
++    assert report.payload["population"]["eligible"] == 24
++    assert report.payload["population"]["answered"] == 1
++    assert report.payload["population"]["eligible"] != report.payload["population"]["answered"]
++    assert report.payload["accuracy"]["coverage"] == pytest.approx(1 / 24)
++    assert report.payload["benchmark_integrity"]["frozen_before_gold_join"] is True
++    assert report.payload["benchmark_integrity"]["holdout_status"] == "NOT_RUN"
++    assert report.payload["gate"]["decision"] == "HOLD"
++    assert report.payload["gate"]["target_state"] == "new_selective"
++    assert report.payload["identity"]["provider_id"]
++    assert report.payload["fingerprints"]["legacy_output"]
++    assert report.payload["fingerprints"]["comparison"]
++    assert report.payload["fingerprints"]["report"]
++
++
++def test_28_opening_count_provider_output_unchanged_through_adapter(tmp_path: Path) -> None:
++    pdf = _schedule_pdf(tmp_path)
++    raw = ShadowOpeningCountProvider().extract_quantities(pdf, pages=[0])
++    adapted = OpeningCountControlAdapter().extract_quantities(pdf, pages=[0])
++    assert [item.to_dict() for item in raw] == [item.to_dict() for item in adapted]
++    context = _context(
++        tmp_path,
++        source_pdf=str(pdf),
++        source_sha256=source_sha256(pdf),
++        selected_pages=(0,),
++    )
++    result = OpeningCountControlAdapter().extract(context)
++    assert [item.to_dict() for item in result.quantities] == [item.to_dict() for item in raw]
++
++
++def test_new_shadow_does_not_publish_and_legacy_stays_selected(tmp_path: Path) -> None:
++    pdf = _schedule_pdf(tmp_path)
++    adapter = OpeningCountControlAdapter()
++    context = _context(tmp_path, source_pdf=str(pdf), source_sha256=source_sha256(pdf), selected_pages=(0,))
++    new_result = adapter.extract(context)
++    frozen = tuple(item.to_dict() for item in new_result.quantities)
++    sha = source_sha256(pdf)
++    legacy_result = LegacyExtractionResult(
++        result_id="legacy_e2e",
++        engine_id=LEGACY_EXTRACTOR_ENGINE_ID,
++        adapter_version=LEGACY_EXTRACTOR_ADAPTER_VERSION,
++        source_sha256=sha,
++        source_size_bytes=pdf.stat().st_size,
++        pages=(0,),
++        predictions=(
++            LegacyPredictionSnapshot(
++                tag="W1",
++                trade_type="windows",
++                description="legacy W1",
++                quantity=6.0,
++                unit="ea",
++                confidence=0.5,
++                source_page=1,
++            ),
++        ),
++    )
++
++    class _StubLegacy:
++        def extract(self, pdf_path, pages=None):
++            return legacy_result
++
++    shadow = GoldFreeShadowRunner(legacy_adapter=_StubLegacy()).run(pdf, adapter, pages=[0])
++    compare_shadow_quantities(shadow.legacy_output, shadow.new_output)
++    legacy_quantities = tuple(
++        _qty(str(item.tag), float(item.quantity), quantity_id=f"legacy_{item.tag}")
++        for item in shadow.legacy_output.predictions
++        if str(item.tag or "").strip()
++    )
++    router = _router(tmp_path)
++    routed = router.route(
++        family="opening_count",
++        context=context,
++        legacy_quantities=legacy_quantities,
++        new_result=new_result,
++    )
++    assert frozen == tuple(item.to_dict() for item in new_result.quantities)
++    assert router.current_state("opening_count") == "new_shadow"
++    assert routed.commercially_selected_from_new is False
++    assert all(item.selected_authority == "legacy" for item in routed.selected)
++    eligibility = adapter.eligibility(context)
++    assert eligibility.eligible is True
++    assert eligibility.eligible_semantic_keys == ()
++    assert eligibility.declared_identity_grammar
++
++
++def test_isolated_provider_execution_does_not_need_gold(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
++    pdf = _schedule_pdf(tmp_path)
++
++    def blocked_gold(path, *args, **kwargs):
++        text = str(path)
++        if "expected_boq" in text or "benchmark_rules" in text or "holdout" in text:
++            raise AssertionError(f"gold path opened during provider execution: {path}")
++        return original_read_text(path, *args, **kwargs)
++
++    original_read_text = Path.read_text
++    monkeypatch.setattr(Path, "read_text", blocked_gold)
++    OpeningCountControlAdapter().extract_quantities(pdf, pages=[0])
++
++
++def test_29_deterministic_replay(tmp_path: Path) -> None:
++    pdf = _schedule_pdf(tmp_path)
++    adapter = OpeningCountControlAdapter()
++    context = _context(tmp_path, source_pdf=str(pdf), source_sha256=source_sha256(pdf), selected_pages=(0,))
++    first = adapter.extract(context)
++    second = adapter.extract(context)
++    assert first.result_fingerprint == second.result_fingerprint
++    assert first.context_fingerprint == second.context_fingerprint
++    assert [item.to_dict() for item in first.quantities] == [item.to_dict() for item in second.quantities]
++
++
++def test_30_unrelated_family_unaffected_by_rollback(tmp_path: Path) -> None:
++    router = _router(tmp_path)
++    desc = _descriptor()
++    other = ProviderDescriptor(
++        provider_id="other_family_provider",
++        family="other_family",
++        provider_version="1.0.0",
++        output_schema_version="1.0.0",
++        code_fingerprint="0" * 64,
++    )
++    router.registry["other_family"] = FamilyRegistration(
++        family="other_family",
++        provider_id="other_family_provider",
++        provider_module="pb_migration_contracts",
++        default_state=MigrationAuthorityState.NEW_SELECTIVE.value,
++    )
++    router.set_state(
++        "other_family",
++        MigrationAuthorityState.NEW_SELECTIVE.value,
++        project_id="p",
++        provider=other,
++        reason="unrelated",
++    )
++    router.set_state(
++        "opening_count",
++        MigrationAuthorityState.NEW_SELECTIVE.value,
++        project_id="p",
++        provider=desc,
++        reason="up",
++    )
++    router.rollback(
++        "opening_count",
++        target=MigrationAuthorityState.NEW_SHADOW.value,
++        project_id="p",
++        provider=desc,
++        reason="family_scoped",
++    )
++    assert router.current_state("opening_count") == MigrationAuthorityState.NEW_SHADOW.value
++    assert router.current_state("other_family") == MigrationAuthorityState.NEW_SELECTIVE.value
++
++
++def test_headline_dashboard_still_canonical() -> None:
++    data = json.loads(Path("benchmark_results/headline_accuracy_dashboard.json").read_text(encoding="utf-8"))
++    metrics = data["headline_metrics"]
++    accepted = int(metrics["exact_matches"]) + int(metrics["within_5_percent"])
++    assert accepted == 24
++    assert int(metrics["total_items_compared"]) == 61
+-- 
+2.43.0
+

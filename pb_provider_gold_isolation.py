@@ -208,6 +208,49 @@ def walk_local_import_graph(root_module: str) -> tuple[tuple[str, ...], tuple[Im
     return tuple(visited), tuple(findings)
 
 
+def local_module_source_files(root_module: str) -> tuple[Path, ...]:
+    """Return repository source files in a local import closure, plus package inits.
+
+    Raises if the closure reaches a forbidden gold/eval module.  Used to stage a
+    production-only workspace.  This is still AST-complete only for the import
+    shapes the walker understands.
+    """
+    visited, findings = walk_local_import_graph(root_module)
+    if findings:
+        details = "; ".join(
+            f"{item.reason} via {' -> '.join(item.via)}" for item in findings
+        )
+        raise ProviderGoldIsolationError(
+            f"cannot stage module {root_module!r}: {details}"
+        )
+    files: list[Path] = []
+    seen: set[Path] = set()
+    repo = REPO_ROOT.resolve()
+    for module in visited:
+        path = _module_path(module)
+        if path is None:
+            continue
+        resolved = path.resolve()
+        try:
+            resolved.relative_to(repo)
+        except ValueError as exc:
+            raise ProviderGoldIsolationError(
+                f"module {module} resolves outside the repository: {resolved}"
+            ) from exc
+        candidates = [resolved]
+        parent = resolved.relative_to(repo).parent
+        while parent != Path("."):
+            init = (repo / parent / "__init__.py").resolve()
+            if init.is_file():
+                candidates.append(init)
+            parent = parent.parent
+        for candidate in candidates:
+            if candidate not in seen:
+                seen.add(candidate)
+                files.append(candidate)
+    return tuple(files)
+
+
 def inspect_provider_isolation(provider_id: str, module_name: str) -> ProviderIsolationReport:
     cached = _ISOLATION_CACHE.get(module_name)
     if cached is not None:

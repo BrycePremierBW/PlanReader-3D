@@ -1,0 +1,542 @@
+From a2782d0e22466c09dbefc4fbfa2f2220193c1aa5 Mon Sep 17 00:00:00 2001
+From: Cursor Agent <cursoragent@cursor.com>
+Date: Wed, 9 Sep 2026 23:25:40 +0000
+Subject: [PATCH 08/10] Freeze the opening-count shadow family at NEW_SHADOW
+ for handoff.
+
+Document the provider contract and reproducible report command, lock gold isolation and freeze-before-join ordering, and keep the false-positive regressions registered. Extraction behavior is unchanged and authority is not switched.
+---
+ docs/PLANREADER_MIGRATION_CONTRACTS_V1.md     |   2 +
+ .../shadow_opening_count_provider_contract.md | 141 +++++++++++++++
+ pb_shadow_opening_count_eval.py               |  74 ++++----
+ pb_shadow_opening_count_gate.py               |   7 +-
+ scripts/run_shadow_opening_count_report.py    |   9 +-
+ tests/test_shadow_opening_count_gate.py       |   1 +
+ tests/test_shadow_opening_count_handoff.py    | 167 ++++++++++++++++++
+ tests/test_shadow_opening_count_provider.py   |   3 +
+ 8 files changed, 366 insertions(+), 38 deletions(-)
+ create mode 100644 docs/shadow_opening_count_provider_contract.md
+ create mode 100644 tests/test_shadow_opening_count_handoff.py
+
+diff --git a/docs/PLANREADER_MIGRATION_CONTRACTS_V1.md b/docs/PLANREADER_MIGRATION_CONTRACTS_V1.md
+index ec9a078..39f26f1 100644
+--- a/docs/PLANREADER_MIGRATION_CONTRACTS_V1.md
++++ b/docs/PLANREADER_MIGRATION_CONTRACTS_V1.md
+@@ -102,6 +102,8 @@ The new engine must first operate in shadow. Its result is compared to the legac
+ 
+ The shadow comparison contract deliberately has no expected/gold field. Development benchmark expected quantities may be joined only by the evaluator after legacy and new outputs have been frozen.
+ 
++The first quantity-family shadow provider (door/window opening counts) is frozen at `NEW_SHADOW`. See `docs/shadow_opening_count_provider_contract.md`. Do not activate `NEW_SELECTIVE` or `NEW_AUTHORITATIVE` from the passed development gate alone.
++
+ ## Anti-leakage boundary
+ 
+ Production evidence/graph/quantity code must not depend on benchmark IDs, expected BOQ quantities, benchmark item mappings, benchmark-result artifacts, or holdout gold.
+diff --git a/docs/shadow_opening_count_provider_contract.md b/docs/shadow_opening_count_provider_contract.md
+new file mode 100644
+index 0000000..c1ade62
+--- /dev/null
++++ b/docs/shadow_opening_count_provider_contract.md
+@@ -0,0 +1,141 @@
++# Opening-count shadow provider contract
++
++Family status: **frozen at `NEW_SHADOW`**.
++
++Do not activate `NEW_SELECTIVE` or `NEW_AUTHORITATIVE` from this note. Legacy
++remains authoritative for door/window counts. The frozen development gate
++passed; coverage is still incomplete and several eligible items are
++evidence-limited. Authority is a separate decision.
++
++Canonical gate: `pb_shadow_opening_count_gate.py` (`OPENING_COUNT_MIGRATION_GATE`).
++Provider: `pb_shadow_opening_count_provider.py` (`ShadowOpeningCountProvider`).
++Evidence helpers: `pb_shadow_opening_evidence.py`.
++Evaluator (gold only after freeze): `pb_shadow_opening_count_eval.py`.
++
++## Reproduce the development shadow report
++
++```bash
++PYTHONPATH=. python3 scripts/run_shadow_opening_count_report.py \
++  --output shadow_reports/opening_count_shadow_development.json
++```
++
++Regression suite (does not rewrite benchmark scores):
++
++```bash
++PYTHONPATH=. python3 -m pytest \
++  tests/test_shadow_opening_count_gate.py \
++  tests/test_shadow_opening_count_provider.py \
++  tests/test_shadow_opening_count_eval.py \
++  tests/test_shadow_opening_count_evidence.py \
++  tests/test_shadow_opening_count_handoff.py
++```
++
++## Inputs
++
++- Source PDF path.
++- Optional 0-based `pages`.
++- Optional injected OCR lines for tests (`ocr_lines_by_page`).
++- Optional raster OCR toggle/DPI (shadow-only Tesseract via
++  `DrawingOCREngine(custom_ocr_func=...)`; the default engine used by legacy
++  is unchanged).
++
++The provider does not accept benchmark IDs, expected quantities, mappings,
++tolerances, or holdout identifiers.
++
++## Outputs
++
++`OpeningCountBundle`:
++
++- `quantities`: `QuantityEvidence` type counts (`window_count`, `door_count`,
++  `opening_count`) plus optional `door_total` / `window_total` aggregates.
++- `entity_evidence`: type-level candidates; plan-tag instance candidates are
++  not takeoff-authoritative.
++- `canonical_openings`: type-level records only (`takeoff_eligible=False`,
++  `spatially_reconstructed=False`).
++- `conflicts`, `ambiguous_marks`, `duplicate_observations`, `diagnostics`.
++
++Answered counts use unit `ea`. Abstained records have `value=None` and
++blocking reasons. Diagnostics always set `authoritative=False`,
++`authority_state=new_shadow`, `gold_consulted=False`.
++
++## Supported authority classes
++
++| Output authority | Meaning |
++|---|---|
++| `schedule_extracted` | Type count from an opening schedule / card, optionally corroborated by plan tags |
++| `provisional` | Plan-tag type count only |
++| `blocked` | Abstained; not an answer |
++
++Formulas: `explicit_schedule_count`, `schedule_plan_corroborated`,
++`plan_tag_count`, `sum_of_authoritative_type_counts`.
++
++Elevation-only observations are not a type-total authority class.
++
++## Abstention reasons
++
++- `duplicate_schedule_conflict`
++- `conflicting_dimensions`
++- `schedule_vs_plan_count_mismatch` / other F.12 `conflict_manual_review` types
++- `missing_quantity`
++- `missing_identity_evidence`
++- `supporting_view_only` (elevation/section appearance without plan or schedule)
++- `ambiguous_opening_identity` (WD without F.28 window proof; OCR `DI`/`WI`/`WDI`)
++
++Bill/BOQ/NRM/work-section pages are skipped rather than answered as zero.
++
++## Cross-view semantics
++
++Ownership is document → page → viewport → evidence. View type is retained.
++
++- Schedule mark: type-definition evidence.
++- Plan mark: physical-instance candidate evidence.
++- Elevation/detail mark: supporting/appearance evidence.
++
++These are not three openings. Schedule Qty 4 + four plan marks + two elevation
++labels remains **4**, not 10. Duplicate detail/elevation sheets do not inflate
++the type count.
++
++## Aggregation semantics
++
++If two or more authoritative type counts exist in one family:
++
++`door_total` / `window_total` = sum of those type counts
++
++The aggregate keeps source quantity and evidence IDs. It is not a gold key
++(`steel_casement_windows`, `doors_complete` are never emitted). Evaluators
++must exclude family totals from coverage, precision, hallucinations, and
++legacy/new agreement.
++
++## Known evidence limitations
++
++Do not chase these with project-specific mappings or looser identity rules:
++
++- **KSTVET**: drawings with casement sizes; no independently defensible W/D type marks.
++- **Murera**: raster/partial schedules; gold asks for aggregates that cannot be mapped generically.
++- **Ghazi**: figured dimensions only. Dimensions may support geometry, not D1/W1 identity.
++- **Lamu**: no reliable D1 identity.
++
++A 100% precision / 62.5% coverage shadow family is the intended stop.
++
++## Frozen gate result (development, 24 eligible items)
++
++- Answered: 15 (Umma D1–D12, WD1–WD3)
++- Coverage: 62.5% (reported; **not** a gate input)
++- Precision on answered identities: 100%
++- Exact correctness among answered: 100%
++- Recall: 62.5%
++- Hallucinations / conflicts / duplicates / fake dimension identities: 0
++- Provenance: complete
++- Legacy/new agreement on answered type keys: 15/15
++- Gate: **PASS**
++- Recommendation: **remain NEW_SHADOW**
++- Legacy headline (authoritative): **24 / 61 = 39.34%** (unchanged)
++
++## Why authority must remain NEW_SHADOW
++
++The gate measures precision and exactness **among answered items**. Nine
++eligible items remain unanswered because the drawings do not supply a general,
++independently defensible identity. Promoting the family would put incomplete
++shadow coverage into production while legacy still answers the commercial
++headline. Coverage was never a gate requirement and must not be used to
++justify `NEW_SELECTIVE`.
+diff --git a/pb_shadow_opening_count_eval.py b/pb_shadow_opening_count_eval.py
+index a1a47c0..29f1e38 100644
+--- a/pb_shadow_opening_count_eval.py
++++ b/pb_shadow_opening_count_eval.py
+@@ -18,6 +18,8 @@ from pb_gold_free_shadow_runner import GoldFreeShadowRunner
+ from pb_migration_contracts import QuantityEvidence
+ from pb_opening_tag_normalization import normalize_opening_tag
+ from pb_shadow_opening_count_gate import (
++    OPENING_COUNT_AUTHORITY_RECOMMENDATION,
++    OPENING_COUNT_AUTHORITY_STATE,
+     OPENING_COUNT_FAMILIES,
+     evaluate_opening_count_migration_gate,
+ )
+@@ -282,50 +284,52 @@ def run_project_shadow(
+     runner: Optional[GoldFreeShadowRunner] = None,
+     provider: Optional[ShadowOpeningCountProvider] = None,
+ ) -> dict[str, Any]:
+-    eligible = load_eligible_opening_items(benchmark_id)
++    """Extract and freeze new quantities, then join gold evaluator-side only."""
+     pdf_path = _load_manifest_pdf(benchmark_id)
+-    if pdf_path is None:
+-        metrics = score_frozen_quantities(
+-            benchmark_id=benchmark_id,
+-            frozen_quantities=(),
+-            eligible=eligible,
+-            source_status="SOURCE_UNAVAILABLE",
+-        )
+-        return {
+-            "benchmark_id": benchmark_id,
+-            "source_status": "SOURCE_UNAVAILABLE",
+-            "frozen_quantities": [],
+-            "metrics": metrics,
+-        }
+-
+-    engine = provider or ShadowOpeningCountProvider()
+-    import fitz
++    frozen: tuple[QuantityEvidence, ...] = ()
++    bundle = None
++    pages: Optional[list[int]] = None
++    shadow = None
++    source_status = "SOURCE_UNAVAILABLE"
++    if pdf_path is not None:
++        engine = provider or ShadowOpeningCountProvider()
++        import fitz
++
++        doc = fitz.open(pdf_path)
++        try:
++            pages = probe_opening_evidence_pages(doc)
++        finally:
++            doc.close()
++
++        bundle = engine.extract_bundle(pdf_path, pages=pages or None)
++        frozen = tuple(bundle.quantities)
++        shadow = (runner or GoldFreeShadowRunner()).run(pdf_path, engine, pages=pages or None)
++        source_status = "ok"
+ 
+-    doc = fitz.open(pdf_path)
+-    try:
+-        pages = probe_opening_evidence_pages(doc)
+-    finally:
+-        doc.close()
+-
+-    bundle = engine.extract_bundle(pdf_path, pages=pages or None)
+-    frozen = tuple(bundle.quantities)
+-    shadow = (runner or GoldFreeShadowRunner()).run(pdf_path, engine, pages=pages or None)
++    eligible = load_eligible_opening_items(benchmark_id)
+     metrics = score_frozen_quantities(
+         benchmark_id=benchmark_id,
+         frozen_quantities=frozen,
+         eligible=eligible,
+-        conflicts=bundle.conflicts,
+-        ambiguous_marks=bundle.ambiguous_marks,
+-        duplicate_observations=bundle.duplicate_observations,
+-        comparisons=[row.to_dict() for row in shadow.comparisons],
+-        source_status="ok",
++        conflicts=bundle.conflicts if bundle is not None else (),
++        ambiguous_marks=bundle.ambiguous_marks if bundle is not None else (),
++        duplicate_observations=bundle.duplicate_observations if bundle is not None else 0,
++        comparisons=[row.to_dict() for row in shadow.comparisons] if shadow is not None else (),
++        source_status=source_status,
+     )
++    if bundle is None:
++        return {
++            "benchmark_id": benchmark_id,
++            "source_status": source_status,
++            "frozen_quantities": [],
++            "metrics": metrics,
++        }
+     return {
+         "benchmark_id": benchmark_id,
+-        "source_status": "ok",
++        "source_status": source_status,
+         "source_pdf": str(pdf_path),
+         "pages": pages,
+-        "shadow_result_id": shadow.result_id,
++        "shadow_result_id": shadow.result_id if shadow is not None else None,
+         "frozen_quantities": [item.to_dict() for item in frozen],
+         "entity_evidence": [item.to_dict() for item in bundle.entity_evidence],
+         "canonical_openings": [item.to_dict() for item in bundle.canonical_openings],
+@@ -399,12 +403,12 @@ def run_development_shadow_report(
+     gate = evaluate_opening_count_migration_gate(aggregated)
+     return {
+         "family": "opening_count",
+-        "authority_state": "new_shadow",
++        "authority_state": OPENING_COUNT_AUTHORITY_STATE,
+         "authoritative_engine": "legacy",
+         "gold_joined_after_freeze": True,
+         "holdout_scored": False,
+         "projects": projects,
+         "metrics": aggregated,
+         "migration_gate": gate,
+-        "recommendation": "remain_new_shadow",
++        "recommendation": OPENING_COUNT_AUTHORITY_RECOMMENDATION,
+     }
+diff --git a/pb_shadow_opening_count_gate.py b/pb_shadow_opening_count_gate.py
+index 836806c..1526fb4 100644
+--- a/pb_shadow_opening_count_gate.py
++++ b/pb_shadow_opening_count_gate.py
+@@ -12,7 +12,7 @@ from __future__ import annotations
+ from typing import Any, Mapping
+ 
+ 
+-# Frozen before development-project measurement. Do not revise after scoring.
++# Canonical frozen gate. Do not revise after scoring. Coverage is not a gate input.
+ OPENING_COUNT_MIGRATION_GATE = {
+     "min_precision_on_answered_identities": 0.99,
+     "min_exact_correctness_on_answered_counts": 0.99,
+@@ -23,6 +23,8 @@ OPENING_COUNT_MIGRATION_GATE = {
+ }
+ 
+ OPENING_COUNT_FAMILIES = frozenset({"window_count", "door_count", "opening_count"})
++OPENING_COUNT_AUTHORITY_STATE = "new_shadow"
++OPENING_COUNT_AUTHORITY_RECOMMENDATION = "remain_new_shadow"
+ 
+ 
+ def evaluate_opening_count_migration_gate(metrics: Mapping[str, Any]) -> dict[str, Any]:
+@@ -58,6 +60,7 @@ def evaluate_opening_count_migration_gate(metrics: Mapping[str, Any]) -> dict[st
+         "gate": gate,
+         "checks": checks,
+         "decision": "PASS" if passed else "FAIL",
+-        "authority_recommendation": "remain_new_shadow",
++        "authority_recommendation": OPENING_COUNT_AUTHORITY_RECOMMENDATION,
++        "authority_state": OPENING_COUNT_AUTHORITY_STATE,
+         "coverage_is_not_a_gate_input": True,
+     }
+diff --git a/scripts/run_shadow_opening_count_report.py b/scripts/run_shadow_opening_count_report.py
+index 9b7ab11..230bff2 100644
+--- a/scripts/run_shadow_opening_count_report.py
++++ b/scripts/run_shadow_opening_count_report.py
+@@ -1,5 +1,12 @@
+ #!/usr/bin/env python3
+-"""Run the gold-joining opening-count shadow report after provider outputs freeze."""
++"""Reproduce the development opening-count shadow report.
++
++Gold is joined only after new QuantityEvidence is frozen. This does not
++activate NEW_SELECTIVE or NEW_AUTHORITATIVE.
++
++    PYTHONPATH=. python3 scripts/run_shadow_opening_count_report.py \\
++        --output shadow_reports/opening_count_shadow_development.json
++"""
+ from __future__ import annotations
+ 
+ import argparse
+diff --git a/tests/test_shadow_opening_count_gate.py b/tests/test_shadow_opening_count_gate.py
+index a2806ae..af9ef1d 100644
+--- a/tests/test_shadow_opening_count_gate.py
++++ b/tests/test_shadow_opening_count_gate.py
+@@ -48,3 +48,4 @@ def test_gate_passes_only_when_all_frozen_thresholds_hold() -> None:
+     )
+     assert result["decision"] == "PASS"
+     assert result["authority_recommendation"] == "remain_new_shadow"
++    assert result["authority_state"] == "new_shadow"
+diff --git a/tests/test_shadow_opening_count_handoff.py b/tests/test_shadow_opening_count_handoff.py
+new file mode 100644
+index 0000000..90da7ec
+--- /dev/null
++++ b/tests/test_shadow_opening_count_handoff.py
+@@ -0,0 +1,167 @@
++"""Handoff locks for the frozen opening-count shadow family.
++
++These tests do not change extraction. They keep isolation, gate thresholds,
++false-positive regressions, and evaluator ordering from drifting.
++"""
++from __future__ import annotations
++
++import ast
++import inspect
++from pathlib import Path
++
++from pb_shadow_opening_count_eval import run_project_shadow, score_frozen_quantities
++from pb_shadow_opening_count_gate import (
++    OPENING_COUNT_AUTHORITY_RECOMMENDATION,
++    OPENING_COUNT_AUTHORITY_STATE,
++    OPENING_COUNT_MIGRATION_GATE,
++    evaluate_opening_count_migration_gate,
++)
++import pb_shadow_opening_count_eval as eval_mod
++import pb_shadow_opening_count_provider as provider_mod
++import pb_shadow_opening_evidence as evidence_mod
++
++
++REQUIRED_REGRESSION_TESTS = {
++    "tests/test_shadow_opening_count_provider.py": {
++        "test_bill_pages_are_not_drawing_opening_evidence",
++        "test_dimension_only_geometry_does_not_create_identities",
++        "test_duplicate_detail_and_elevation_do_not_inflate_count",
++        "test_provider_and_shadow_runner_are_gold_free",
++    },
++    "tests/test_shadow_opening_count_evidence.py": {
++        "test_builders_work_and_nrm_tables_are_not_opening_schedules",
++        "test_work_section_codes_are_not_door_or_window_marks",
++        "test_ocr_ambiguity_does_not_normalize_to_nearest_mark",
++        "test_raster_opening_schedule_is_read_and_raster_boq_is_rejected",
++        "test_notes_detail_title_and_legend_marks_are_not_counted",
++        "test_elevation_only_is_supporting_evidence_not_a_type_total",
++    },
++    "tests/test_shadow_opening_count_gate.py": {
++        "test_migration_gate_was_predeclared_and_is_not_relaxed",
++    },
++}
++
++_FORBIDDEN_IMPORT_TOKENS = (
++    "benchmark_accuracy_engine",
++    "public_tender_benchmark",
++    "benchmark_runner",
++    "holdout_suite",
++    "expected_boq",
++    "expected_project",
++    "benchmark_rules",
++    "item_mappings",
++    "pb_shadow_opening_count_eval",
++    "pb_quantity_commercial_adapter",
++)
++
++_PRODUCTION_MUST_NOT_IMPORT_SHADOW = (
++    "pb_planreader_pdf_extractor.py",
++    "pb_legacy_extractor_adapter.py",
++    "pb_quantity_prediction_adapter.py",
++    "pb_takeoff_output_authority.py",
++    "pb_quantity_commercial_adapter.py",
++)
++
++
++def _imported_modules(source: str) -> list[str]:
++    tree = ast.parse(source)
++    imported: list[str] = []
++    for node in ast.walk(tree):
++        if isinstance(node, ast.Import):
++            imported.extend(alias.name for alias in node.names)
++        elif isinstance(node, ast.ImportFrom) and node.module:
++            imported.append(node.module)
++    return imported
++
++
++def _function_names(path: Path) -> set[str]:
++    tree = ast.parse(path.read_text(encoding="utf-8"))
++    return {node.name for node in tree.body if isinstance(node, ast.FunctionDef)}
++
++
++def test_required_false_positive_regressions_remain_registered() -> None:
++    for relative, names in REQUIRED_REGRESSION_TESTS.items():
++        found = _function_names(Path(relative))
++        missing = names - found
++        assert not missing, f"{relative} missing {sorted(missing)}"
++
++
++def test_canonical_gate_stays_frozen_and_does_not_promote_authority() -> None:
++    assert OPENING_COUNT_MIGRATION_GATE == {
++        "min_precision_on_answered_identities": 0.99,
++        "min_exact_correctness_on_answered_counts": 0.99,
++        "max_dimension_derived_fake_identities": 0,
++        "max_critical_duplicate_counts": 0,
++        "require_complete_provenance_on_accepted": True,
++        "conflicts_must_fail_closed_or_review": True,
++    }
++    assert OPENING_COUNT_AUTHORITY_STATE == "new_shadow"
++    assert OPENING_COUNT_AUTHORITY_RECOMMENDATION == "remain_new_shadow"
++    result = evaluate_opening_count_migration_gate(
++        {
++            "precision_on_answered_identities": 1.0,
++            "exact_correctness_on_answered_counts": 1.0,
++            "dimension_derived_fake_identities": 0,
++            "critical_duplicate_counts": 0,
++            "accepted_answered_count": 15,
++            "accepted_missing_provenance": 0,
++            "conflict_not_fail_closed": 0,
++        }
++    )
++    assert result["decision"] == "PASS"
++    assert result["authority_recommendation"] == "remain_new_shadow"
++    assert result["authority_state"] == "new_shadow"
++    assert result["coverage_is_not_a_gate_input"] is True
++
++
++def test_provider_and_evidence_stay_isolated_from_gold_and_scoring() -> None:
++    for module in (provider_mod, evidence_mod):
++        source = inspect.getsource(module)
++        imported = _imported_modules(source)
++        leaked = [
++            name
++            for name in imported
++            if any(token in name.lower() for token in _FORBIDDEN_IMPORT_TOKENS)
++        ]
++        assert leaked == []
++        assert "NEW_SELECTIVE" not in source
++        assert "NEW_AUTHORITATIVE" not in source
++        assert "expected_quantity" not in source
++        assert "tenders_ke_olv_laboratory_complex" not in source
++
++
++def test_production_authority_modules_do_not_import_the_shadow_provider() -> None:
++    for relative in _PRODUCTION_MUST_NOT_IMPORT_SHADOW:
++        path = Path(relative)
++        if not path.is_file():
++            continue
++        source = path.read_text(encoding="utf-8")
++        imported = _imported_modules(source)
++        assert "pb_shadow_opening_count_provider" not in imported
++        assert "pb_shadow_opening_evidence" not in imported
++        assert "pb_shadow_opening_count_eval" not in imported
++        assert "shadow_opening_count" not in source
++
++
++def test_evaluator_freezes_outputs_before_gold_join() -> None:
++    source = inspect.getsource(run_project_shadow)
++    extract_at = source.index("extract_bundle")
++    freeze_at = source.index("frozen = tuple(bundle.quantities)")
++    gold_at = source.index("load_eligible_opening_items")
++    score_at = source.index("score_frozen_quantities")
++    assert extract_at < freeze_at < gold_at < score_at
++    assert inspect.getsource(score_frozen_quantities).count("extract_bundle") == 0
++    report_source = inspect.getsource(eval_mod.run_development_shadow_report)
++    assert "remain_new_shadow" in report_source or "OPENING_COUNT_AUTHORITY_RECOMMENDATION" in report_source
++    assert "gold_joined_after_freeze" in report_source
++
++
++def test_reproducible_report_command_is_documented() -> None:
++    script = Path("scripts/run_shadow_opening_count_report.py").read_text(encoding="utf-8")
++    contract = Path("docs/shadow_opening_count_provider_contract.md").read_text(encoding="utf-8")
++    command = "python3 scripts/run_shadow_opening_count_report.py"
++    assert command in script
++    assert command in contract
++    assert "shadow_reports/opening_count_shadow_development.json" in script
++    assert "NEW_SHADOW" in contract
++    assert "remain NEW_SHADOW" in contract
+diff --git a/tests/test_shadow_opening_count_provider.py b/tests/test_shadow_opening_count_provider.py
+index d437de0..dd57ee2 100644
+--- a/tests/test_shadow_opening_count_provider.py
++++ b/tests/test_shadow_opening_count_provider.py
+@@ -473,6 +473,9 @@ def test_provider_and_shadow_runner_are_gold_free() -> None:
+         "benchmark_runner",
+         "holdout_suite",
+         "expected_boq",
++        "expected_project",
++        "benchmark_rules",
++        "holdout_suite",
+         "pb_shadow_opening_count_eval",
+         "pb_quantity_commercial_adapter",
+     )
+-- 
+2.43.0
+
