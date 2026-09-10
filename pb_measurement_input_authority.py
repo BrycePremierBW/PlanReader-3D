@@ -1,19 +1,13 @@
 """Trusted deterministic measurement-input binding for quantity providers.
 
-This module is a narrow seam over existing PlanReader authority contracts. It does
-NOT define a second scale system, canonical graph, quantity schema, migration
-router, or commercial authority ladder.
+This module is a narrow seam over existing PlanReader authority contracts. It
+does NOT define a second scale system, canonical graph, quantity schema,
+migration router, or commercial authority ladder.
 
-It binds one physical entity measurement to the exact document/source/revision,
-page, viewport and evidence owned by the reviewed migration control plane, then
-reuses:
-
-- ``pb_page_scale_calibration_authority`` for page-scale authority/freshness;
-- ``pb_figured_dimension_authority`` for figured-dimension precedence/conflict;
-- M1 ``DocumentEvidence`` / ``ViewportEvidence`` / ``EntityEvidence`` provenance.
-
-Only ``AuthorityStatus.FIRM`` resolutions return a value. Everything else fails
-closed as an explicit abstention record.
+It binds one physical-entity measurement to exact document/source/revision,
+page, viewport and evidence ownership, then reuses the existing page-scale and
+figured-dimension authorities. Only existing ``AuthorityStatus.FIRM`` results
+return a value; everything else is an explicit abstention.
 """
 from __future__ import annotations
 
@@ -30,6 +24,7 @@ from pb_migration_contracts import (
     EvidenceAtom,
     EvidenceResolutionStatus,
     ViewportEvidence,
+    ViewportResolutionStatus,
     canonical_contract_json,
 )
 from pb_migration_provider_envelope import ProviderContext
@@ -38,17 +33,12 @@ from pb_page_scale_calibration_authority import (
     measurement_authority_for_page_scale,
 )
 
-MEASUREMENT_INPUT_SCHEMA_VERSION = "1.0.0"
+MEASUREMENT_INPUT_SCHEMA_VERSION = "1.0.1"
 
 
 @dataclass(frozen=True)
 class MeasurementInputResolution:
-    """One deterministic, provenance-bound measurement resolution.
-
-    ``authority_status`` is always from the existing ``AuthorityStatus`` enum.
-    This record is evidence plumbing only; it does not introduce a new authority
-    ladder. A blocked result has ``value_m=None`` and at least one blocker.
-    """
+    """One deterministic, provenance-bound linear measurement resolution."""
 
     value_m: Optional[float]
     source_type: Optional[str]
@@ -88,7 +78,9 @@ class MeasurementInputResolution:
             "notes": self.notes,
             "schema_version": self.schema_version,
         }
-        return hashlib.sha256(canonical_contract_json(payload).encode("utf-8")).hexdigest()
+        return hashlib.sha256(
+            canonical_contract_json(payload).encode("utf-8")
+        ).hexdigest()
 
 
 def _blocked(
@@ -141,7 +133,9 @@ def scale_calibration_fingerprint(calibration: ScaleCalibration) -> str:
         "approved_by": calibration.approved_by,
         "approved_at": calibration.approved_at,
     }
-    return hashlib.sha256(canonical_contract_json(payload).encode("utf-8")).hexdigest()
+    return hashlib.sha256(
+        canonical_contract_json(payload).encode("utf-8")
+    ).hexdigest()
 
 
 def _validate_ownership(
@@ -159,18 +153,60 @@ def _validate_ownership(
         reasons.append("source_sha256_mismatch")
     if viewport.document_id != context.document_id:
         reasons.append("viewport_document_mismatch")
+    if document.page_ids and viewport.page_id not in document.page_ids:
+        reasons.append("viewport_page_not_owned_by_document")
     if viewport.viewport_id not in context.trusted_viewport_ids():
         reasons.append("viewport_not_owned")
+    if viewport.status not in (
+        ViewportResolutionStatus.RESOLVED,
+        ViewportResolutionStatus.DERIVED,
+    ):
+        reasons.append("viewport_unresolved")
     if page_no not in context.trusted_page_numbers():
         reasons.append("page_not_owned")
     mapped_page = context.page_for_viewport(viewport.viewport_id)
     if mapped_page is not None and mapped_page != page_no:
         reasons.append("viewport_page_mismatch")
-    if entity.status in (EvidenceResolutionStatus.CONFLICT, EvidenceResolutionStatus.ABSTAINED):
+    if entity.status != EvidenceResolutionStatus.CORROBORATED:
         reasons.append("entity_unresolved")
     if not set(entity.evidence_ids).issubset(set(document.evidence_ids)):
         reasons.append("entity_evidence_not_owned_by_document")
     return tuple(reasons)
+
+
+def _scale_binding_reasons(
+    *,
+    context: ProviderContext,
+    viewport: ViewportEvidence,
+    page_no: int,
+    calibration: ScaleCalibration,
+) -> tuple[tuple[str, ...], ScaleCalibration, str]:
+    """Validate freshness, FIRM authority and page/viewport ownership for scale."""
+    fresh = check_calibration_freshness(calibration, context.current_revision_id)
+    scale_fp = scale_calibration_fingerprint(fresh)
+    reasons: list[str] = []
+
+    if fresh.page_no != page_no:
+        reasons.append("scale_page_mismatch")
+    if measurement_authority_for_page_scale(fresh) != AuthorityStatus.FIRM.value:
+        reasons.append("scale_not_firm")
+    if not math.isfinite(float(fresh.px_per_m)) or fresh.px_per_m <= 0.0:
+        reasons.append("invalid_scale_factor")
+
+    # A page-level scale can safely bind an unlabelled viewport only where the
+    # control-plane ownership map has at most one viewport for that page.
+    same_page_viewports = {
+        str(vp)
+        for vp, owned_page in context.viewport_page_ownership
+        if int(owned_page) == int(page_no)
+    }
+    if len(same_page_viewports) > 1:
+        if viewport.resolved_scale_id != scale_fp:
+            reasons.append("scale_not_bound_to_multi_viewport")
+    elif viewport.resolved_scale_id is not None and viewport.resolved_scale_id != scale_fp:
+        reasons.append("viewport_scale_fingerprint_mismatch")
+
+    return tuple(reasons), fresh, scale_fp
 
 
 def resolve_linear_measurement_input(
@@ -185,12 +221,12 @@ def resolve_linear_measurement_input(
     figured_evidence: Optional[EvidenceAtom] = None,
     max_delta_ratio: float = 0.05,
 ) -> MeasurementInputResolution:
-    """Resolve one linear measurement using trusted figured or FIRM scaled evidence.
+    """Resolve one linear measurement using authoritative figured or FIRM scale.
 
-    Figured evidence has precedence according to the existing resolver. Scaled
-    geometry is only admissible when the page calibration is current and maps to
-    ``AuthorityStatus.FIRM``. Any source/revision/page/viewport/evidence mismatch
-    returns an explicit blocked/abstained resolution.
+    A CORROBORATED figured dimension has precedence. If a FIRM, viewport-bound
+    scaled comparison is also available, disagreement beyond the existing
+    figured-dimension tolerance blocks. Scaled-only geometry requires a current
+    FIRM page scale that is unambiguous for the target viewport.
     """
     evidence_ids = tuple(entity.evidence_ids)
     ownership_reasons = _validate_ownership(
@@ -223,7 +259,7 @@ def resolve_linear_measurement_input(
             fig_reasons.append("figured_evidence_not_owned_by_document")
         if figured_evidence.evidence_id not in entity.evidence_ids:
             fig_reasons.append("figured_evidence_not_owned_by_entity")
-        if figured_evidence.status in (EvidenceResolutionStatus.CONFLICT, EvidenceResolutionStatus.ABSTAINED):
+        if figured_evidence.status != EvidenceResolutionStatus.CORROBORATED:
             fig_reasons.append("figured_evidence_unresolved")
         if fig_reasons:
             return _blocked(
@@ -241,30 +277,38 @@ def resolve_linear_measurement_input(
         trusted_scaled_mm: Optional[float] = None
         scale_fp: Optional[str] = None
         if scaled_length_page_units is not None and scale_calibration is not None:
-            fresh = check_calibration_freshness(scale_calibration, context.current_revision_id)
             if (
-                fresh.page_no == page_no
-                and measurement_authority_for_page_scale(fresh) == AuthorityStatus.FIRM.value
-                and math.isfinite(fresh.px_per_m)
-                and fresh.px_per_m > 0.0
-                and math.isfinite(float(scaled_length_page_units))
+                math.isfinite(float(scaled_length_page_units))
                 and float(scaled_length_page_units) > 0.0
             ):
-                trusted_scaled_mm = float(scaled_length_page_units) / fresh.px_per_m * 1000.0
-                scale_fp = scale_calibration_fingerprint(fresh)
+                scale_reasons, fresh, candidate_fp = _scale_binding_reasons(
+                    context=context,
+                    viewport=viewport,
+                    page_no=page_no,
+                    calibration=scale_calibration,
+                )
+                if not scale_reasons:
+                    trusted_scaled_mm = (
+                        float(scaled_length_page_units) / fresh.px_per_m * 1000.0
+                    )
+                    scale_fp = candidate_fp
 
         result = resolve_measurement_authority(
             scaled_mm=trusted_scaled_mm,
             figured_text=figured_evidence.raw_text or None,
             figured_mm=(
                 figured_evidence.normalized_value
-                if figured_evidence.normalized_value is not None and not figured_evidence.raw_text
+                if figured_evidence.normalized_value is not None
+                and not figured_evidence.raw_text
                 else None
             ),
             scale_reliable=trusted_scaled_mm is not None,
             max_delta_ratio=max_delta_ratio,
         )
-        if result.authority_status != AuthorityStatus.FIRM.value or result.value_m is None:
+        if (
+            result.authority_status != AuthorityStatus.FIRM.value
+            or result.value_m is None
+        ):
             return _blocked(
                 context=context,
                 document=document,
@@ -305,8 +349,10 @@ def resolve_linear_measurement_input(
             reasons=("no_authoritative_measurement_input",),
             source_type=MeasurementAuthorityType.PDF_SCALED.value,
         )
-
-    if not math.isfinite(float(scaled_length_page_units)) or float(scaled_length_page_units) <= 0.0:
+    if (
+        not math.isfinite(float(scaled_length_page_units))
+        or float(scaled_length_page_units) <= 0.0
+    ):
         return _blocked(
             context=context,
             document=document,
@@ -318,7 +364,21 @@ def resolve_linear_measurement_input(
             source_type=MeasurementAuthorityType.PDF_SCALED.value,
         )
 
-    if scale_calibration.page_no != page_no:
+    scale_reasons, fresh, scale_fp = _scale_binding_reasons(
+        context=context,
+        viewport=viewport,
+        page_no=page_no,
+        calibration=scale_calibration,
+    )
+    if scale_reasons:
+        if scale_reasons == ("scale_not_firm",):
+            reasons = scale_reasons
+        elif "scale_not_firm" in scale_reasons and all(
+            r in {"scale_not_firm", "invalid_scale_factor"} for r in scale_reasons
+        ):
+            reasons = ("scale_not_firm",)
+        else:
+            reasons = scale_reasons
         return _blocked(
             context=context,
             document=document,
@@ -326,36 +386,10 @@ def resolve_linear_measurement_input(
             viewport_id=viewport.viewport_id,
             entity_id=entity.candidate_entity_id,
             evidence_ids=evidence_ids,
-            reasons=("scale_page_mismatch",),
-            source_type=MeasurementAuthorityType.PDF_SCALED.value,
-        )
-
-    fresh = check_calibration_freshness(scale_calibration, context.current_revision_id)
-    scale_fp = scale_calibration_fingerprint(fresh)
-    if measurement_authority_for_page_scale(fresh) != AuthorityStatus.FIRM.value:
-        return _blocked(
-            context=context,
-            document=document,
-            page_no=page_no,
-            viewport_id=viewport.viewport_id,
-            entity_id=entity.candidate_entity_id,
-            evidence_ids=evidence_ids,
-            reasons=("scale_not_firm",),
+            reasons=reasons,
             source_type=MeasurementAuthorityType.PDF_SCALED.value,
             scale_fingerprint=scale_fp,
             notes="; ".join(fresh.issues),
-        )
-    if not math.isfinite(fresh.px_per_m) or fresh.px_per_m <= 0.0:
-        return _blocked(
-            context=context,
-            document=document,
-            page_no=page_no,
-            viewport_id=viewport.viewport_id,
-            entity_id=entity.candidate_entity_id,
-            evidence_ids=evidence_ids,
-            reasons=("invalid_scale_factor",),
-            source_type=MeasurementAuthorityType.PDF_SCALED.value,
-            scale_fingerprint=scale_fp,
         )
 
     value_m = float(scaled_length_page_units) / fresh.px_per_m
