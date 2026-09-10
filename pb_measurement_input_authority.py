@@ -33,7 +33,7 @@ from pb_page_scale_calibration_authority import (
     measurement_authority_for_page_scale,
 )
 
-MEASUREMENT_INPUT_SCHEMA_VERSION = "1.0.1"
+MEASUREMENT_INPUT_SCHEMA_VERSION = "1.0.2"
 
 
 @dataclass(frozen=True)
@@ -147,6 +147,10 @@ def _validate_ownership(
     page_no: int,
 ) -> tuple[str, ...]:
     reasons: list[str] = []
+    if not context.revision_id or not context.current_revision_id:
+        reasons.append("revision_unbound")
+    elif context.revision_id != context.current_revision_id:
+        reasons.append("stale_revision")
     if document.document_id != context.document_id:
         reasons.append("document_id_mismatch")
     if document.source_sha256 != context.source_sha256:
@@ -188,6 +192,10 @@ def _scale_binding_reasons(
 
     if fresh.page_no != page_no:
         reasons.append("scale_page_mismatch")
+    if fresh.revision_id is None:
+        reasons.append("scale_revision_unbound")
+    elif context.current_revision_id is None or fresh.revision_id != context.current_revision_id:
+        reasons.append("scale_revision_mismatch")
     if measurement_authority_for_page_scale(fresh) != AuthorityStatus.FIRM.value:
         reasons.append("scale_not_firm")
     if not math.isfinite(float(fresh.px_per_m)) or fresh.px_per_m <= 0.0:
@@ -201,6 +209,9 @@ def _scale_binding_reasons(
         if int(owned_page) == int(page_no)
     }
     if len(same_page_viewports) > 1:
+        if viewport.resolved_scale_id != scale_fp:
+            reasons.append("scale_not_bound_to_multi_viewport")
+    elif not context.viewport_page_ownership and len(context.trusted_viewport_ids()) > 1:
         if viewport.resolved_scale_id != scale_fp:
             reasons.append("scale_not_bound_to_multi_viewport")
     elif viewport.resolved_scale_id is not None and viewport.resolved_scale_id != scale_fp:
@@ -371,14 +382,6 @@ def resolve_linear_measurement_input(
         calibration=scale_calibration,
     )
     if scale_reasons:
-        if scale_reasons == ("scale_not_firm",):
-            reasons = scale_reasons
-        elif "scale_not_firm" in scale_reasons and all(
-            r in {"scale_not_firm", "invalid_scale_factor"} for r in scale_reasons
-        ):
-            reasons = ("scale_not_firm",)
-        else:
-            reasons = scale_reasons
         return _blocked(
             context=context,
             document=document,
@@ -386,7 +389,7 @@ def resolve_linear_measurement_input(
             viewport_id=viewport.viewport_id,
             entity_id=entity.candidate_entity_id,
             evidence_ids=evidence_ids,
-            reasons=reasons,
+            reasons=scale_reasons,
             source_type=MeasurementAuthorityType.PDF_SCALED.value,
             scale_fingerprint=scale_fp,
             notes="; ".join(fresh.issues),
