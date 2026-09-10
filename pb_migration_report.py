@@ -6,6 +6,7 @@ joined only after new outputs are frozen.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from typing import Any, Mapping, Optional, Sequence
 
 from pb_migration_contracts import QuantityEvidence, ShadowQuantityComparison
@@ -13,7 +14,32 @@ from pb_migration_family_router import RoutingResult
 from pb_migration_provider_envelope import ProviderDescriptor, fingerprint_payload
 
 
-REPORT_SCHEMA_VERSION = "1.0.0"
+REPORT_SCHEMA_VERSION = "1.0.1"
+
+
+class MigrationReportError(ValueError):
+    """Raised when precomputed report metrics disagree with underlying counts."""
+
+
+def _ratio(numerator: int, denominator: int) -> float:
+    return (numerator / denominator) if denominator else 0.0
+
+
+def _reject_or_compute(
+    *,
+    claimed: Optional[float],
+    numerator: Optional[int],
+    denominator: int,
+    label: str,
+) -> Optional[float]:
+    if numerator is None:
+        return claimed
+    computed = _ratio(int(numerator), denominator)
+    if claimed is not None and not math.isclose(float(claimed), computed, rel_tol=0.0, abs_tol=1e-12):
+        raise MigrationReportError(
+            f"precomputed {label} {claimed!r} disagrees with {numerator}/{denominator} = {computed}"
+        )
+    return computed
 
 
 @dataclass
@@ -49,6 +75,10 @@ def build_migration_report(
     exact_among_answered: Optional[float] = None,
     precision: Optional[float] = None,
     recall: Optional[float] = None,
+    exact_correct_count: Optional[int] = None,
+    precision_correct_count: Optional[int] = None,
+    recall_correct_count: Optional[int] = None,
+    precomputed_coverage: Optional[float] = None,
     hallucinations: int = 0,
     conflicts: int = 0,
     duplicates: int = 0,
@@ -65,8 +95,35 @@ def build_migration_report(
         raise ValueError("eligible must be defined independently and cannot be negative")
     answered = [item for item in frozen_new if not item.abstained and item.value is not None]
     abstained = [item for item in frozen_new if item.abstained]
-    # Coverage uses caller-supplied eligible, never len(answered).
-    coverage = (len(answered) / eligible) if eligible else 0.0
+    # Coverage uses caller-supplied eligible, never len(answered). Abstentions stay in eligible.
+    coverage = _ratio(len(answered), eligible)
+    if extra and "accuracy" in {str(key).lower() for key in extra}:
+        raise MigrationReportError("do not relabel opening coverage as accuracy")
+    if precomputed_coverage is not None:
+        coverage = _reject_or_compute(
+            claimed=precomputed_coverage,
+            numerator=len(answered),
+            denominator=eligible,
+            label="coverage",
+        ) or coverage
+    exact_among_answered = _reject_or_compute(
+        claimed=exact_among_answered,
+        numerator=exact_correct_count,
+        denominator=len(answered),
+        label="exact_correctness_among_answered",
+    )
+    precision = _reject_or_compute(
+        claimed=precision,
+        numerator=precision_correct_count,
+        denominator=len(answered),
+        label="precision_among_answered",
+    )
+    recall = _reject_or_compute(
+        claimed=recall,
+        numerator=recall_correct_count,
+        denominator=eligible,
+        label="recall_among_eligible",
+    )
     agree = sum(1 for row in comparisons if row.status == "agree")
     legacy_only = sum(1 for row in comparisons if row.status == "legacy_only")
     new_only = sum(1 for row in comparisons if row.status == "new_only")
@@ -107,6 +164,13 @@ def build_migration_report(
             "precision": precision,
             "recall": recall,
             "hallucinations": hallucinations,
+            "coverage_answered_over_evaluation_eligible": coverage,
+            "precision_among_answered": precision,
+            "recall_among_eligible": recall,
+            "exact_denominator": "answered",
+            "precision_denominator": "answered",
+            "recall_denominator": "evaluation_eligible_includes_abstentions",
+            "not_canonical_benchmark_accuracy": True,
         },
         "integrity": {
             "conflicts": conflicts,
