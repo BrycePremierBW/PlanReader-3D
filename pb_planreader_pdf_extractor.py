@@ -497,7 +497,6 @@ class GenericPlanReaderExtractor:
         for pno in target_pages:
             if pno < 0 or pno >= len(doc):
                 continue
-
             page = doc[pno]
             page_text = page.get_text("text")
 
@@ -1067,35 +1066,12 @@ class GenericPlanReaderExtractor:
                         metadata=dict(_internal_face_derivation),
                     )
 
-                # External key pointing: at least the correct FACE (external,
-                # like perimeter_walling itself), but still triggered purely
-                # by a keyword appearing somewhere in the page text with no
-                # geometric evidence of its own extent -- never as confident
-                # as a directly measured quantity.
-                if any(k in pt_norm for k in (
-                    "key pointing", "key finish", "pointing externally",
-                    "key to finish", "keyed pointing",
-                )):
-                    pred_dict["external_key_pointing"] = ExtractedPrediction(
-                        tag="external_key_pointing",
-                        trade_type="finishes",
-                        description="External key pointing to exposed stone/block masonry",
-                        quantity=cur_wall,
-                        unit="SM",
-                        confidence=0.5,
-                        source_page=page_num,
-                        sheet_number=sheet_no,
-                        metadata={
-                            "derivation": "external_wall_area_copy_keyword_triggered",
-                            "wall_height_authority": wall_height_authority,
-                            "note": (
-                                "Triggered by a key-pointing keyword in the page text "
-                                "with no independent measurement of its own extent; "
-                                "reuses the external wall area and should be treated "
-                                "as provisional."
-                            ),
-                        },
-                    )
+                # Do not emit an external key-pointing quantity from a keyword
+                # alone. A finish label establishes scope, not measured extent;
+                # copying the external wall area here created a provisional
+                # quantity with no independent supporting measurement. Until an
+                # explicit area or spatially bound finish extent is available,
+                # fail closed and emit no prediction for this finish.
 
                 # DPC from building perimeter: exactly equal to perimeter P
                 # NO hardcoded 67.0 fallback
