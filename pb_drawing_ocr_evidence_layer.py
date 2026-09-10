@@ -31,6 +31,8 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 import fitz  # PyMuPDF
 from PIL import Image, ImageFilter, ImageStat
 
+from pb_opening_tag_normalization import normalize_opening_tag
+
 try:
     import winocr
     _HAS_WINOCR = True
@@ -178,11 +180,70 @@ class DrawingOCREngine:
                         "bounding_box": bbox,
                         "confidence": round(0.88 * quality, 4),
                     })
-                return out
+                if out:
+                    return out
             except Exception:
                 pass
 
+        # 3. Tesseract fallback (Linux CI / Cloud Agent / any host with tesseract).
+        tesseract_lines = self._recognize_with_tesseract(image, quality)
+        if tesseract_lines:
+            return tesseract_lines
+
         return []
+
+    @staticmethod
+    def _recognize_with_tesseract(image: Image.Image, quality: float) -> List[Dict[str, Any]]:
+        """Return word-grouped OCR lines from Tesseract, or [] when unavailable."""
+        try:
+            import pytesseract
+        except Exception:
+            return []
+        try:
+            data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT)
+        except Exception:
+            return []
+
+        n = len(data.get("text") or [])
+        grouped: Dict[Tuple[int, int, int], Dict[str, Any]] = {}
+        for i in range(n):
+            token = str(data["text"][i] or "").strip()
+            if not token:
+                continue
+            try:
+                conf_raw = float(data["conf"][i])
+            except (TypeError, ValueError):
+                conf_raw = -1.0
+            if conf_raw < 0:
+                continue
+            key = (int(data["block_num"][i]), int(data["par_num"][i]), int(data["line_num"][i]))
+            rec = grouped.setdefault(
+                key,
+                {"parts": [], "x0": 1e9, "y0": 1e9, "x1": 0.0, "y1": 0.0, "confs": []},
+            )
+            x = float(data["left"][i])
+            y = float(data["top"][i])
+            w = float(data["width"][i])
+            h = float(data["height"][i])
+            rec["parts"].append(token)
+            rec["x0"] = min(rec["x0"], x)
+            rec["y0"] = min(rec["y0"], y)
+            rec["x1"] = max(rec["x1"], x + w)
+            rec["y1"] = max(rec["y1"], y + h)
+            rec["confs"].append(conf_raw)
+
+        out: List[Dict[str, Any]] = []
+        for rec in grouped.values():
+            line_text = " ".join(rec["parts"]).strip()
+            if not line_text:
+                continue
+            mean_conf = (sum(rec["confs"]) / len(rec["confs"]) / 100.0) if rec["confs"] else 0.5
+            out.append({
+                "text": line_text,
+                "bounding_box": [rec["x0"], rec["y0"], rec["x1"], rec["y1"]],
+                "confidence": round(max(0.0, min(1.0, mean_conf)) * quality, 4),
+            })
+        return out
 
     def recognize_page_rect(
         self,
@@ -228,6 +289,8 @@ class DrawingEvidenceParser:
         """Parse a single text or OCR line into an evidence record.
 
         Strictly enforces fail-closed behavior:
+        - Identity comes only from an explicit documented W/D mark.
+        - Untagged dimension strings never invent WINDOW_ITEM / DOOR / DBATTEN.
         - If 'No.' exists with no leading number -> quantity is None.
         - If dimensions exist without count -> quantity is None.
         - Never guesses.
@@ -236,13 +299,11 @@ class DrawingEvidenceParser:
         if not clean:
             return None
 
-        # 1. Window / Door Schedule Line: e.g. "W_TEST - 1500 x 1200 - 7 No" or "W1: 3000 x 900 - 2 No."
-        m_indexed = re.search(r"\b([WwDd]\s*[-_]?\s*[A-Za-z0-9]+)\b", clean)
-        if m_indexed and not re.search(r"\b(?:door|window)\b", m_indexed.group(1), re.I):
-            tag = re.sub(r"\s+", "", m_indexed.group(1)).upper()
-        else:
-            m_tag = re.search(r"\b(WINDOW\s*[A-Za-z0-9]*|DOOR\s*[A-Za-z0-9]*)\b", clean, re.I)
-            tag = re.sub(r"\s+", "", m_tag.group(1)).upper() if m_tag else None
+        normalized = normalize_opening_tag(clean)
+        if normalized is None:
+            return None
+        tag = normalized.tag
+        trade = normalized.trade_type
 
         # Dimensions: W x H
         m_dims = re.search(r"(\d{3,4})\s*(?:mm)?\s*[xX\*]\s*(\d{3,4})\s*(?:mm)?", clean)
@@ -251,8 +312,16 @@ class DrawingEvidenceParser:
             dims = [float(m_dims.group(1)), float(m_dims.group(2))]
 
         # Quantity: Explicit digits preceding "No." or "Nos."
-        # Check for hardware/hinge/lock counts which are not opening quantities
-        is_hardware = bool(re.search(r"butt\s*hinge|hinge|fastener|lever\s*lock|ironmongery", clean, re.I))
+        # Check for hardware/hinge/lock counts which are not opening quantities.
+        # "butt" alone must disqualify: real CAD blocks often split
+        # "3 nos. butt" from "hinges" onto the next line.
+        is_hardware = bool(
+            re.search(
+                r"\bbutt\b|\bhinge\b|\bfastener\b|\blever\s*lock\b|\bironmongery\b",
+                clean,
+                re.I,
+            )
+        )
         m_valid_qty = None
         if not is_hardware:
             m_valid_qty = re.search(r"\b(\d{1,3})\s*(?:no\.?s?|nos?)\b", clean, re.I)
@@ -281,11 +350,7 @@ class DrawingEvidenceParser:
             status = EvidenceStatus.UNRESOLVED.value
             notes = "Opening dimensions found but quantity count absent."
 
-        if not tag and not dims:
-            return None
-
-        final_tag = tag or ("WINDOW_ITEM" if "win" in clean.lower() else "DOOR_ITEM")
-        trade = "windows" if (final_tag.startswith("W") or "win" in clean.lower()) else "doors"
+        final_tag = tag
 
         # Check confidence threshold: low confidence stays provisional
         if confidence < 0.70 and status == EvidenceStatus.CONFIRMED.value:

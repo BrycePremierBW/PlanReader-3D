@@ -67,8 +67,9 @@ class GenericPlanReaderExtractor:
 
     def __init__(self, default_ceiling_height_m: float = 2.80) -> None:
         self.default_ceiling_height_m = default_ceiling_height_m
+        self._ocr_text_by_page: Dict[int, str] = {}
 
-    def is_drawing_page(self, page_text: str) -> bool:
+    def is_drawing_page(self, page_text: str, page: Optional[fitz.Page] = None) -> bool:
         """Heuristically determine if a PDF page contains architectural drawings."""
         t_lower = page_text.lower()
         # Bill of Quantities text pages with item rates/amounts are not drawing sheets
@@ -96,7 +97,20 @@ class GenericPlanReaderExtractor:
             "schedule of windows",
             "schedule of finishes",
         ]
-        return any(ind in t_lower for ind in drawing_indicators)
+        if any(ind in t_lower for ind in drawing_indicators):
+            return True
+        # Outlined-font CAD sheets and embedded plan rasters often have no
+        # extractable text layer; treat dense vector/raster drawing content
+        # as a drawing page so OCR/spec recovery can still run.
+        if page is not None:
+            if self._page_has_large_raster(page):
+                return True
+            try:
+                if len(page.get_drawings()) >= 200:
+                    return True
+            except Exception:
+                return False
+        return False
 
     def extract_sheet_number(self, page_text: str, page_number: int) -> str:
         """Extract sheet number from drawing title block, or fallback to page index."""
@@ -126,6 +140,64 @@ class GenericPlanReaderExtractor:
             or re.search(r"\bdamp[\s-]*proof\s+membrane\b", normalized)
             or re.search(r"\bpolythene\b", normalized)
         )
+
+    @staticmethod
+    def _has_dpc_specification(page_text: str) -> bool:
+        """Return whether drawing text explicitly specifies a damp-proof course.
+
+        CAD notes commonly write ``DPC`` without dots, and some title-block
+        spellings drop the second 'p' (``Dam Proof Course``).  Membrane
+        wording is excluded: DPM is a different measured item.
+        """
+        normalized = re.sub(r"\s+", " ", page_text.lower())
+        return bool(
+            re.search(r"\bd\s*\.?\s*p\s*\.?\s*c\s*\.?\b", normalized)
+            or re.search(r"\bdam(?:p)?[\s-]*proof\s+course\b", normalized)
+        )
+
+    @staticmethod
+    def _standalone_chalkboard_label_count(page_text: str) -> int:
+        """Count plan labels whose entire line is a chalkboard identity.
+
+        Elevation notes such as ``painted surface to be used as the black
+        board`` are sentences, not instance labels, and must not inflate
+        the count.  Two classroom plan labels ``Chalkboard`` are two
+        fixtures.
+        """
+        count = 0
+        for raw in (page_text or "").splitlines():
+            line = raw.strip().strip(":-.")
+            if re.fullmatch(r"(?:chalk\s*board|chalkboard|black\s*board|blackboard)", line, re.I):
+                count += 1
+        return count
+
+    @staticmethod
+    def _page_has_large_raster(page: fitz.Page) -> bool:
+        """True when the page embeds a drawing-sized raster (plan often lives there)."""
+        try:
+            for image in page.get_images():
+                width = int(image[2] or 0)
+                height = int(image[3] or 0)
+                if width * height >= 400 * 400:
+                    return True
+        except Exception:
+            return False
+        return False
+
+    def _ocr_text_for_page(self, page: fitz.Page, page_index: int) -> str:
+        """Raster-OCR a page once and cache the concatenated line text."""
+        cached = self._ocr_text_by_page.get(page_index)
+        if cached is not None:
+            return cached
+        text = ""
+        try:
+            from pb_drawing_ocr_evidence_layer import DrawingOCREngine
+            lines = DrawingOCREngine().recognize_page_rect(page, dpi=150)
+            text = "\n".join(str(line.get("text") or "") for line in lines)
+        except Exception:
+            text = ""
+        self._ocr_text_by_page[page_index] = text
+        return text
 
     @staticmethod
     def _has_surface_bed_specification(page_text: str) -> bool:
@@ -325,9 +397,15 @@ class GenericPlanReaderExtractor:
         for p_idx in target_pages:
             if p_idx < 0 or p_idx >= len(doc):
                 continue
-            pg_txt = doc[p_idx].get_text("text")
-            if not self.is_drawing_page(pg_txt):
+            page_obj = doc[p_idx]
+            pg_txt = page_obj.get_text("text")
+            if not self.is_drawing_page(pg_txt, page_obj):
                 continue
+            native_sparse = len((pg_txt or "").strip()) < 150
+            if native_sparse or self._page_has_large_raster(page_obj):
+                ocr_txt = self._ocr_text_for_page(page_obj, p_idx)
+                if ocr_txt.strip():
+                    pg_txt = f"{pg_txt}\n{ocr_txt}"
             norm_pg = re.sub(r"\s+", " ", pg_txt.lower())
 
             # F.26: explicit figured overall FLOOR AREA on an actual plan sheet
@@ -377,7 +455,7 @@ class GenericPlanReaderExtractor:
                     global_roof_pitch_deg = float(pm.group(1))
 
             # Material specification mentions
-            if "d.p.c" in norm_pg or "damp proof course" in norm_pg:
+            if self._has_dpc_specification(pg_txt):
                 global_has_dpc = True
             if self._has_dpm_specification(norm_pg):
                 global_has_dpm = True
@@ -501,7 +579,7 @@ class GenericPlanReaderExtractor:
             page = doc[pno]
             page_text = page.get_text("text")
 
-            if not self.is_drawing_page(page_text):
+            if not self.is_drawing_page(page_text, page):
                 continue
 
             sheet_no = self.extract_sheet_number(page_text, pno + 1)
@@ -1298,14 +1376,23 @@ class GenericPlanReaderExtractor:
                 pt_norm,
                 re.I,
             )
+            standalone_bb = self._standalone_chalkboard_label_count(page_text)
 
-            if bb_matches or bb_count_m:
-                bb_qty = float(bb_count_m[0]) if bb_count_m else 1.0
+            if bb_matches or bb_count_m or standalone_bb:
+                if bb_count_m:
+                    bb_qty = float(bb_count_m[0])
+                elif standalone_bb:
+                    bb_qty = float(standalone_bb)
+                else:
+                    bb_qty = 1.0
                 if bb_matches:
                     bb_w = float(bb_matches[0][0].replace(",", "").replace(".", ""))
                     bb_h = float(bb_matches[0][1].replace(",", "").replace(".", ""))
                     bb_dims = [bb_w, bb_h]
                     bb_desc = f"Classroom chalkboard ({int(bb_w)}mm x {int(bb_h)}mm parsed from drawing)"
+                elif standalone_bb:
+                    bb_dims = None
+                    bb_desc = f"Classroom chalkboard ({int(bb_qty)} labelled instances on drawing)"
                 else:
                     bb_dims = None
                     bb_desc = f"Classroom chalkboard ({int(bb_qty)} No parsed from schedule)"
@@ -1348,7 +1435,7 @@ class GenericPlanReaderExtractor:
         try:
             from pb_raster_schedule_extractor import GenericScheduleTableExtractor
             schedule_extractor = GenericScheduleTableExtractor()
-            dwg_pages = [p for p in target_pages if 0 <= p < len(doc) and self.is_drawing_page(doc[p].get_text("text"))]
+            dwg_pages = [p for p in target_pages if 0 <= p < len(doc) and self.is_drawing_page(doc[p].get_text("text"), doc[p])]
             schedule_rows = schedule_extractor.extract_from_document(doc, pages=dwg_pages)
 
             for s_row in schedule_rows:
@@ -1519,7 +1606,7 @@ class GenericPlanReaderExtractor:
             )
 
             ocr_engine = DrawingOCREngine()
-            dwg_pages = [p for p in target_pages if 0 <= p < len(doc) and self.is_drawing_page(doc[p].get_text("text"))]
+            dwg_pages = [p for p in target_pages if 0 <= p < len(doc) and self.is_drawing_page(doc[p].get_text("text"), doc[p])]
 
             for p_num in dwg_pages:
                 page = doc[p_num]
@@ -1557,8 +1644,10 @@ class GenericPlanReaderExtractor:
                     )
                 )
 
-                native_insufficient = is_scanned_or_raster or (
-                    (has_schedule_word or has_opening_keyword) and not has_complete_native_openings
+                native_insufficient = (
+                    is_scanned_or_raster
+                    or (self._page_has_large_raster(page) and not has_complete_native_openings)
+                    or ((has_schedule_word or has_opening_keyword) and not has_complete_native_openings)
                 )
                 if not native_insufficient:
                     continue

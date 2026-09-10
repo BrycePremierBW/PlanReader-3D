@@ -41,7 +41,7 @@ def _create_synthetic_schedule_image(text: str, width: int = 500, height: int = 
 
 def test_mutation_1_synthetic_raster_schedule_extracts_exact_count() -> None:
     """1. Synthetic raster schedule with W_TEST count 7 => extract 7."""
-    line_text = "W_TEST - 1500 x 1200 - 7 No."
+    line_text = "W7: 1500 x 1200 - 7 No."
 
     # Engine recognizing the synthetic schedule line
     engine = DrawingOCREngine(custom_ocr_func=lambda img: [{"text": line_text, "confidence": 0.95}])
@@ -56,7 +56,7 @@ def test_mutation_1_synthetic_raster_schedule_extracts_exact_count() -> None:
     )
 
     assert rec is not None
-    assert rec.tag == "W_TEST"
+    assert rec.tag == "W7"
     assert rec.quantity == 7.0
     assert rec.unit == "NO"
     assert rec.dimensions == [1500.0, 1200.0]
@@ -66,7 +66,7 @@ def test_mutation_1_synthetic_raster_schedule_extracts_exact_count() -> None:
 
 def test_mutation_2_changing_count_to_11_updates_prediction() -> None:
     """2. Change count to 11 => prediction changes strictly to 11."""
-    line_text = "W_TEST - 1500 x 1200 - 11 No."
+    line_text = "W7: 1500 x 1200 - 11 No."
 
     engine = DrawingOCREngine(custom_ocr_func=lambda img: [{"text": line_text, "confidence": 0.95}])
     img = _create_synthetic_schedule_image(line_text)
@@ -79,7 +79,7 @@ def test_mutation_2_changing_count_to_11_updates_prediction() -> None:
     )
 
     assert rec is not None
-    assert rec.tag == "W_TEST"
+    assert rec.tag == "W7"
     assert rec.quantity == 11.0  # Proves dynamic count sensitivity
     assert rec.status == EvidenceStatus.CONFIRMED.value
 
@@ -87,7 +87,7 @@ def test_mutation_2_changing_count_to_11_updates_prediction() -> None:
 def test_mutation_3_remove_quantity_leaves_unresolved() -> None:
     """3. Remove quantity => quantity is None and status is unresolved."""
     # Text contains tag and dimensions, but zero quantity
-    line_text = "W_TEST - 1500 x 1200 - steel casement"
+    line_text = "W7: 1500 x 1200 - steel casement"
 
     engine = DrawingOCREngine(custom_ocr_func=lambda img: [{"text": line_text, "confidence": 0.90}])
     img = _create_synthetic_schedule_image(line_text)
@@ -100,7 +100,7 @@ def test_mutation_3_remove_quantity_leaves_unresolved() -> None:
     )
 
     assert rec is not None
-    assert rec.tag == "W_TEST"
+    assert rec.tag == "W7"
     assert rec.quantity is None  # Strict fail-closed: no guessing
     assert rec.status == EvidenceStatus.UNRESOLVED.value
     assert "quantity count absent" in rec.notes
@@ -108,11 +108,11 @@ def test_mutation_3_remove_quantity_leaves_unresolved() -> None:
 
 def test_mutation_4_blur_noise_text_lowers_confidence_provisional() -> None:
     """4. Blur/noise text => lower confidence and provisional status."""
-    clean_img = _create_synthetic_schedule_image("W_TEST - 1500 x 1200 - 7 No.")
+    clean_img = _create_synthetic_schedule_image("W7: 1500 x 1200 - 7 No.")
     # Heavily blur the image to degrade visual sharpness
     blurred_img = clean_img.filter(ImageFilter.GaussianBlur(radius=5))
 
-    engine = DrawingOCREngine(custom_ocr_func=lambda img: [{"text": "W_TEST - 1500 x 1200 - 7 No.", "confidence": 0.85}])
+    engine = DrawingOCREngine(custom_ocr_func=lambda img: [{"text": "W7: 1500 x 1200 - 7 No.", "confidence": 0.85}])
     clean_quality = engine.evaluate_image_quality(clean_img)
     blurred_quality = engine.evaluate_image_quality(blurred_img)
 
@@ -177,7 +177,7 @@ def test_mutation_5_conflicting_native_vs_ocr_triggers_manual_review() -> None:
 def test_mutation_6_clipped_no_with_missing_digit_never_invents_quantity() -> None:
     """6. Clipped 'No.' with missing digit => never invent quantity."""
     # Common CAD sheet border clipping: "1500 x 1200 steel casement no." (digit clipped off)
-    clipped_text = "W_CLIPPED - 1500 x 1200 steel casement no."
+    clipped_text = "W3: 1500 x 1200 steel casement no."
 
     rec = DrawingEvidenceParser.parse_schedule_line(
         clipped_text,
@@ -186,7 +186,7 @@ def test_mutation_6_clipped_no_with_missing_digit_never_invents_quantity() -> No
     )
 
     assert rec is not None
-    assert rec.tag == "W_CLIPPED"
+    assert rec.tag == "W3"
     assert rec.quantity is None  # Never guesses 1, 10, or 12
     assert rec.status == EvidenceStatus.UNRESOLVED.value
     assert "Clipped 'No.' text missing preceding digit" in rec.notes
@@ -258,3 +258,14 @@ def test_mutation_7_integrate_recovered_schedule_into_opening_deductions() -> No
     assert pred_map["perimeter_walling"].quantity == 88.0
     assert pred_map["internal_plaster"].quantity == 88.0
     assert pred_map["perimeter_walling"].metadata["total_deducted_opening_area_m2"] == 12.0
+
+
+def test_untagged_callout_and_hardware_clause_never_invent_opening_tags() -> None:
+    """OCR must not mint DOOR/DBATTEN/WINDOW_ITEM from untagged notes."""
+    parser = DrawingEvidenceParser.parse_schedule_line
+    assert parser("2,900mm x 900mm steel casement windows with 4mm thick glass") is None
+    assert parser("3,000mm x 900mm steel casement windows with 4mm thick glass") is None
+    assert parser("1,000mm x 2,100mm timber batten door with 3 nos. butt") is None
+    assert parser("batten door with 3 nos. butt") is None
+    assert parser("DOORWITH 3 No.") is None
+    assert parser("DBATTEN - 1000 x 2100 - 3 No.") is None
