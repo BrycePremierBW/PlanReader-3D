@@ -1450,7 +1450,9 @@ class GenericPlanReaderExtractor:
         # ------------------------------------------------------------------
         try:
             from pb_plan_raster_door_swings import (
+                extract_exterior_plan_door_swings,
                 extract_interior_plan_door_swings,
+                should_emit_exterior_door_total,
                 should_emit_interior_door_total,
             )
 
@@ -1478,6 +1480,26 @@ class GenericPlanReaderExtractor:
                     metadata={
                         "derivation": "plan_raster_interior_door_swings",
                         "raw_evidence_ref": interior.evidence_text,
+                    },
+                )
+            exterior = extract_exterior_plan_door_swings(doc, dwg_pages)
+            if exterior is not None and should_emit_exterior_door_total(
+                exterior.count, pred_dict.keys()
+            ):
+                pred_dict["D1"] = ExtractedPrediction(
+                    tag="D1",
+                    trade_type="doors",
+                    description=(
+                        "External doors complete "
+                        f"({exterior.count} No from inverted-CAD double-leaf swings)"
+                    ),
+                    quantity=float(exterior.count),
+                    unit="NO",
+                    confidence=0.83,
+                    source_page=exterior.source_page,
+                    metadata={
+                        "derivation": "plan_raster_exterior_door_swings",
+                        "raw_evidence_ref": exterior.evidence_text,
                     },
                 )
         except Exception:
