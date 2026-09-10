@@ -15,7 +15,6 @@ from pb_migration_contracts import QuantityEvidence
 from pb_page_scale_calibration_authority import (
     ScaleCalibrationStatus,
     measurement_authority_for_page_scale,
-    unknown_calibration,
 )
 from pb_quantity_takeoff_adapter import CommercialMeasurementAuthority
 
@@ -32,6 +31,16 @@ UNRELIABLE_SCALE = {
 }
 
 _RESOLVED_SCALE = {"resolved", "verified", "authoritative", "calibrated"}
+_TRUSTED_SCALE = _RESOLVED_SCALE | {
+    ScaleCalibrationStatus.VALID.value,
+    ScaleCalibrationStatus.USER_APPROVED.value,
+}
+
+
+def _trusted_scale_identity(calibration: ScaleCalibration, trusted_scale_id: Optional[str]) -> str:
+    if trusted_scale_id:
+        return str(trusted_scale_id)
+    return f"page:{calibration.page_no}:{calibration.ratio_str}:{calibration.status}"
 
 
 def bind_commercial_measurement_authority(
@@ -42,32 +51,62 @@ def bind_commercial_measurement_authority(
     scaled_mm: Optional[float] = None,
     scale_calibration: Optional[ScaleCalibration] = None,
     figured_dimension_ids: tuple[str, ...] = (),
+    trusted_scale_id: Optional[str] = None,
 ) -> CommercialMeasurementAuthority:
-    """Resolve figured-vs-scaled authority with existing shared policy, then emit M5 type."""
+    """Resolve figured-vs-scaled authority with existing shared policy, then emit M5 type.
+
+    Scale state/identity come from trusted ``scale_calibration`` / ``trusted_scale_id``.
+    Provider metadata cannot self-certify resolved scale.
+    """
+    meta = quantity.metadata if isinstance(quantity.metadata, dict) else {}
+    provider_status = str(meta.get("scale_status") or "").strip().lower()
+    provider_scale_id = str(meta.get("scale_id") or "").strip()
     wants_scaled = quantity.authority == MeasurementAuthorityType.PDF_SCALED.value or scaled_mm is not None
     if wants_scaled and not figured_text and figured_mm is None:
         calibration = scale_calibration
         if calibration is None:
-            calibration = unknown_calibration(page_no=int((quantity.metadata or {}).get("source_page") or 1))
+            raise MeasurementAuthorityBindingError(
+                "scaled geometry requires trusted control-plane scale calibration; "
+                "provider metadata cannot supply scale"
+            )
         scale_status = str(calibration.status)
+        trusted_id = _trusted_scale_identity(calibration, trusted_scale_id)
+        if provider_status in _RESOLVED_SCALE and scale_status.lower() not in _TRUSTED_SCALE:
+            raise MeasurementAuthorityBindingError(
+                "provider cannot self-certify resolved scale against untrusted/unresolved calibration"
+            )
+        if provider_status and provider_status != scale_status.lower():
+            raise MeasurementAuthorityBindingError(
+                "provider scale status disagrees with trusted control-plane calibration"
+            )
+        if provider_scale_id and provider_scale_id != trusted_id:
+            raise MeasurementAuthorityBindingError(
+                "provider scale identity is stale or invented relative to trusted scale"
+            )
         measured = measurement_authority_for_page_scale(calibration)
         if scale_status in UNRELIABLE_SCALE or measured == AuthorityStatus.BLOCKED.value:
             raise MeasurementAuthorityBindingError(
                 "scaled geometry requires resolved/verified/calibrated scale; unresolved scale fails closed"
             )
-        if scale_status.lower() not in _RESOLVED_SCALE:
+        if scale_status.lower() not in _TRUSTED_SCALE:
             raise MeasurementAuthorityBindingError(
                 "scaled geometry requires resolved/verified/calibrated scale; unresolved scale fails closed"
             )
-        resolved_scale_id = str((quantity.metadata or {}).get("scale_id") or getattr(calibration, "scale_id", "") or "bound_scale")
+        emitted_status = (
+            scale_status.lower()
+            if scale_status.lower() in _RESOLVED_SCALE
+            else "resolved"
+        )
         return CommercialMeasurementAuthority(
             method="scaled_geometry",
-            resolved_scale_id=resolved_scale_id,
-            scale_status=scale_status.lower() if scale_status.lower() in _RESOLVED_SCALE else "resolved",
+            resolved_scale_id=trusted_id,
+            scale_status=emitted_status,
             metadata={
                 "bound_by": "pb_migration_measurement_authority_binder",
                 "canonical_m5_module": "pb_quantity_takeoff_adapter",
                 "existing_resolver": "pb_page_scale_calibration_authority",
+                "scale_from": "trusted_control_plane_calibration",
+                "trusted_scale_status": scale_status.lower(),
             },
         )
 
