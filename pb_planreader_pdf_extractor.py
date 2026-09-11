@@ -142,6 +142,33 @@ class GenericPlanReaderExtractor:
         )
 
     @staticmethod
+    def _should_replace_slab_bound_quantity(
+        existing: Optional[Any],
+        new_quantity: float,
+        new_metadata: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """Replace first-page slab-bound quantities when a later page is stronger.
+
+        DPM, mesh, surface bed, and DPC are derived from the current floor
+        envelope.  A small early reconstructed rectangle must not lock them
+        out of a later explicit FLOOR AREA, and a later weaker envelope must
+        not clobber that explicit quantity.
+        """
+        if new_quantity <= 0:
+            return False
+        if existing is None:
+            return True
+        existing_meta = existing.metadata or {}
+        new_meta = new_metadata or {}
+        existing_explicit = existing_meta.get("area_authority") == "explicit_drawing_floor_area"
+        new_explicit = new_meta.get("area_authority") == "explicit_drawing_floor_area"
+        if new_explicit and not existing_explicit:
+            return True
+        if new_explicit == existing_explicit:
+            return new_quantity > float(existing.quantity or 0)
+        return False
+
+    @staticmethod
     def _has_dpc_specification(page_text: str) -> bool:
         """Return whether drawing text explicitly specifies a damp-proof course.
 
@@ -1177,17 +1204,23 @@ class GenericPlanReaderExtractor:
 
                 # DPC from building perimeter: exactly equal to perimeter P
                 # NO hardcoded 67.0 fallback
-                if global_has_dpc and "damp_proof_course" not in pred_dict and cur_perim > 0:
-                    pred_dict["damp_proof_course"] = ExtractedPrediction(
-                        tag="damp_proof_course",
-                        trade_type="finishes",
-                        description=f"Bituminous damp proof course ({cur_perim:.1f}m perimeter)",
-                        quantity=round(cur_perim, 1),
-                        unit="M",
-                        confidence=0.90,
-                        source_page=page_num,
-                        sheet_number=sheet_no,
-                    )
+                if global_has_dpc and cur_perim > 0:
+                    dpc_qty = round(cur_perim, 1)
+                    dpc_meta = pred_dict["floor_screed"].metadata or {}
+                    if self._should_replace_slab_bound_quantity(
+                        pred_dict.get("damp_proof_course"), dpc_qty, dpc_meta
+                    ):
+                        pred_dict["damp_proof_course"] = ExtractedPrediction(
+                            tag="damp_proof_course",
+                            trade_type="finishes",
+                            description=f"Bituminous damp proof course ({dpc_qty:.1f}m perimeter)",
+                            quantity=dpc_qty,
+                            unit="M",
+                            confidence=0.90,
+                            source_page=page_num,
+                            sheet_number=sheet_no,
+                            metadata=dpc_meta,
+                        )
 
                 # Substructure DPM & mesh: exactly equal to floor slab area
                 # NO 1.06 magic multiplier
@@ -1199,7 +1232,11 @@ class GenericPlanReaderExtractor:
                         flr_meta.get("gross_floor_area_m2", tot_flr),
                     )
                 )
-                if global_has_dpm and "substructure_bed_dpm" not in pred_dict and bed_area_for_substructure_m2 > 0:
+                if global_has_dpm and self._should_replace_slab_bound_quantity(
+                    pred_dict.get("substructure_bed_dpm"),
+                    bed_area_for_substructure_m2,
+                    flr_meta,
+                ):
                     pred_dict["substructure_bed_dpm"] = ExtractedPrediction(
                         tag="substructure_bed_dpm",
                         trade_type="finishes",
@@ -1211,7 +1248,11 @@ class GenericPlanReaderExtractor:
                         sheet_number=sheet_no,
                         metadata=flr_meta,
                     )
-                if global_has_mesh and "substructure_a142_mesh" not in pred_dict and bed_area_for_substructure_m2 > 0:
+                if global_has_mesh and self._should_replace_slab_bound_quantity(
+                    pred_dict.get("substructure_a142_mesh"),
+                    bed_area_for_substructure_m2,
+                    flr_meta,
+                ):
                     pred_dict["substructure_a142_mesh"] = ExtractedPrediction(
                         tag="substructure_a142_mesh",
                         trade_type="structure",
@@ -1223,7 +1264,11 @@ class GenericPlanReaderExtractor:
                         sheet_number=sheet_no,
                         metadata=flr_meta,
                     )
-                if global_has_surface_bed and "substructure_surface_bed" not in pred_dict and bed_area_for_substructure_m2 > 0:
+                if global_has_surface_bed and self._should_replace_slab_bound_quantity(
+                    pred_dict.get("substructure_surface_bed"),
+                    bed_area_for_substructure_m2,
+                    flr_meta,
+                ):
                     pred_dict["substructure_surface_bed"] = ExtractedPrediction(
                         tag="substructure_surface_bed",
                         trade_type="structure",
