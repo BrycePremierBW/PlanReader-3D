@@ -35,8 +35,16 @@ from typing import Iterable, List, Optional, Sequence, Tuple
 import cv2
 import fitz
 import numpy as np
-import pytesseract
 from PIL import Image
+
+try:
+    import pytesseract
+except ImportError:  # pragma: no cover - exercised only where the optional
+    # tesseract binary/binding is absent (e.g. CI). OCR recovery is one
+    # evidence source among several in this pipeline; its absence must not
+    # crash import of the whole module, only silently withhold OCR-derived
+    # marks (see _ocr_parts_from_ink below).
+    pytesseract = None
 
 from pb_opening_tag_normalization import normalize_opening_tag
 
@@ -148,6 +156,8 @@ def _rgb_from_pixmap(pix: fitz.Pixmap) -> Optional[np.ndarray]:
 
 
 def _ocr_parts_from_ink(ink: np.ndarray, min_conf: float = 20.0) -> List[dict]:
+    if pytesseract is None:
+        return []
     data = pytesseract.image_to_data(
         Image.fromarray(ink),
         output_type=pytesseract.Output.DICT,
