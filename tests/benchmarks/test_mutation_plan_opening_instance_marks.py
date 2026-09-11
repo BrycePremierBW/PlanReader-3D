@@ -4,6 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import fitz
+import pytest
 from PIL import Image, ImageDraw, ImageFont
 
 from pb_plan_opening_instance_marks import (
@@ -15,6 +16,7 @@ from pb_plan_opening_instance_marks import (
     should_emit_casement_window_total,
 )
 from pb_planreader_pdf_extractor import GenericPlanReaderExtractor
+from tests.benchmarks._ocr_backend import OCR_AVAILABLE
 
 
 def _font(size: int) -> ImageFont.FreeTypeFont:
@@ -100,6 +102,7 @@ def test_lone_hyphen_digit_promotes_on_window_band() -> None:
     assert "W?" in tags
 
 
+@pytest.mark.skipif(not OCR_AVAILABLE, reason="no usable Tesseract backend in this environment")
 def test_raster_plan_stamps_emit_casement_total_and_mutate(tmp_path: Path) -> None:
     first_labels = [
         ("W-1", 20, 30),
@@ -151,6 +154,7 @@ def test_assemble_accepts_hyphenated_door_glued_to_vent_letters() -> None:
     assert any(mark.tag == "D2" and mark.complete for mark in marks)
 
 
+@pytest.mark.skipif(not OCR_AVAILABLE, reason="no usable Tesseract backend in this environment")
 def test_orange_fill_does_not_erase_dark_door_stamp(tmp_path: Path) -> None:
     image = Image.new("RGB", (900, 240), "white")
     draw = ImageDraw.Draw(image)

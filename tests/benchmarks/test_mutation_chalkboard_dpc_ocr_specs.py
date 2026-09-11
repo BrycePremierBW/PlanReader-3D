@@ -4,10 +4,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import fitz
+import pytest
 from PIL import Image, ImageDraw, ImageFont
 
 from pb_drawing_ocr_evidence_layer import DrawingOCREngine
 from pb_planreader_pdf_extractor import GenericPlanReaderExtractor
+from tests.benchmarks._ocr_backend import OCR_AVAILABLE
 
 
 def _text_pdf(tmp_path: Path, name: str, text: str) -> Path:
@@ -75,6 +77,7 @@ def test_undotted_dpc_and_dam_proof_course_emit_perimeter_length(tmp_path: Path)
     assert preds["damp_proof_course"].quantity == 40.0  # 2*(13+7)
 
 
+@pytest.mark.skipif(not OCR_AVAILABLE, reason="no usable Tesseract backend in this environment")
 def test_tesseract_fallback_reads_printed_plan_text() -> None:
     image = Image.new("RGB", (900, 240), "white")
     draw = ImageDraw.Draw(image)
@@ -84,6 +87,7 @@ def test_tesseract_fallback_reads_printed_plan_text() -> None:
     assert "polythene" in blob or "dpm" in blob
 
 
+@pytest.mark.skipif(not OCR_AVAILABLE, reason="no usable Tesseract backend in this environment")
 def test_ocr_recovers_polythene_dpm_from_embedded_plan_raster(tmp_path: Path) -> None:
     image = Image.new("RGB", (1000, 280), "white")
     draw = ImageDraw.Draw(image)
