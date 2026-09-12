@@ -2003,6 +2003,28 @@ class GenericPlanReaderExtractor:
                             )
                         )
 
+                # HostedOpeningSpan → anonymous OpeningInstance only.
+                # height_m stays None; F.9 must deduct 0 for these ids.
+                # Never mint W1/W2/D1 and never invent scale/height.
+                from pb_hosted_opening_instance_adapter import (
+                    hosted_opening_instances_from_document,
+                )
+
+                dwg_page_indexes = [
+                    p
+                    for p in target_pages
+                    if 0 <= p < len(doc)
+                    and self.is_drawing_page(doc[p].get_text("text"), doc[p])
+                ]
+                opening_instances.extend(
+                    hosted_opening_instances_from_document(
+                        doc,
+                        dwg_page_indexes,
+                        bound_wall_id="perimeter_walling",
+                        scale_authority=None,
+                    )
+                )
+
                 if opening_instances:
                     pipeline = GenericOpeningDeductionPipeline()
                     wall_results = pipeline.deduct_openings_for_all_walls([wall_inst], opening_instances)
