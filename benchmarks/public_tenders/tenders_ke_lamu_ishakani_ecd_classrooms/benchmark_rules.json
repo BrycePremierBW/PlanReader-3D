@@ -24,6 +24,7 @@
     "LMU-E7-A": "internal_plaster",
     "LMU-E7-C": "internal_paint",
     "LMU-E7-D": "chalkboard",
-    "LMU-E7-E": "floor_screed"
+    "LMU-E7-E": "floor_screed",
+    "LMU-E4-A": "roof_covering"
   }
 }

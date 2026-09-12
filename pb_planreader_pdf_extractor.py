@@ -470,6 +470,16 @@ class GenericPlanReaderExtractor:
         doc = fitz.open(str(p_path))
         target_pages = list(pages) if pages else list(range(len(doc)))
 
+        # Roof covering (F.33): a document-wide, evidence-only scan for a
+        # single unambiguous gable-roofline elevation. Resolved once, up
+        # front, from native vector geometry alone -- never from a BOQ
+        # specification's regulatory pitch ceiling and never from a level
+        # datum annotation. See pb_roof_pitch_gable_evidence module
+        # docstring for the fail-closed conditions.
+        from pb_roof_pitch_gable_evidence import resolve_sole_gable_roof_pitch
+
+        _gable_roof_pitch_evidence = resolve_sole_gable_roof_pitch(doc)
+
         # ------------------------------------------------------------------
         # Cross-page pre-scan: discover drawing evidence across sheet package
         # ------------------------------------------------------------------
@@ -1181,6 +1191,69 @@ class GenericPlanReaderExtractor:
                             sheet_number=sheet_no,
                             dimensions=[width_m, round(gable_h, 2)],
                         )
+
+                    # Roof covering (F.33): ONLY emitted when a single,
+                    # unambiguous gable roofline was directly measured on
+                    # THIS same page (never a BOQ spec ceiling, never a
+                    # level datum treated as rise -- see
+                    # pb_roof_pitch_gable_evidence). The gated width_m <=
+                    # length_m check is a deliberate, explicit fail-closed
+                    # guard: this module measures each roof plane's run as
+                    # a fraction of the shorter (cross-ridge) footprint
+                    # axis, and there is no generic, reliable way here to
+                    # tell which of length_m/width_m is cross-ridge when
+                    # width_m is the larger figure, so that case abstains
+                    # rather than silently guessing an axis assignment.
+                    # Deliberately excludes any eaves overhang -- each run
+                    # is measured to a real wall-corner vertical, not to
+                    # the roofline's own outermost drawn point -- so this
+                    # is a conservative lower bound on true covered area.
+                    if (
+                        _gable_roof_pitch_evidence is not None
+                        and _gable_roof_pitch_evidence.source_page == page_num
+                        and width_m <= length_m
+                    ):
+                        _run_sum_pt = (
+                            _gable_roof_pitch_evidence.run_a_pt
+                            + _gable_roof_pitch_evidence.run_b_pt
+                        )
+                        if _run_sum_pt > 0:
+                            _roof_scale_pt_per_m = _run_sum_pt / width_m
+                            _pitch_rad = math.radians(_gable_roof_pitch_evidence.pitch_deg)
+                            _run_a_m = round(
+                                _gable_roof_pitch_evidence.run_a_pt / _roof_scale_pt_per_m, 3
+                            )
+                            _run_b_m = round(
+                                _gable_roof_pitch_evidence.run_b_pt / _roof_scale_pt_per_m, 3
+                            )
+                            _slope_len_m = (_run_a_m + _run_b_m) / math.cos(_pitch_rad)
+                            roof_covering_area = round(length_m * _slope_len_m, 2)
+                            pred_dict["roof_covering"] = ExtractedPrediction(
+                                tag="roof_covering",
+                                trade_type="roofing",
+                                description=(
+                                    "Roof covering (2 planes, "
+                                    f"{_gable_roof_pitch_evidence.pitch_deg} deg pitch measured "
+                                    "from elevation roofline, wall-corner-to-wall-corner runs "
+                                    f"{_run_a_m}m + {_run_b_m}m along a {length_m}m ridge, no "
+                                    "eaves overhang included)"
+                                ),
+                                quantity=roof_covering_area,
+                                unit="SM",
+                                confidence=0.75,
+                                source_page=page_num,
+                                sheet_number=sheet_no,
+                                dimensions=[_run_a_m, _run_b_m],
+                                metadata={
+                                    "pitch_deg": _gable_roof_pitch_evidence.pitch_deg,
+                                    "pitch_source": "measured_from_elevation_roofline_vector_geometry",
+                                    "run_a_m": _run_a_m,
+                                    "run_b_m": _run_b_m,
+                                    "ridge_length_m": length_m,
+                                    "excludes_eaves_overhang": True,
+                                    "gable_apex_source_page": _gable_roof_pitch_evidence.source_page,
+                                },
+                            )
 
             # Finishes: strictly gated on drawing annotation presence
             if "floor_screed" in pred_dict:
