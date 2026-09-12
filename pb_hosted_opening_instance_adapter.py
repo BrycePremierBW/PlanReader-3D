@@ -9,11 +9,13 @@ perimeter_walling.
 """
 from __future__ import annotations
 
-from typing import Iterable, List, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 from pb_hosted_opening_geometry import HostedOpeningSpan
 from pb_opening_deduction_pipeline import OpeningInstance
 from pb_opening_tag_normalization import normalize_opening_tag
+
+SHADOW_BLOCKED_ON_VIEWPORT_AUTHORITY = "BLOCKED_ON_VIEWPORT_AUTHORITY"
 
 # A swing/leaf arc may classify an already-hosted gap. It is not enough
 # on its own to create an opening. These flags are the hosted-gap contract.
@@ -111,3 +113,87 @@ def hosted_spans_to_opening_instances(
         if inst is not None:
             instances.append(inst)
     return instances
+
+
+def empty_hosted_opening_shadow(*, reason: str) -> Dict[str, Any]:
+    return {"status": "abstained", "reason": reason, "evidence": []}
+
+
+def hosted_span_to_shadow_record(span: HostedOpeningSpan) -> Optional[Dict[str, Any]]:
+    """Serialize one span for diagnostics. Arc-alone spans are dropped."""
+    if not hosted_gap_authority_present(span):
+        return None
+    return {
+        "span_id": hosted_opening_span_id(span),
+        "page": span.page,
+        "orientation": span.host_orientation_deg,
+        "jamb_start": [span.jamb_start[0], span.jamb_start[1]],
+        "jamb_end": [span.jamb_end[0], span.jamb_end[1]],
+        "span_pt": span.span_pt,
+        "width_m": _evidenced_width_m(span),
+        "wall_thickness_pt": span.wall_thickness_pt,
+        "subtype": span.subtype,
+        "evidence_flags": list(span.evidence_flags),
+        "reason": span.reason,
+    }
+
+
+def authoritative_floor_plan_viewports(page: Any, *, page_number: int) -> List[Any]:
+    """Reuse F.07 RESOLVED floor-plan frames only. Never guess from page class."""
+    from pb_drawing_evidence_binding import DrawingViewType
+    from pb_viewport_segmentation import (
+        ViewportSegmentationStatus,
+        segment_page_viewports,
+    )
+
+    return [
+        viewport
+        for viewport in segment_page_viewports(page, page_number=page_number)
+        if viewport.status == ViewportSegmentationStatus.RESOLVED.value
+        and viewport.view_type == DrawingViewType.FLOOR_PLAN.value
+        and viewport.bounding_box is not None
+    ]
+
+
+def collect_hosted_opening_shadow_evidence(
+    doc: Any,
+    pages: Sequence[int],
+) -> Dict[str, Any]:
+    """Detect hosted spans only inside authoritative floor-plan viewports.
+
+    Never invents scale, never feeds F.9, never mints W/D identities.
+    """
+    from pb_hosted_opening_geometry import resolve_hosted_opening_spans
+
+    evidence: List[Dict[str, Any]] = []
+    had_viewport = False
+    for page_index in pages:
+        if page_index < 0 or page_index >= len(doc):
+            continue
+        page = doc[page_index]
+        viewports = authoritative_floor_plan_viewports(page, page_number=page_index + 1)
+        if not viewports:
+            continue
+        had_viewport = True
+        for viewport in viewports:
+            bbox = tuple(float(value) for value in viewport.bounding_box)
+            result = resolve_hosted_opening_spans(
+                page,
+                viewport_bbox=bbox,
+                scale_authority=None,
+            )
+            for span in result.openings:
+                record = hosted_span_to_shadow_record(span)
+                if record is not None:
+                    evidence.append(record)
+    if not had_viewport:
+        return empty_hosted_opening_shadow(reason=SHADOW_BLOCKED_ON_VIEWPORT_AUTHORITY)
+    if not evidence:
+        return empty_hosted_opening_shadow(
+            reason="no_hosted_opening_span_in_authoritative_floor_plan_viewport"
+        )
+    return {
+        "status": "found",
+        "reason": f"{len(evidence)} hosted opening span(s) found",
+        "evidence": evidence,
+    }

@@ -68,6 +68,11 @@ class GenericPlanReaderExtractor:
     def __init__(self, default_ceiling_height_m: float = 2.80) -> None:
         self.default_ceiling_height_m = default_ceiling_height_m
         self._ocr_text_by_page: Dict[int, str] = {}
+        self.hosted_opening_shadow: Dict[str, Any] = {
+            "status": "abstained",
+            "reason": "not_collected",
+            "evidence": [],
+        }
 
     def is_drawing_page(self, page_text: str, page: Optional[fitz.Page] = None) -> bool:
         """Heuristically determine if a PDF page contains architectural drawings."""
@@ -469,6 +474,11 @@ class GenericPlanReaderExtractor:
 
         doc = fitz.open(str(p_path))
         target_pages = list(pages) if pages else list(range(len(doc)))
+        self.hosted_opening_shadow = {
+            "status": "abstained",
+            "reason": "not_collected",
+            "evidence": [],
+        }
 
         # ------------------------------------------------------------------
         # Cross-page pre-scan: discover drawing evidence across sheet package
@@ -2010,6 +2020,24 @@ class GenericPlanReaderExtractor:
                     pred_dict = {p.tag: p for p in preds_list}
         except Exception:
             pass
+
+        # Hosted-opening SHADOW only. Never appended to F.9 live openings.
+        # Collection requires an F.07 RESOLVED floor-plan viewport bbox.
+        try:
+            from pb_hosted_opening_instance_adapter import (
+                collect_hosted_opening_shadow_evidence,
+                empty_hosted_opening_shadow,
+            )
+
+            self.hosted_opening_shadow = collect_hosted_opening_shadow_evidence(
+                doc, target_pages
+            )
+        except Exception:
+            from pb_hosted_opening_instance_adapter import empty_hosted_opening_shadow
+
+            self.hosted_opening_shadow = empty_hosted_opening_shadow(
+                reason="detector_exception"
+            )
 
         doc.close()
         return list(pred_dict.values())
