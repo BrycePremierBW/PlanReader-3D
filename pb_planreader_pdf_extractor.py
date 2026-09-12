@@ -778,6 +778,39 @@ class GenericPlanReaderExtractor:
 
                 perimeter_m = round(2 * (length_m + width_m), 2)
 
+                # F.32: a naive rectangular perimeter counts every side as
+                # solid, which overstates wall length when the drawing's own
+                # vector hatch geometry shows part of a side is genuinely
+                # open (e.g. a verandah front). This only ever SUBTRACTS a
+                # length that is independently confirmed open by both (a)
+                # the absence of a masonry hatch signature AND (b) a named
+                # open/semi-open space label (verandah/porch/etc.) sitting
+                # outward of that specific edge -- hatch absence alone is
+                # never sufficient, since some walls on some drawings are
+                # genuinely solid without a continuous hatch signature (see
+                # module docstring). Fails closed to the unchanged naive
+                # perimeter on any ambiguity, missing evidence, or error.
+                hatch_confirmed_open_length_m = None
+                try:
+                    from pb_hatch_detection_v160 import detect_hatch_patterns
+                    from pb_wall_hatch_perimeter_correction import (
+                        resolve_hatch_confirmed_open_length_m,
+                    )
+
+                    _, _hatch_clusters, _ = detect_hatch_patterns(
+                        page, scale_info=None, words=None
+                    )
+                    _correction = resolve_hatch_confirmed_open_length_m(
+                        _hatch_clusters, length_m=length_m, width_m=width_m, page=page
+                    )
+                    if _correction.status == "corrected" and _correction.open_length_m > 0:
+                        hatch_confirmed_open_length_m = _correction.open_length_m
+                        perimeter_m = round(
+                            max(0.0, perimeter_m - hatch_confirmed_open_length_m), 2
+                        )
+                except Exception:
+                    hatch_confirmed_open_length_m = None
+
                 existing_area = pred_dict.get("floor_screed")
                 current_best_area = existing_area.quantity if existing_area else 0.0
                 existing_area_meta = (existing_area.metadata or {}) if existing_area else {}
@@ -1050,6 +1083,18 @@ class GenericPlanReaderExtractor:
                                 else "default_ceiling_height_assumption"
                             ),
                             "wall_height_authority": wall_height_authority,
+                            **(
+                                {
+                                    "hatch_confirmed_open_length_m": hatch_confirmed_open_length_m,
+                                    "perimeter_reduction_reason": (
+                                        "vector hatch evidence confirms part of the naive "
+                                        "rectangular perimeter is open, corroborated by a "
+                                        "named open/semi-open space label"
+                                    ),
+                                }
+                                if hatch_confirmed_open_length_m is not None
+                                else {}
+                            ),
                         },
                     )
 
