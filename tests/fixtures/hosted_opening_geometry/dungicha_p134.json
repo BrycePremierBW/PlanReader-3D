@@ -1,6 +1,62 @@
 {
   "drawings": [
     {
+      "color": [
+        0.098,
+        0.098,
+        0.098
+      ],
+      "fill": null,
+      "items": [
+        [
+          "l",
+          [
+            19.3297,
+            41.8414
+          ],
+          [
+            19.3297,
+            1664.0813
+          ]
+        ]
+      ],
+      "rect": [
+        19.3297,
+        41.8414,
+        19.3297,
+        1664.0813
+      ],
+      "width": 0.7087
+    },
+    {
+      "color": [
+        0.098,
+        0.098,
+        0.098
+      ],
+      "fill": null,
+      "items": [
+        [
+          "l",
+          [
+            14.2047,
+            38.8387
+          ],
+          [
+            14.2047,
+            1669.7195
+          ]
+        ]
+      ],
+      "rect": [
+        14.2047,
+        38.8387,
+        14.2047,
+        1669.7195
+      ],
+      "width": 0.7087
+    },
+    {
       "color": null,
       "fill": [
         1.0,
@@ -143237,6 +143293,17 @@
           "l",
           [
             900.0325,
+            753.3762
+          ],
+          [
+            900.0325,
+            750.8846
+          ]
+        ],
+        [
+          "l",
+          [
+            900.0325,
             750.8846
           ],
           [
@@ -143253,6 +143320,105 @@
           [
             900.0325,
             767.8925
+          ]
+        ],
+        [
+          "l",
+          [
+            900.0325,
+            767.8925
+          ],
+          [
+            900.0325,
+            765.4008
+          ]
+        ],
+        [
+          "l",
+          [
+            900.0325,
+            765.4008
+          ],
+          [
+            902.3343,
+            764.9445
+          ]
+        ],
+        [
+          "l",
+          [
+            902.3343,
+            764.9445
+          ],
+          [
+            904.2845,
+            763.6405
+          ]
+        ],
+        [
+          "l",
+          [
+            904.2845,
+            763.6405
+          ],
+          [
+            905.5885,
+            761.6903
+          ]
+        ],
+        [
+          "l",
+          [
+            905.5885,
+            761.6903
+          ],
+          [
+            906.0448,
+            759.3885
+          ]
+        ],
+        [
+          "l",
+          [
+            906.0448,
+            759.3885
+          ],
+          [
+            905.5885,
+            757.0869
+          ]
+        ],
+        [
+          "l",
+          [
+            905.5885,
+            757.0869
+          ],
+          [
+            904.2845,
+            755.1366
+          ]
+        ],
+        [
+          "l",
+          [
+            904.2845,
+            755.1366
+          ],
+          [
+            902.3343,
+            753.8326
+          ]
+        ],
+        [
+          "l",
+          [
+            902.3343,
+            753.8326
+          ],
+          [
+            900.0325,
+            753.3762
           ]
         ]
       ],
@@ -143331,6 +143497,25 @@
         [
           "c",
           [
+            906.0448,
+            759.3885
+          ],
+          [
+            906.0448,
+            756.0663
+          ],
+          [
+            903.352,
+            753.3762
+          ],
+          [
+            900.0325,
+            753.3762
+          ]
+        ],
+        [
+          "c",
+          [
             900.0325,
             753.3762
           ],
@@ -143364,6 +143549,25 @@
           [
             900.0325,
             765.4008
+          ]
+        ],
+        [
+          "c",
+          [
+            900.0325,
+            765.4008
+          ],
+          [
+            903.352,
+            765.4008
+          ],
+          [
+            906.0448,
+            762.7079
+          ],
+          [
+            906.0448,
+            759.3885
           ]
         ]
       ],
@@ -148113,7 +148317,7 @@
       950.0
     ],
     "drawing_title": "Proposed 3No. Classroom Block -- GROUND FLOOR (17)",
-    "extraction": "PyMuPDF page.get_drawings(): every drawing with at least one 'l' or 'c' item point inside capture_region_pdf_pt is kept in full (all its own items, not just the in-region ones), preserving color/fill/width/rect exactly as PyMuPDF reports them",
+    "extraction": "PyMuPDF page.get_drawings(): a drawing is kept when at least one of its own supported 'l'/'c' items has a bounding box overlapping capture_region_pdf_pt (this bbox test, not a plain endpoint-in-region check, is what catches a long line/curve crossing the region with both endpoints outside it). Once kept, ALL of that drawing's supported 'l'/'c' items are included, not just the one(s) that triggered selection. color/fill/width/rect and every coordinate are rounded to 4 decimal places -- a documented normalisation for deterministic, readable JSON, not raw byte-for-byte PyMuPDF float64 data",
     "generator": "scripts/export_hosted_opening_vector_fixture.py",
     "pdf": "dungicha_3classrooms.pdf",
     "pdf_byte_size": 2590900,

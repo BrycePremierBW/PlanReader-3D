@@ -103,8 +103,8 @@ def _load_page(pdf_path: Path, page_index: int):
 
 # ---------------------------------------------------------------------------
 # CI-reproducible native-vector snapshots (never skip -- see
-# scripts/export_hosted_opening_snapshots.py for how these were produced
-# and why: benchmarks/sources/ is gitignored repo-wide and no source PDF
+# scripts/export_hosted_opening_vector_fixture.py for how these were
+# produced and why: benchmarks/sources/ is gitignored repo-wide and no source PDF
 # has ever been committed under any existing policy, so a clean clone/CI
 # cannot run the real-PDF tests above at all; these committed JSON
 # snapshots close that gap without committing the PDFs themselves).
