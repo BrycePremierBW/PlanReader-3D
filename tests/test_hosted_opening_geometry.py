@@ -46,6 +46,7 @@ now that Baghau and Dungicha are available, per explicit instruction.
 """
 from __future__ import annotations
 
+import json
 import math
 from pathlib import Path
 from typing import Optional
@@ -98,6 +99,202 @@ def _load_page(pdf_path: Path, page_index: int):
         pytest.skip(f"benchmark source fixture not present: {pdf_path}")
     doc = fitz.open(str(pdf_path))
     return doc, doc[page_index]
+
+
+# ---------------------------------------------------------------------------
+# CI-reproducible native-vector snapshots (never skip -- see
+# scripts/export_hosted_opening_snapshots.py for how these were produced
+# and why: benchmarks/sources/ is gitignored repo-wide and no source PDF
+# has ever been committed under any existing policy, so a clean clone/CI
+# cannot run the real-PDF tests above at all; these committed JSON
+# snapshots close that gap without committing the PDFs themselves).
+# ---------------------------------------------------------------------------
+
+_FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures" / "hosted_opening_geometry"
+_BAGHAU_SNAPSHOT_PATH = _FIXTURES_DIR / "baghau_p36.json"
+_DUNGICHA_SNAPSHOT_PATH = _FIXTURES_DIR / "dungicha_p134.json"
+
+
+def _load_snapshot(path: Path) -> dict:
+    with path.open("r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def _snapshot_page(snapshot: dict):
+    """Reconstruct a _FakePage from an exported snapshot's raw drawings --
+    same 'l'/'c' item shapes, color/fill/width/rect, that a real
+    fitz.Page.get_drawings() would return, so resolve_hosted_opening_spans
+    runs its identical, unmodified code path against it."""
+    drawings = []
+    for d in snapshot["drawings"]:
+        items = []
+        for item in d["items"]:
+            op = item[0]
+            items.append((op, *[_Pt(x, y) for x, y in item[1:]]))
+        drawings.append(
+            {
+                "color": tuple(d["color"]) if d["color"] is not None else None,
+                "fill": tuple(d["fill"]) if d["fill"] is not None else None,
+                "width": d["width"],
+                "rect": _Rect(*d["rect"]) if d["rect"] is not None else None,
+                "items": items,
+            }
+        )
+    page_rect = _Rect(*snapshot["page_rect"])
+    return _FakePage(drawings, rect=page_rect, number=snapshot["source"]["pdf_page_0based"])
+
+
+def _assert_snapshot_provenance(snapshot: dict, *, expected_pdf_sha256: str, expected_page_0based: int) -> None:
+    src = snapshot["source"]
+    assert src["pdf_sha256"] == expected_pdf_sha256, "snapshot was not generated from the stated source PDF"
+    assert src["pdf_page_0based"] == expected_page_0based
+    assert snapshot["schema_version"] >= 1
+    assert src["generator"] == "scripts/export_hosted_opening_vector_fixture.py"
+
+
+_BAGHAU_PDF_SHA256 = "1621f411597f5aac2bb7a6109db8d3e15d370dd642c95ad5aa25c51aa84803c1"
+_DUNGICHA_PDF_SHA256 = "62013d17dbf84d5459345ddde8feaf0d5c48e57728c4f087ee36ff3fafcf9a56"
+
+
+def test_baghau_snapshot_north_wall_three_repeated_windows_never_skips():
+    snapshot = _load_snapshot(_BAGHAU_SNAPSHOT_PATH)
+    _assert_snapshot_provenance(snapshot, expected_pdf_sha256=_BAGHAU_PDF_SHA256, expected_page_0based=35)
+    page = _snapshot_page(snapshot)
+
+    ev = resolve_hosted_opening_spans(page, viewport_bbox=(440, 440, 880, 500), scale_authority=28.3)
+    assert ev.status == "found"
+    windows = [o for o in ev.openings if o.subtype == "window_like"]
+    assert len(windows) == 3
+    for w in windows:
+        assert not hasattr(w, "tag") and not hasattr(w, "type_mark") and not hasattr(w, "identity")
+        assert 1.9 <= w.width_m <= 2.1  # already-observed range from the real-PDF run
+
+
+def test_baghau_snapshot_full_wall_area_five_windows_one_door_never_skips():
+    snapshot = _load_snapshot(_BAGHAU_SNAPSHOT_PATH)
+    _assert_snapshot_provenance(snapshot, expected_pdf_sha256=_BAGHAU_PDF_SHA256, expected_page_0based=35)
+    page = _snapshot_page(snapshot)
+
+    ev = resolve_hosted_opening_spans(page, viewport_bbox=(440, 440, 880, 760), scale_authority=28.3)
+    assert ev.status == "found"
+    windows = [o for o in ev.openings if o.subtype == "window_like"]
+    doors = [o for o in ev.openings if o.subtype == "door_like"]
+    assert len(windows) == 5
+    assert len(doors) == 1
+    assert 1.4 <= doors[0].width_m <= 1.6
+    for o in ev.openings:
+        assert not hasattr(o, "tag") and not hasattr(o, "type_mark") and not hasattr(o, "identity")
+
+
+def test_dungicha_snapshot_repeated_windows_stable_and_deduped_never_skips():
+    snapshot = _load_snapshot(_DUNGICHA_SNAPSHOT_PATH)
+    _assert_snapshot_provenance(snapshot, expected_pdf_sha256=_DUNGICHA_PDF_SHA256, expected_page_0based=133)
+    page = _snapshot_page(snapshot)
+
+    ev = resolve_hosted_opening_spans(page, viewport_bbox=(60, 600, 800, 780), scale_authority=28.35)
+    assert ev.status == "found"
+    windows = [o for o in ev.openings if o.subtype == "window_like"]
+    assert len(windows) == 11  # stable, exact count against the committed snapshot
+    # Dedup: no two windows share near-identical jamb positions.
+    seen = []
+    for w in windows:
+        for other in seen:
+            assert not (
+                abs(w.jamb_start[0] - other.jamb_start[0]) < w.wall_thickness_pt
+                and abs(w.jamb_end[0] - other.jamb_end[0]) < w.wall_thickness_pt
+            ), "duplicate opening reported for the same physical window"
+        seen.append(w)
+        assert 1.4 <= w.width_m <= 1.6  # figured "1,500" next to each W1 tag
+
+
+def test_dungicha_snapshot_door_region_fail_closed_never_skips():
+    snapshot = _load_snapshot(_DUNGICHA_SNAPSHOT_PATH)
+    _assert_snapshot_provenance(snapshot, expected_pdf_sha256=_DUNGICHA_PDF_SHA256, expected_page_0based=133)
+    page = _snapshot_page(snapshot)
+
+    ev = resolve_hosted_opening_spans(page, viewport_bbox=(90, 790, 145, 870), scale_authority=28.35)
+    for o in ev.openings:
+        assert o.subtype != "door_like"
+
+
+@pytest.mark.parametrize(
+    "real_pdf,page_index,snapshot_path,viewport,scale",
+    [
+        (
+            _BAGHAU_PDF,
+            35,
+            _BAGHAU_SNAPSHOT_PATH,
+            (440, 440, 880, 760),
+            28.3,
+        ),
+        (
+            _DUNGICHA_PDF,
+            133,
+            _DUNGICHA_SNAPSHOT_PATH,
+            (60, 600, 800, 780),
+            28.35,
+        ),
+    ],
+    ids=["baghau_full_wall_area", "dungicha_front_wall"],
+)
+def test_real_pdf_and_snapshot_agree_when_pdf_present(real_pdf, page_index, snapshot_path, viewport, scale):
+    """Parity gate: when the real PDF genuinely is available (e.g. locally,
+    or in an environment that has copied benchmarks/sources/ in), its live
+    output and the committed snapshot's output must agree. The real-PDF
+    side may skip when the source is genuinely unavailable; the snapshot
+    side (exercised by the four never-skip tests above) never does."""
+    if not real_pdf.exists():
+        pytest.skip(f"real source PDF not present locally: {real_pdf} (snapshot-only parity cannot be checked)")
+
+    doc = fitz.open(str(real_pdf))
+    try:
+        real_page = doc[page_index]
+        real_ev = resolve_hosted_opening_spans(real_page, viewport_bbox=viewport, scale_authority=scale)
+    finally:
+        doc.close()
+
+    snapshot_ev = resolve_hosted_opening_spans(
+        _snapshot_page(_load_snapshot(snapshot_path)), viewport_bbox=viewport, scale_authority=scale
+    )
+
+    assert real_ev.status == snapshot_ev.status
+    assert len(real_ev.openings) == len(snapshot_ev.openings)
+
+    def _key(o):
+        return (o.host_orientation_deg, round(o.jamb_start[0], 0), round(o.jamb_start[1], 0))
+
+    real_sorted = sorted(real_ev.openings, key=_key)
+    snap_sorted = sorted(snapshot_ev.openings, key=_key)
+    for r, s in zip(real_sorted, snap_sorted):
+        assert r.subtype == s.subtype
+        assert r.host_orientation_deg == s.host_orientation_deg
+        assert abs(r.span_pt - s.span_pt) < 0.5
+        assert set(r.evidence_flags) == set(s.evidence_flags)
+
+
+@pytest.mark.parametrize(
+    "spec_name",
+    ["baghau_p36", "dungicha_p134"],
+)
+def test_exporter_is_deterministic(spec_name):
+    """Running the exporter twice against the same source/page/viewport
+    must produce canonically identical fixture content -- no timestamps,
+    no UUIDs, no non-deterministic ordering. Runs directly against the
+    real source PDF (skips if genuinely unavailable, matching the
+    real-PDF tests elsewhere in this file); the already-committed
+    snapshot files were themselves produced by two such runs agreeing
+    during this module's own development, which is how this property was
+    first verified."""
+    from scripts.export_hosted_opening_vector_fixture import _SPECS, _serialise, export_page_snapshot
+
+    spec = next(s for s in _SPECS if s["name"] == spec_name)
+    if not spec["pdf_path"].exists():
+        pytest.skip(f"real source PDF not present locally: {spec['pdf_path']}")
+
+    kwargs = {k: v for k, v in spec.items() if k != "name"}
+    first = _serialise(export_page_snapshot(**kwargs))
+    second = _serialise(export_page_snapshot(**kwargs))
+    assert first == second, "exporter output was not byte-identical across two runs"
 
 
 # ---------------------------------------------------------------------------
