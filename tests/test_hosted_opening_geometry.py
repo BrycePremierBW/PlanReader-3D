@@ -1,28 +1,48 @@
 """Regression tests for pb_hosted_opening_geometry.
 
-Real positive fixtures use the Lamu Ishakani ECD classrooms drawing
-(benchmarks/sources/lamu-ishakani-ecd-classrooms-boq.pdf, page index 40):
-its north wall shows 6 repeated hosted window voids drawn as gaps between
-solid-fill wall piers, with internal glazing-bar strokes, and its
-classroom/veranda dividing wall shows 2 hosted door voids at the same
-piers-and-gaps convention, each with a jamb-anchored door-swing arc. Both
-were located and hand-verified by direct PDF vector inspection this
-session -- not from any benchmark expected value (this module has no
-scorer mapping and is not wired into any takeoff quantity).
+Mandatory real-fixture tests use the Baghau Primary School single-classroom
+drawing (benchmarks/sources/bq_and_drawing_1747803602496.pdf, page index
+35 / "page 36") and the Dungicha 3-classroom block drawing (benchmarks/
+sources/dungicha_3classrooms.pdf, page index 133 / "page 134") -- both
+confirmed present after the earlier "genuinely unavailable" finding was
+corrected once the exact files were placed in benchmarks/sources/.
 
-The requested "Baghau p36" / "Dungicha p134" fixtures were confirmed
-genuinely unavailable on this machine after an exhaustive search (exact
-filenames checked against the full contents of benchmarks/sources/,
-confirmed identical between the worktree and the main checkout, plus a
-repo-wide grep and a home-directory/OneDrive filesystem search -- zero
-matches). Per explicit instruction, Lamu is used as the real-fixture
-substitute; this module's real KSTVET north-wall window symbol (a jamb-box
-drawn flush with the continuing wall-face lines, see
-test_kstvet_frame_flush_convention_correctly_abstains below) is kept as a
-documented, honest limitation rather than force-fit with a fragile
-heuristic -- two such heuristics were tried and discarded during this
-module's own development after they produced cascading false positives
-(see git history / PR description for the full account).
+Baghau's floor plan draws masonry as a field of short 45-degree hatch
+ticks between two continuous wall-face lines (the ticks are the only
+`material' evidence -- the boundary lines themselves never break at an
+opening, since the opening's own frame sits flush with the wall face).
+It shows all 3 of its real WD-01 windows (north wall, "at least three
+repeated" per the original brief), both WD-02 windows (classroom/
+verandah wall), and the real DR-01 door with a jamb-anchored swing arc --
+each independently hand-verified against the drawing's own schedule text
+this session (2,000x1,500 / 2,000x900 / 1,500x2,400), never used to derive
+the geometry.
+
+Dungicha's floor plan uses the same hatch-tick wall convention and shows
+11 repeated real W1-like window voids (span 42.52pt = 1.500m at this
+sheet's own 28.35pt/m scale, matching the "1,500" figured dimension next
+to each) along the classroom block's front wall -- the module reports
+only span/subtype, never the "W1" tag text itself, so type-mark identity
+is correctly absent from the API by construction. Dungicha's own door
+(schedule not parsed here, but a real quarter-circle swing arc was found
+by pb_plan_door_swing_geometry near its corner post) turned out to sit on
+a wall segment whose hatch-tick pattern runs fully continuous straight
+through the door's own real-space location -- a third, distinct
+convention from Baghau's and Lamu's (neither a face-line gap nor a
+hatch-tick gap marks the opening; only the swing arc's mere presence
+does). This module deliberately does NOT add an "arc alone, regardless of
+any wall-material evidence" rule to catch it: that signal is far weaker
+and far more prone to false positives than every other channel here (it
+would fire on any door swing found merely near any wall, with no
+independent confirmation the wall material actually changes), which is
+exactly the class of overly permissive shortcut this module's development
+already tried and discarded twice for KSTVET. Dungicha's door is recorded
+here as a second honest, documented limitation alongside KSTVET's.
+
+Lamu and KSTVET fixtures are kept as supplementary real evidence (Lamu's
+solid-fill-pier convention and door distinguishing; KSTVET's jamb-box
+flush-frame limitation) -- no longer the primary/substitute real fixtures
+now that Baghau and Dungicha are available, per explicit instruction.
 """
 from __future__ import annotations
 
@@ -35,6 +55,24 @@ import pytest
 fitz = pytest.importorskip("fitz")
 
 from pb_hosted_opening_geometry import resolve_hosted_opening_spans
+
+_BAGHAU_PDF = (
+    Path(__file__).resolve().parent.parent
+    / "benchmarks"
+    / "sources"
+    / "bq_and_drawing_1747803602496.pdf"
+)
+_BAGHAU_PLAN_PAGE_INDEX = 35
+_BAGHAU_SCALE_PT_PER_M = 28.3
+
+_DUNGICHA_PDF = (
+    Path(__file__).resolve().parent.parent
+    / "benchmarks"
+    / "sources"
+    / "dungicha_3classrooms.pdf"
+)
+_DUNGICHA_PLAN_PAGE_INDEX = 133
+_DUNGICHA_SCALE_PT_PER_M = 28.35
 
 _LAMU_PDF = (
     Path(__file__).resolve().parent.parent
@@ -60,6 +98,107 @@ def _load_page(pdf_path: Path, page_index: int):
         pytest.skip(f"benchmark source fixture not present: {pdf_path}")
     doc = fitz.open(str(pdf_path))
     return doc, doc[page_index]
+
+
+# ---------------------------------------------------------------------------
+# Mandatory real fixtures: Baghau (p36) and Dungicha (p134)
+# ---------------------------------------------------------------------------
+
+
+def test_baghau_north_wall_finds_all_three_repeated_windows():
+    doc, page = _load_page(_BAGHAU_PDF, _BAGHAU_PLAN_PAGE_INDEX)
+    try:
+        ev = resolve_hosted_opening_spans(
+            page, viewport_bbox=(440, 440, 880, 500), scale_authority=_BAGHAU_SCALE_PT_PER_M
+        )
+    finally:
+        doc.close()
+
+    assert ev.status == "found"
+    windows = [o for o in ev.openings if o.subtype == "window_like"]
+    assert len(windows) == 3
+    for w in windows:
+        assert "diagonal_hatch_tick_gap" in w.evidence_flags
+        assert "jamb_boundaries_confirmed" in w.evidence_flags
+        assert w.width_m is not None
+        # WD-01 schedule: 2,000mm wide.
+        assert 1.9 <= w.width_m <= 2.1
+
+
+def test_baghau_classroom_verandah_wall_finds_windows_and_door():
+    doc, page = _load_page(_BAGHAU_PDF, _BAGHAU_PLAN_PAGE_INDEX)
+    try:
+        ev = resolve_hosted_opening_spans(
+            page, viewport_bbox=(440, 440, 880, 760), scale_authority=_BAGHAU_SCALE_PT_PER_M
+        )
+    finally:
+        doc.close()
+
+    assert ev.status == "found"
+    doors = [o for o in ev.openings if o.subtype == "door_like"]
+    windows = [o for o in ev.openings if o.subtype == "window_like"]
+    # 3 WD-01 (north wall) + 2 WD-02 (classroom/verandah wall).
+    assert len(windows) == 5
+    assert len(doors) == 1
+    door = doors[0]
+    assert "jamb_anchored_door_swing" in door.evidence_flags
+    # DR-01 schedule: 1,500mm wide -- and narrower than every window here.
+    assert door.width_m is not None
+    assert 1.4 <= door.width_m <= 1.6
+    assert door.width_m < min(w.width_m for w in windows)
+
+
+def test_dungicha_front_wall_finds_repeated_w1_windows_without_identity():
+    doc, page = _load_page(_DUNGICHA_PDF, _DUNGICHA_PLAN_PAGE_INDEX)
+    try:
+        ev = resolve_hosted_opening_spans(
+            page, viewport_bbox=(60, 600, 800, 780), scale_authority=_DUNGICHA_SCALE_PT_PER_M
+        )
+    finally:
+        doc.close()
+
+    assert ev.status == "found"
+    windows = [o for o in ev.openings if o.subtype == "window_like"]
+    # At least the "multiple repeated" W1-like geometries required by the
+    # brief -- 11 were found in this viewport at the time of writing.
+    assert len(windows) >= 8
+    spans = {round(w.span_pt, 1) for w in windows}
+    assert len(spans) <= 2, f"expected one consistent repeated span, got {spans}"
+    for w in windows:
+        assert w.width_m is not None
+        assert 1.4 <= w.width_m <= 1.6  # figured "1,500" next to each W1 tag
+        # The API has no field a type-mark identity could occupy -- this
+        # assertion documents that "W1" is structurally unrepresentable,
+        # not merely unpopulated.
+        assert not hasattr(w, "tag")
+        assert not hasattr(w, "type_mark")
+        assert not hasattr(w, "identity")
+
+
+def test_dungicha_door_area_is_a_documented_limitation_not_a_crash():
+    """Dungicha's own door sits on a wall whose hatch-tick pattern runs
+    fully continuous straight through the door's real-space location --
+    neither a face-line gap nor a hatch-tick gap marks it, only the swing
+    arc's mere presence does. This module deliberately does not add an
+    "arc alone" rule (far weaker and more false-positive-prone than every
+    other channel here) to catch this specific case. The requirement this
+    test locks in is narrower and still meaningful: scanning directly over
+    a real door-swing arc with no corroborating wall-material interruption
+    must abstain (or find only genuinely separate, unrelated openings),
+    never crash, and never emit a confident but evidence-less door_like
+    result for this exact span."""
+    doc, page = _load_page(_DUNGICHA_PDF, _DUNGICHA_PLAN_PAGE_INDEX)
+    try:
+        ev = resolve_hosted_opening_spans(
+            page, viewport_bbox=(90, 790, 145, 870), scale_authority=_DUNGICHA_SCALE_PT_PER_M
+        )
+    finally:
+        doc.close()
+    # Either abstains outright, or (if some unrelated nearby geometry
+    # happens to qualify) does not fabricate a door_like reading for the
+    # arc's own real-space span without a genuine material interruption.
+    for o in ev.openings:
+        assert o.subtype != "door_like"
 
 
 # ---------------------------------------------------------------------------

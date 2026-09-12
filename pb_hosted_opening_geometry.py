@@ -77,6 +77,29 @@ _INTERNAL_EVIDENCE_FACE_MARGIN_PT = 2.0
 # distance of a jamb x-position to count as anchored there.
 _DOOR_SWING_JAMB_TOL_PT = 4.0
 
+# Diagonal hatch ticks: short strokes at roughly 30-60 degrees representing
+# masonry infill in some drawing conventions -- categorically distinct in
+# ORIENTATION from any dimension line, grid/reference line, or wall-face
+# line in these drawings, which are always axis-aligned. A wall drawn this
+# way keeps its two boundary lines fully continuous through an opening
+# (the opening's own frame sits flush with the wall face, same as the
+# jamb-box case above) so the interruption shows up only as an absence of
+# ticks, never as a break in the boundary lines themselves.
+_MIN_HATCH_TICK_LEN_PT = 1.5
+_MAX_HATCH_TICK_LEN_PT = 15.0
+_MIN_HATCH_TICK_ASPECT = 0.4
+_MAX_HATCH_TICK_ASPECT = 2.5
+
+# Below this many ticks in a band, there isn't enough evidence that this
+# drawing even uses the hatch-tick convention here -- one or two diagonal
+# marks could be anything (an annotation leader, a symbol fragment).
+_MIN_HATCH_TICKS_FOR_CONVENTION = 6
+
+# A gap between consecutive ticks must be at least this many multiples of
+# the band's own median tick-to-tick spacing to count as a real
+# interruption rather than ordinary spacing variance.
+_HATCH_GAP_SPACING_MULTIPLE = 3.0
+
 # A genuine wall face can legitimately have several real openings (a
 # repeatedly-fenestrated classroom wall), so gap COUNT alone cannot
 # distinguish it from a dash-simulated grid/reference line (drawn as many
@@ -272,17 +295,28 @@ def _vertical_jamb_positions(
 
 def _collect_axis_lines(
     page, viewport: Tuple[float, float, float, float]
-) -> Tuple[List[Tuple[float, float, float, float]], List[Tuple[float, float, float, float]]]:
-    """Return (horizontal_lines, vertical_lines) as (x0,y0,x1,y1) within
-    viewport, from raw stroked 'l' path items only (fills handled
-    separately)."""
+) -> Tuple[
+    List[Tuple[float, float, float, float]],
+    List[Tuple[float, float, float, float]],
+    List[Tuple[float, float, float, float]],
+]:
+    """Return (horizontal_lines, vertical_lines, diagonal_lines) as
+    (x0,y0,x1,y1) within viewport, from raw stroked 'l' path items only
+    (fills handled separately).
+
+    Diagonal segments are collected too (not just the axis-aligned pair)
+    because some drawing conventions render masonry as a repeating field
+    of short 45-degree hatch ticks rather than a hatch-fill pattern or a
+    literal gap in the wall-face lines -- see
+    ``_diagonal_hatch_tick_gap_openings``."""
     vx0, vy0, vx1, vy1 = viewport
     horiz: List[Tuple[float, float, float, float]] = []
     vert: List[Tuple[float, float, float, float]] = []
+    diag: List[Tuple[float, float, float, float]] = []
     try:
         drawings = page.get_drawings() or []
     except Exception:
-        return horiz, vert
+        return horiz, vert, diag
     for d in drawings:
         # A fill-only path (color is None) contributes no visible stroke --
         # its own boundary 'l' items are drawing-tool bookkeeping (e.g. a
@@ -303,11 +337,14 @@ def _collect_axis_lines(
                 continue
             if not (vx0 <= x0 <= vx1 and vy0 <= y0 <= vy1 and vx0 <= x1 <= vx1 and vy0 <= y1 <= vy1):
                 continue
-            if abs(y1 - y0) <= 0.5 and abs(x1 - x0) > 0.5:
+            dx, dy = abs(x1 - x0), abs(y1 - y0)
+            if dy <= 0.5 and dx > 0.5:
                 horiz.append((x0, y0, x1, y1))
-            elif abs(x1 - x0) <= 0.5 and abs(y1 - y0) > 0.5:
+            elif dx <= 0.5 and dy > 0.5:
                 vert.append((x0, y0, x1, y1))
-    return horiz, vert
+            elif dx > 0.5 and dy > 0.5:
+                diag.append((x0, y0, x1, y1))
+    return horiz, vert, diag
 
 
 # A wall-like fill: near-black, thin-and-long (same heuristic family as
@@ -426,11 +463,79 @@ def _door_swing_anchor(
     return False
 
 
+def _hatch_tick_extents_in_band(
+    diagonals: Sequence[Tuple[float, float, float, float]],
+    near_y: float,
+    far_y: float,
+) -> List[Tuple[float, float]]:
+    """(lo_x, hi_x) extents of diagonal hatch-tick segments whose own
+    perpendicular extent sits within the wall band's near..far range."""
+    lo = min(near_y, far_y) - _FACE_COORD_TOL_PT
+    hi = max(near_y, far_y) + _FACE_COORD_TOL_PT
+    ticks: List[Tuple[float, float]] = []
+    for x0, y0, x1, y1 in diagonals:
+        dx, dy = abs(x1 - x0), abs(y1 - y0)
+        length = math.hypot(dx, dy)
+        if not (_MIN_HATCH_TICK_LEN_PT <= length <= _MAX_HATCH_TICK_LEN_PT):
+            continue
+        ratio = dx / dy if dy else float("inf")
+        if not (_MIN_HATCH_TICK_ASPECT <= ratio <= _MAX_HATCH_TICK_ASPECT):
+            continue
+        seg_lo, seg_hi = min(y0, y1), max(y0, y1)
+        if seg_lo < lo or seg_hi > hi:
+            continue
+        ticks.append((min(x0, x1), max(x0, x1)))
+    return ticks
+
+
+def _diagonal_hatch_tick_gaps(
+    diagonals: Sequence[Tuple[float, float, float, float]],
+    near_y: float,
+    far_y: float,
+) -> List[Tuple[float, float]]:
+    """Gaps in an established diagonal hatch-tick pattern -- evidence that
+    a wall drawn this way (its own two boundary lines stay fully
+    continuous through an opening, so the aligned-two-face-gap path finds
+    nothing) has a real material interruption here.
+
+    Only fires when this band shows enough ticks to actually confirm the
+    hatch-tick convention is in use here at all, and only reports a gap
+    that is a real outlier relative to this band's own tick spacing. Every
+    gap returned sits, by construction, between two real ticks (the
+    result of walking consecutive entries in one sorted tick list) -- an
+    additional check against the wall-face lines' own span_lo/span_hi was
+    tried and dropped: it wrongly excluded a real opening sitting close to
+    the wall's own drawn corner during this module's own development,
+    where the wall-face-line span and the tick sequence's own extent
+    disagreed by a fraction of a point. The jamb-confirmation requirement
+    at the call site is the real safety net against a stray, unrelated
+    diagonal mark posing as a tick."""
+    ticks = sorted(_hatch_tick_extents_in_band(diagonals, near_y, far_y))
+    if len(ticks) < _MIN_HATCH_TICKS_FOR_CONVENTION:
+        return []
+    spacings = [
+        b_lo - a_hi for (a_lo, a_hi), (b_lo, b_hi) in zip(ticks, ticks[1:]) if b_lo > a_hi
+    ]
+    if not spacings:
+        return []
+    spacings.sort()
+    median_spacing = spacings[len(spacings) // 2]
+    threshold = max(_MIN_GAP_PT, _HATCH_GAP_SPACING_MULTIPLE * median_spacing)
+
+    gaps: List[Tuple[float, float]] = []
+    for (a_lo, a_hi), (b_lo, b_hi) in zip(ticks, ticks[1:]):
+        if b_lo - a_hi <= threshold:
+            continue
+        gaps.append((a_hi, b_lo))
+    return gaps
+
+
 def _resolve_horizontal_openings(
     page,
     horiz_lines: Sequence[Tuple[float, float, float, float]],
     vert_lines: Sequence[Tuple[float, float, float, float]],
     fills: Sequence[Tuple[float, float, float, float]],
+    diag_lines: Sequence[Tuple[float, float, float, float]] = (),
     *,
     source_page: int,
     scale_pt_per_m: Optional[float],
@@ -514,6 +619,64 @@ def _resolve_horizontal_openings(
                         ),
                     )
                 )
+
+            # Second, independent channel: some conventions keep both
+            # boundary lines fully continuous through an opening (the
+            # frame sits flush with the wall face) and mark masonry with a
+            # field of diagonal hatch ticks instead -- the interruption
+            # then shows up only as a real gap in that tick pattern, never
+            # as a break in the boundary lines. Gated on the same
+            # already-established credible band, and still requires jamb
+            # verticals confirmed at both boundaries (or a door swing) --
+            # narrower and more specific than the discarded jamb-pair
+            # fallback, which accepted ANY extra content between ANY two
+            # incidental jamb-shaped verticals.
+            claimed = {(round(h.jamb_start[0], 1), round(h.jamb_end[0], 1)) for h in results}
+            for gap_lo, gap_hi in _diagonal_hatch_tick_gaps(diag_lines, y_a, y_b):
+                key = (round(gap_lo, 1), round(gap_hi, 1))
+                if key in claimed:
+                    continue
+                gap_width = gap_hi - gap_lo
+                if gap_width < _MIN_GAP_PT or gap_width < _MIN_GAP_TO_THICKNESS_RATIO * thickness:
+                    continue
+                jambs = _vertical_jamb_positions(vert_lines, y_a, y_b)
+                jamb_start_ok = any(abs(x - gap_lo) <= _JAMB_COVERAGE_TOL_PT for x in jambs)
+                jamb_end_ok = any(abs(x - gap_hi) <= _JAMB_COVERAGE_TOL_PT for x in jambs)
+                is_door = _door_swing_anchor(page, gap_lo, gap_hi, y_a, y_b, swapped=swapped)
+                if not (is_door or (jamb_start_ok and jamb_end_ok)):
+                    continue
+
+                width_m = round(gap_width / scale_pt_per_m, 4) if scale_pt_per_m else None
+                evidence_flags = ["host_wall_band", "diagonal_hatch_tick_gap"]
+                if jamb_start_ok and jamb_end_ok:
+                    evidence_flags.append("jamb_boundaries_confirmed")
+
+                subtype: Literal["window_like", "door_like", "opening_unknown"] = "opening_unknown"
+                if is_door:
+                    subtype = "door_like"
+                    evidence_flags.append("jamb_anchored_door_swing")
+                elif _has_internal_evidence(horiz_lines, gap_lo, gap_hi, y_a, y_b):
+                    subtype = "window_like"
+                    evidence_flags.append("internal_frame_or_glazing_evidence")
+
+                results.append(
+                    HostedOpeningSpan(
+                        page=source_page,
+                        host_orientation_deg=0.0,
+                        jamb_start=(round(gap_lo, 2), round((y_a + y_b) / 2.0, 2)),
+                        jamb_end=(round(gap_hi, 2), round((y_a + y_b) / 2.0, 2)),
+                        span_pt=round(gap_width, 2),
+                        width_m=width_m,
+                        wall_thickness_pt=round(thickness, 2),
+                        subtype=subtype,
+                        evidence_flags=tuple(evidence_flags),
+                        reason=(
+                            f"gap in diagonal hatch-tick pattern ({gap_width:.2f}pt, "
+                            f"{gap_width / thickness:.2f}x local thickness) within a continuing "
+                            f"wall-face line pair, classified {subtype}"
+                        ),
+                    )
+                )
     return results
 
 
@@ -546,7 +709,7 @@ def resolve_hosted_opening_spans(
     else:
         vx0, vy0, vx1, vy1 = float("-inf"), float("-inf"), float("inf"), float("inf")
 
-    horiz_lines, vert_lines = _collect_axis_lines(page, (vx0, vy0, vx1, vy1))
+    horiz_lines, vert_lines, diag_lines = _collect_axis_lines(page, (vx0, vy0, vx1, vy1))
     fills = _collect_wall_like_fills(page, (vx0, vy0, vx1, vy1))
     source_page = getattr(page, "number", 0) + 1 if hasattr(page, "number") else 0
 
@@ -555,6 +718,7 @@ def resolve_hosted_opening_spans(
         horiz_lines,
         vert_lines,
         _horizontal_fill_faces(fills),
+        diag_lines,
         source_page=source_page,
         scale_pt_per_m=scale_authority,
     )
@@ -566,11 +730,13 @@ def resolve_hosted_opening_spans(
     swapped_horiz = [(y0, x0, y1, x1) for (x0, y0, x1, y1) in vert_lines]
     swapped_vert = [(y0, x0, y1, x1) for (x0, y0, x1, y1) in horiz_lines]
     swapped_fills = [(y0, x0, y1, x1) for (x0, y0, x1, y1) in _vertical_fill_faces(fills)]
+    swapped_diag = [(y0, x0, y1, x1) for (x0, y0, x1, y1) in diag_lines]
     vertical_hits_swapped = _resolve_horizontal_openings(
         page,
         swapped_horiz,
         swapped_vert,
         swapped_fills,
+        swapped_diag,
         source_page=source_page,
         scale_pt_per_m=scale_authority,
         swapped=True,
@@ -607,9 +773,34 @@ def resolve_hosted_opening_spans(
                 conflicted.add(("h", hi))
                 conflicted.add(("v", vi))
 
-    final: List[HostedOpeningSpan] = [
+    surviving: List[HostedOpeningSpan] = [
         h for hi, h in enumerate(horizontal_hits) if ("h", hi) not in conflicted
     ] + [v for vi, v in enumerate(vertical_hits) if ("v", vi) not in conflicted]
+
+    # The same physical opening can be found twice from two different,
+    # both-valid wall-face pairings that sit very close together (e.g. two
+    # near-duplicate reference lines a fraction of a point apart) --
+    # confirmed as a real occurrence, not a hypothetical, against the real
+    # Dungicha fixture during this module's own development. Collapse
+    # near-identical spans (same orientation, jamb positions within one
+    # local wall thickness of each other) to one, preferring an
+    # aligned-two-face-gap result over a diagonal-hatch-tick-gap one when
+    # both exist for the same physical opening (the former has stronger,
+    # more direct structural evidence).
+    surviving.sort(key=lambda o: 0 if "aligned_two_face_gap" in o.evidence_flags else 1)
+    final: List[HostedOpeningSpan] = []
+    for cand in surviving:
+        tol = max(cand.wall_thickness_pt, _FACE_COORD_TOL_PT)
+        if any(
+            kept.host_orientation_deg == cand.host_orientation_deg
+            and abs(kept.jamb_start[0] - cand.jamb_start[0]) <= tol
+            and abs(kept.jamb_start[1] - cand.jamb_start[1]) <= tol
+            and abs(kept.jamb_end[0] - cand.jamb_end[0]) <= tol
+            and abs(kept.jamb_end[1] - cand.jamb_end[1]) <= tol
+            for kept in final
+        ):
+            continue
+        final.append(cand)
 
     if not final:
         return HostedOpeningEvidence(
