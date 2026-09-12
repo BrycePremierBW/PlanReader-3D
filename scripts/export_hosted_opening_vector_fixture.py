@@ -12,29 +12,29 @@ region around the exact viewports pb_hosted_opening_geometry's tests
 already exercise, and serialises it (stroked line and curve primitives,
 fills, and every attribute the detector reads -- color, width, fill,
 rect) into a committed JSON snapshot. Nothing is hand-selected: a drawing
-is kept only when at least one of its own 'l'/'c' items genuinely
-intersects the capture rectangle -- checked via that item's own bounding
-box against the rectangle, which (unlike a plain endpoint-in-region test)
-does not miss a long line or curve whose control points sit outside the
-region while the primitive itself crosses through it. Once a drawing is
-selected this way, ALL of its 'l'/'c' items are kept, not just the one(s)
-that triggered selection, so incidental/noise geometry on the same path
+is included whenever at least one of its own items has an endpoint or
+control point inside the capture region, not just the drawings that
+happen to form a known window or door, so incidental/noise geometry
 (dimension lines, text-leader lines, grid references) is preserved too.
 
-Normalisation, stated precisely (earlier revisions of this docstring
-overstated this as "byte-for-byte" / "exactly as PyMuPDF reports them",
-which was not accurate): every coordinate, and every color/fill/width
-value, is rounded to 4 decimal places before being written out. This is a
-deliberate, documented normalisation for deterministic, readable JSON --
-not a claim that the file's bytes match PyMuPDF's own internal
-float64 representation.
+Known limitation, documented rather than fixed here: selection is a
+per-point (endpoint/control-point) test, not a true segment/curve-vs-
+rectangle intersection test. A long line or curve that genuinely crosses
+the capture region while BOTH its own endpoints/control points sit
+outside that region will not be detected as intersecting, and will be
+omitted. Separately, once a drawing is selected, only the individual
+'l'/'c' items that themselves have a point in the region are kept -- not
+every item belonging to that drawing. Coordinates and every color/fill/
+width value are rounded to 4 decimal places before being written out;
+this is a deliberate normalisation for deterministic, readable JSON, not
+a claim that the file's bytes match PyMuPDF's own internal float64
+representation.
 
 Determinism: running this script twice against the same source PDF
-produces byte-identical output (no timestamps, no UUIDs, keys sorted,
-drawings kept in PyMuPDF's own stable per-page order). The printed
-SHA-256 of each snapshot file, and of the source PDF it was read from,
-lets a reviewer confirm a committed snapshot really was produced from the
-stated real page without re-running this script.
+produces byte-identical output (no timestamps, no UUIDs, keys sorted).
+The printed SHA-256 of each snapshot file, and of the source PDF it was
+read from, lets a reviewer confirm a committed snapshot really was
+produced from the stated real page without re-running this script.
 
 Usage (from the repository root, with the real PDFs present locally in
 benchmarks/sources/):
@@ -70,50 +70,43 @@ def _point(p) -> List[float]:
     return [round(float(p.x), 4), round(float(p.y), 4)]
 
 
-def _rects_overlap(a, b) -> bool:
-    ax0, ay0, ax1, ay1 = a
-    bx0, by0, bx1, by1 = b
-    return not (ax1 < bx0 or ax0 > bx1 or ay1 < by0 or ay0 > by1)
+def _rect_overlaps(rect, region) -> bool:
+    rx0, ry0, rx1, ry1 = region
+    return not (rect.x1 < rx0 or rect.x0 > rx1 or rect.y1 < ry0 or rect.y0 > ry1)
 
 
-def _item_bbox(item) -> Optional[tuple[float, float, float, float]]:
-    """Bounding box of a supported 'l' (2-point line) or 'c' (4-point
-    cubic curve) item's own control points. A cubic Bezier curve always
-    lies within the convex hull of its control points, so this bbox is a
-    safe (never-missing, occasionally slightly generous) proxy for "does
-    this primitive intersect the region" -- unlike a plain
-    point-in-region test on the endpoints alone, it correctly catches a
-    long line or curve whose control points sit outside the capture
-    region while the primitive itself passes through it."""
-    xs: List[float] = []
-    ys: List[float] = []
+def _item_overlaps(item, region) -> bool:
+    """True if any of this item's own endpoints/control points falls
+    inside region. Point-based, not a true segment/curve-vs-rectangle
+    intersection test: a primitive that crosses the region while both its
+    own endpoints/control points sit outside it will not be detected here
+    (documented module-level limitation, not fixed by this function)."""
+    rx0, ry0, rx1, ry1 = region
     for p in item[1:]:
         try:
-            xs.append(float(p.x))
-            ys.append(float(p.y))
+            x, y = float(p.x), float(p.y)
         except Exception:
             continue
-    if not xs:
-        return None
-    return (min(xs), min(ys), max(xs), max(ys))
-
-
-def _item_intersects_region(item, region) -> bool:
-    bbox = _item_bbox(item)
-    return bbox is not None and _rects_overlap(bbox, region)
+        if rx0 <= x <= rx1 and ry0 <= y <= ry1:
+            return True
+    return False
 
 
 def _serialise_drawing(d: Dict[str, Any], region) -> Optional[Dict[str, Any]]:
-    """Select this drawing if ANY of its supported 'l'/'c' items genuinely
-    intersects the capture region (by bounding-box test, see
-    _item_intersects_region), then serialise ALL of its supported 'l'/'c'
-    items -- not just the one(s) that triggered selection -- preserving
-    whatever else is on the same drawing path within the region."""
+    """Keep only the individual 'l'/'c' items of this drawing that
+    themselves satisfy _item_overlaps -- not every item belonging to a
+    drawing that has at least one qualifying item (see module docstring's
+    "known limitation" note)."""
     items = d.get("items") or []
-    supported_items = [item for item in items if item and item[0] in ("l", "c")]
-    if not any(_item_intersects_region(item, region) for item in supported_items):
+    kept_items = [item for item in items if _item_overlaps(item, region)]
+    if not kept_items:
         return None
-    out_items = [[item[0]] + [_point(p) for p in item[1:]] for item in supported_items]
+    out_items = []
+    for item in kept_items:
+        op = item[0]
+        if op not in ("l", "c"):
+            continue
+        out_items.append([op] + [_point(p) for p in item[1:]])
     if not out_items:
         return None
     color = d.get("color")
@@ -146,11 +139,15 @@ def export_page_snapshot(
     try:
         page = doc[page_index_0based]
         page_rect = page.rect
-        # Kept in PyMuPDF's own stable per-page get_drawings() order --
-        # this, not any subsequent sort, is what makes the output
-        # deterministic across runs.
         drawings_out = []
         for d in page.get_drawings() or []:
+            rect = d.get("rect")
+            if rect is not None and not _rect_overlaps(rect, capture_region):
+                # Fast skip using the drawing's own bbox when it has one
+                # (fills always do); items are still checked individually
+                # below for stroke-only paths with no rect.
+                if all(_not_in_region(p, capture_region) for it in (d.get("items") or []) for p in it[1:]):
+                    continue
             serialised = _serialise_drawing(d, capture_region)
             if serialised is not None:
                 drawings_out.append(serialised)
@@ -168,12 +165,12 @@ def export_page_snapshot(
                 "tested_viewports_pdf_pt": [list(v) for v in tested_viewports],
                 "extraction": (
                     "PyMuPDF page.get_drawings(): a drawing is kept when at least one "
-                    "of its own supported 'l'/'c' items has a bounding box overlapping "
-                    "capture_region_pdf_pt (this bbox test, not a plain endpoint-in-"
-                    "region check, is what catches a long line/curve crossing the "
-                    "region with both endpoints outside it). Once kept, ALL of that "
-                    "drawing's supported 'l'/'c' items are included, not just the "
-                    "one(s) that triggered selection. color/fill/width/rect and every "
+                    "of its own 'l'/'c' items has an endpoint or control point inside "
+                    "capture_region_pdf_pt (point-based test, not a true segment/curve "
+                    "-vs-rectangle intersection -- see script module docstring's "
+                    "'known limitation' note for what this can miss). Only the "
+                    "individual items that themselves qualify are kept, not every "
+                    "item on a qualifying drawing. color/fill/width/rect and every "
                     "coordinate are rounded to 4 decimal places -- a documented "
                     "normalisation for deterministic, readable JSON, not raw "
                     "byte-for-byte PyMuPDF float64 data"
@@ -189,6 +186,15 @@ def export_page_snapshot(
         return snapshot
     finally:
         doc.close()
+
+
+def _not_in_region(p, region) -> bool:
+    rx0, ry0, rx1, ry1 = region
+    try:
+        x, y = float(p.x), float(p.y)
+    except Exception:
+        return True
+    return not (rx0 <= x <= rx1 and ry0 <= y <= ry1)
 
 
 def _serialise(snapshot: Dict[str, Any]) -> str:
