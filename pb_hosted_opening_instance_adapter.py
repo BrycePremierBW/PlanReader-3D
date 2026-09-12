@@ -17,20 +17,27 @@ from pb_opening_tag_normalization import normalize_opening_tag
 
 SHADOW_BLOCKED_ON_VIEWPORT_AUTHORITY = "BLOCKED_ON_VIEWPORT_AUTHORITY"
 
-# A swing/leaf arc may classify an already-hosted gap. It is not enough
-# on its own to create an opening. These flags are the hosted-gap contract.
-_HOSTED_GAP_AUTHORITY_FLAGS = frozenset(
-    {
-        "host_wall_band",
-        "aligned_two_face_gap",
-        "jamb_boundaries_confirmed",
-    }
-)
-
-
 def hosted_gap_authority_present(span: HostedOpeningSpan) -> bool:
-    """True only when the span carries hosted-gap evidence, not arc-alone."""
-    return bool(set(span.evidence_flags) & _HOSTED_GAP_AUTHORITY_FLAGS)
+    """True only for Claude's exact aligned-channel or hatch-channel contract.
+
+    A swing arc may corroborate a real hatch-material gap. It can never
+    create hosted-opening authority by itself.
+    """
+    flags = set(span.evidence_flags)
+    aligned_authority = (
+        "host_wall_band" in flags
+        and "aligned_two_face_gap" in flags
+        and "jamb_boundaries_confirmed" in flags
+    )
+    hatch_authority = (
+        "host_wall_band" in flags
+        and "diagonal_hatch_tick_gap" in flags
+        and (
+            "jamb_boundaries_confirmed" in flags
+            or "jamb_anchored_door_swing" in flags
+        )
+    )
+    return aligned_authority or hatch_authority
 
 
 def hosted_opening_span_id(span: HostedOpeningSpan) -> str:
