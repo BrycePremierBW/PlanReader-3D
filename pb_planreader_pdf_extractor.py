@@ -183,6 +183,72 @@ class GenericPlanReaderExtractor:
         )
 
     @staticmethod
+    def _split_into_logical_notes(page_text: str) -> List[str]:
+        """Segment raw page text into logical notes/sentences.
+
+        Numbered drafting notes are commonly hard-wrapped across multiple
+        PDF text lines with no sentence-ending punctuation at the wrap
+        point (e.g. "...to be of approved\n   bitumious felt provided
+        under all walls..."). A naive split on every newline would sever
+        that single note into two meaningless fragments. A naive refusal
+        to ever split on newlines would instead conflate two genuinely
+        separate, newline-only-separated notes into one.
+
+        Distinguishes the two using the one reliable, generic (not
+        drawing-specific) typographic signal available: a wrapped
+        continuation resumes a sentence already in progress, so it starts
+        with a lowercase letter; a new note or sentence starts with an
+        uppercase letter or an explicit numbering marker ("3.", "06)").
+        Semicolons and periods always end a note outright -- they are
+        never treated as wrap points.
+        """
+        # Periods and semicolons are hard, unambiguous note boundaries.
+        segments = re.split(r"[.;]", page_text)
+        notes: List[str] = []
+        for segment in segments:
+            merged_lines: List[str] = []
+            for raw_line in segment.splitlines():
+                line = raw_line.strip()
+                if not line:
+                    continue
+                starts_new_note = bool(re.match(r"^(?:\d+\s*[.)\]:]|[A-Z])", line))
+                if merged_lines and not starts_new_note:
+                    merged_lines[-1] = f"{merged_lines[-1]} {line}"
+                else:
+                    merged_lines.append(line)
+            notes.extend(merged_lines)
+        return notes
+
+    @staticmethod
+    def _has_dpc_all_walls_scope(page_text: str) -> bool:
+        """Return whether the drawing's own DPC note explicitly extends its
+        scope to every wall, not just the external envelope.
+
+        Some drawings state this outright (e.g. "DPC ... provided under
+        all walls on ground floor"). Only when this is genuinely present
+        should an internal partition's evidenced length be added to the
+        DPC quantity -- otherwise DPC stays scoped to the external
+        perimeter alone, matching the narrower default reading.
+
+        Clause-bound: the DPC identity and the "all walls" wording must
+        belong to the SAME logical note (see _split_into_logical_notes),
+        not merely the same page or the same period-delimited chunk. Two
+        notes separated only by a newline (no terminal punctuation at
+        all) -- e.g. an unrelated plaster note on the very next line --
+        must not be conflated with a DPC note that says nothing about
+        scope, even though a plain ``.`` split cannot see that boundary
+        while a wrapped DPC note has none to split on either. When the
+        note association is ambiguous, this fails closed (returns False).
+        """
+        for note in GenericPlanReaderExtractor._split_into_logical_notes(page_text):
+            normalized_note = re.sub(r"\s+", " ", note.lower())
+            if not re.search(r"\b(?:under|to|beneath)\s+all\s+walls\b", normalized_note):
+                continue
+            if GenericPlanReaderExtractor._has_dpc_specification(note):
+                return True
+        return False
+
+    @staticmethod
     def _standalone_chalkboard_label_count(page_text: str) -> int:
         """Count plan labels whose entire line is a chalkboard identity.
 
@@ -1250,15 +1316,61 @@ class GenericPlanReaderExtractor:
                 # DPC from building perimeter: exactly equal to perimeter P
                 # NO hardcoded 67.0 fallback
                 if global_has_dpc and cur_perim > 0:
-                    dpc_qty = round(cur_perim, 1)
-                    dpc_meta = pred_dict["floor_screed"].metadata or {}
+                    dpc_length_m = cur_perim
+                    internal_partition_dpc_length_m = None
+                    # F.33: only when THIS PAGE's own DPC note explicitly
+                    # extends scope to "all walls" (not just the external
+                    # envelope) does an evidenced internal partition's
+                    # length get added here. Deliberately page-local, not
+                    # document-global: a document-wide flag would let an
+                    # "all walls" note on one sheet leak into a DPC
+                    # quantity computed from a different page's geometry
+                    # that carries no such scope statement of its own.
+                    # Never applied to perimeter_walling/internal_plaster/
+                    # internal_paint -- DPC is a distinct linear quantity
+                    # and this partition-length evidence is only being
+                    # asserted for the specific case this page's own note
+                    # describes.
+                    page_dpc_scoped_to_all_walls = self._has_dpc_all_walls_scope(page_text)
+                    if page_dpc_scoped_to_all_walls:
+                        try:
+                            from pb_wall_fill_internal_partition_evidence import (
+                                resolve_internal_partition_length_m,
+                            )
+
+                            _partition_evidence = resolve_internal_partition_length_m(
+                                page.get_drawings(), length_m=length_m, width_m=width_m, page=page
+                            )
+                            if (
+                                _partition_evidence.status == "found"
+                                and _partition_evidence.total_length_m > 0
+                            ):
+                                internal_partition_dpc_length_m = _partition_evidence.total_length_m
+                                dpc_length_m = round(
+                                    cur_perim + internal_partition_dpc_length_m, 2
+                                )
+                        except Exception:
+                            internal_partition_dpc_length_m = None
+                            dpc_length_m = cur_perim
+                    dpc_qty = round(dpc_length_m, 1)
+                    dpc_meta = dict(pred_dict["floor_screed"].metadata or {})
+                    if internal_partition_dpc_length_m is not None:
+                        dpc_meta["internal_partition_length_m"] = internal_partition_dpc_length_m
+                        dpc_meta["dpc_scope"] = "external_perimeter_plus_evidenced_internal_partitions"
+                        dpc_description = (
+                            f"Bituminous damp proof course ({cur_perim:.1f}m external perimeter + "
+                            f"{internal_partition_dpc_length_m:.1f}m evidenced internal partition, "
+                            "per drawing's own \"under all walls\" note)"
+                        )
+                    else:
+                        dpc_description = f"Bituminous damp proof course ({dpc_qty:.1f}m perimeter)"
                     if self._should_replace_slab_bound_quantity(
                         pred_dict.get("damp_proof_course"), dpc_qty, dpc_meta
                     ):
                         pred_dict["damp_proof_course"] = ExtractedPrediction(
                             tag="damp_proof_course",
                             trade_type="finishes",
-                            description=f"Bituminous damp proof course ({dpc_qty:.1f}m perimeter)",
+                            description=dpc_description,
                             quantity=dpc_qty,
                             unit="M",
                             confidence=0.90,
