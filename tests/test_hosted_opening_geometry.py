@@ -842,3 +842,120 @@ def test_repeated_motif_outside_viewport_is_excluded():
         _FakePage(drawings), viewport_bbox=(1000.0, 1000.0, 1500.0, 1500.0), scale_authority=25.0
     )
     assert ev.status == "abstained"
+
+
+# ---------------------------------------------------------------------------
+# Viewport-bbox sensitivity regression (found auditing real Baghau behavior
+# under an automatically-resolved, rather than hand-picked, viewport bbox).
+# ---------------------------------------------------------------------------
+
+
+def _opening_signature(o):
+    return (o.subtype, o.jamb_start, o.jamb_end, round(o.span_pt, 3), o.evidence_flags)
+
+
+def test_unrelated_far_fragment_sharing_a_face_y_does_not_erase_a_real_opening():
+    """A real hosted opening must not disappear merely because the caller's
+    viewport_bbox grows to also include a spatially disconnected, entirely
+    unrelated fragment elsewhere on the page that happens to share this
+    wall band's exact y-coordinate.
+
+    Root cause (confirmed by direct instrumentation before fixing):
+    _is_credible_wall_face's span_lo/span_hi used to be the row's GLOBAL
+    min/max coverage extent. A single small fragment far away in x, sharing
+    a face's y-coordinate purely by coincidence, could drag span_hi out by
+    thousands of points while contributing almost no covered length,
+    collapsing the coverage-fraction ratio for the ENTIRE row (including
+    the real opening nowhere near that fragment) below
+    _MIN_BAND_COVERAGE_FRACTION and rejecting it as "not a credible wall
+    face". A real, minimal, first-of-its-kind end-to-end run against real
+    Baghau drawing data with an automatically-resolved (not hand-picked)
+    viewport bbox is what first surfaced this pattern."""
+    left_pier = _fill_rect(180.0, 100.0, 200.0, 106.0)
+    right_pier = _fill_rect(260.0, 100.0, 320.0, 106.0)
+    glazing = _line(205.0, 101.0, 255.0, 101.0, color=(0.0, 0.0, 0.0))
+    far_unrelated_fragment = _fill_rect(2000.0, 100.0, 2020.0, 106.0)
+    drawings = [left_pier, right_pier, glazing, far_unrelated_fragment]
+
+    tight_bbox = (170.0, 90.0, 330.0, 116.0)  # excludes the far fragment
+    wide_bbox = (170.0, 90.0, 2050.0, 116.0)  # includes it; real evidence unchanged
+
+    ev_tight = resolve_hosted_opening_spans(_FakePage(drawings), viewport_bbox=tight_bbox, scale_authority=25.0)
+    ev_wide = resolve_hosted_opening_spans(_FakePage(drawings), viewport_bbox=wide_bbox, scale_authority=25.0)
+
+    assert ev_tight.status == "found" and len(ev_tight.openings) == 1
+    assert ev_wide.status == "found" and len(ev_wide.openings) == 1
+    assert _opening_signature(ev_tight.openings[0]) == _opening_signature(ev_wide.openings[0])
+    assert ev_wide.openings[0].subtype == "window_like"
+
+
+def test_far_fragment_does_not_corrupt_diagonal_hatch_tick_channel_either():
+    """The same class of defect, for the diagonal-hatch-tick-gap channel:
+    both channels shared the same vulnerable global-span credibility gate
+    before the fix."""
+
+    def _tick(x, y0, y1):
+        return _line(x, y0, x + 10.0, y1, color=(0.0, 0.0, 0.0), width=0.3)
+
+    y0, y1 = 100.0, 110.0
+    xs_before = [0.0, 14.0, 28.0, 42.0]
+    xs_after = [76.0, 90.0, 104.0, 118.0]
+    drawings = [
+        _line(-20.0, y0, 148.0, y0, color=(0.0, 0.0, 0.0), width=0.75),
+        _line(-20.0, y1, 148.0, y1, color=(0.0, 0.0, 0.0), width=0.75),
+    ]
+    for x in xs_before + xs_after:
+        drawings.append(_tick(x, y0, y1))
+    drawings.append(_line(52.0, y0, 52.0, y1, color=(0.0, 0.0, 0.0), width=0.5))
+    drawings.append(_line(76.0, y0, 76.0, y1, color=(0.0, 0.0, 0.0), width=0.5))
+    drawings.append(_line(54.0, (y0 + y1) / 2.0, 74.0, (y0 + y1) / 2.0, color=(0.0, 0.0, 0.0), width=0.3))
+    far_unrelated_fragment = _fill_rect(2000.0, y0, 2020.0, y1)
+    drawings_with_far = drawings + [far_unrelated_fragment]
+
+    tight_bbox = (-40.0, 80.0, 170.0, 130.0)
+    wide_bbox = (-40.0, 80.0, 2050.0, 130.0)
+
+    ev_tight = resolve_hosted_opening_spans(_FakePage(drawings_with_far), viewport_bbox=tight_bbox, scale_authority=25.0)
+    ev_wide = resolve_hosted_opening_spans(_FakePage(drawings_with_far), viewport_bbox=wide_bbox, scale_authority=25.0)
+
+    assert ev_tight.status == "found" and len(ev_tight.openings) == 1
+    assert ev_wide.status == "found" and len(ev_wide.openings) == 1
+    assert _opening_signature(ev_tight.openings[0]) == _opening_signature(ev_wide.openings[0])
+    assert "diagonal_hatch_tick_gap" in ev_wide.openings[0].evidence_flags
+
+
+@pytest.mark.parametrize(
+    "bbox",
+    [
+        (170.0, 90.0, 330.0, 116.0),  # base
+        (166.6, 88.7, 333.4, 117.3),  # +2% expansion
+        (162.5, 86.5, 337.5, 119.5),  # +5% expansion
+        (173.2, 91.3, 326.8, 114.7),  # -2% contraction
+        (171.6, 90.65, 331.6, 116.65),  # translate right/down ~1%
+        (168.4, 89.35, 328.4, 115.35),  # translate left/up ~1%
+    ],
+)
+def test_translation_expansion_contraction_invariance_aligned_two_face_gap(bbox):
+    """Small, mechanically-derived expansions/contractions/translations of
+    a viewport bbox that keep all of a real opening's own evidence fully
+    inside must never change its presence, subtype, geometry, or evidence
+    flags."""
+    drawings = _two_pier_fill_wall_with_window(200.0, 200.0, 260.0, 300.0)
+    base_ev = resolve_hosted_opening_spans(
+        _FakePage(drawings), viewport_bbox=(170.0, 90.0, 330.0, 116.0), scale_authority=25.0
+    )
+    ev = resolve_hosted_opening_spans(_FakePage(drawings), viewport_bbox=bbox, scale_authority=25.0)
+    assert ev.status == "found" and len(ev.openings) == 1
+    assert _opening_signature(ev.openings[0]) == _opening_signature(base_ev.openings[0])
+
+
+def test_cropping_away_one_wall_face_aborts_rather_than_invents():
+    """Genuinely removing required evidence (here: the entire right pier)
+    must abstain, never invent a different opening or silently keep a
+    result built on partial evidence."""
+    drawings = _two_pier_fill_wall_with_window(200.0, 200.0, 260.0, 300.0)
+    ev = resolve_hosted_opening_spans(
+        _FakePage(drawings), viewport_bbox=(170.0, 90.0, 245.0, 116.0), scale_authority=25.0
+    )
+    assert ev.status == "abstained"
+    assert ev.openings == ()
