@@ -959,3 +959,75 @@ def test_cropping_away_one_wall_face_aborts_rather_than_invents():
     )
     assert ev.status == "abstained"
     assert ev.openings == ()
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "known residual locality defect: _local_credibility_window can "
+        "absorb arbitrarily distant same-row coverage when the immediate "
+        "local span is below _MIN_BAND_RUN_PT"
+    ),
+)
+def test_distant_long_fragment_must_not_manufacture_credibility_for_a_marginal_gap():
+    """_local_credibility_window (added to fix the far-fragment defect
+    above) walks outward from a candidate gap, pulling in whichever
+    interval is nearest on each side, until it accumulates at least
+    _MIN_BAND_RUN_PT of span -- with no bound on how FAR that walk is
+    allowed to reach. This checks whether that absence of a distance bound
+    lets a distant, unrelated fragment manufacture credibility for a
+    candidate that has nowhere near enough real LOCAL evidence on its own,
+    merely because the fragment happens to be long enough to satisfy the
+    coverage-fraction ratio once absorbed.
+
+    Two 20pt piers with a 10pt gap between them (thickness 6pt) have only
+    50pt of real, immediate local coverage on each face -- short of
+    _MIN_BAND_RUN_PT (60pt) on their own, so a tight viewport containing
+    only this structure must correctly abstain (asserted below as a
+    control). A third, 40pt-long fragment placed 150pt further along the
+    same two faces -- clearly a separate, disconnected piece of geometry,
+    not part of the same local wall run by any reasonable reading -- must
+    not change that outcome merely because a wider viewport also includes
+    it and the walk-outward helper is willing to reach that far to hit its
+    span target.
+    """
+    y0, y1 = 100.0, 106.0
+    left_pier = _fill_rect(0.0, y0, 20.0, y1)
+    right_pier = _fill_rect(30.0, y0, 50.0, y1)
+    base_drawings = [left_pier, right_pier]
+
+    tight_bbox = (-10.0, 90.0, 60.0, 116.0)
+    ev_tight = resolve_hosted_opening_spans(_FakePage(base_drawings), viewport_bbox=tight_bbox, scale_authority=25.0)
+    assert ev_tight.status == "abstained"
+    assert ev_tight.openings == ()
+
+    far_fragment = _fill_rect(200.0, y0, 240.0, y1)  # 150pt beyond the right pier, 40pt long
+    drawings = base_drawings + [far_fragment]
+    wide_bbox = (-10.0, 90.0, 250.0, 116.0)
+    ev_wide = resolve_hosted_opening_spans(_FakePage(drawings), viewport_bbox=wide_bbox, scale_authority=25.0)
+
+    marginal_gap = next(
+        (o for o in ev_wide.openings if o.jamb_start[0] == 20.0 and o.jamb_end[0] == 30.0), None
+    )
+    assert marginal_gap is None, (
+        "the 10pt gap between the two short piers must not become a hosted "
+        f"opening merely because a distant, unrelated fragment let the local "
+        f"credibility window reach _MIN_BAND_RUN_PT; got {marginal_gap!r} "
+        f"among {ev_wide.openings!r}"
+    )
+
+    synthetic_gap_to_fragment = next(
+        (o for o in ev_wide.openings if o.jamb_start[0] == 50.0 and o.jamb_end[0] == 200.0), None
+    )
+    assert synthetic_gap_to_fragment is None, (
+        "the 150pt real gap between the right pier and the distant, "
+        f"unrelated fragment must not itself be manufactured into a hosted "
+        f"opening either; got {synthetic_gap_to_fragment!r} among {ev_wide.openings!r}"
+    )
+
+    assert ev_wide.status == "abstained" and ev_wide.openings == (), (
+        "this fixture has no genuine hosted opening at all once the distant "
+        f"fragment is present -- the correct result is a clean abstention, "
+        f"not any combination of the marginal gap and/or the synthetic gap "
+        f"to the fragment; got status={ev_wide.status!r} openings={ev_wide.openings!r}"
+    )
