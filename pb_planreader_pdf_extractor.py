@@ -73,6 +73,15 @@ class GenericPlanReaderExtractor:
             "reason": "not_collected",
             "evidence": [],
         }
+        self.opening_provenance_shadow: Dict[str, Any] = {
+            "status": "abstained",
+            "reason": "not_collected",
+            "physical_openings": [],
+            "nodes": [],
+            "edges": [],
+            "resolutions": [],
+            "conflicts": [],
+        }
 
     def is_drawing_page(self, page_text: str, page: Optional[fitz.Page] = None) -> bool:
         """Heuristically determine if a PDF page contains architectural drawings."""
@@ -478,6 +487,15 @@ class GenericPlanReaderExtractor:
             "status": "abstained",
             "reason": "not_collected",
             "evidence": [],
+        }
+        self.opening_provenance_shadow = {
+            "status": "abstained",
+            "reason": "not_collected",
+            "physical_openings": [],
+            "nodes": [],
+            "edges": [],
+            "resolutions": [],
+            "conflicts": [],
         }
 
         # ------------------------------------------------------------------
@@ -2037,6 +2055,20 @@ class GenericPlanReaderExtractor:
 
             self.hosted_opening_shadow = empty_hosted_opening_shadow(
                 reason="detector_exception"
+            )
+
+        # Opening provenance SHADOW only. Never mutates pred_dict or F.9.
+        try:
+            from pb_opening_provenance_graph import collect_opening_provenance_shadow_for_doc
+
+            self.opening_provenance_shadow = collect_opening_provenance_shadow_for_doc(
+                doc, target_pages, self.hosted_opening_shadow
+            )
+        except Exception:
+            from pb_opening_provenance_graph import empty_opening_provenance_shadow
+
+            self.opening_provenance_shadow = empty_opening_provenance_shadow(
+                reason="provenance_exception"
             )
 
         doc.close()
