@@ -12,7 +12,7 @@ from __future__ import annotations
 import math
 from collections import Counter
 from dataclasses import dataclass, field, replace
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from pb_drawing_evidence_binding import DrawingViewType
@@ -954,8 +954,8 @@ def adapt_snapshot_to_canonical_level(snapshot: TopologySnapshot):
 
 
 def document_id_from_path(path: str | Path) -> str:
-    """Stable document label from a basename only — never an absolute path."""
-    return Path(path).name
+    """Stable document label from a basename only, independent of host OS."""
+    return PureWindowsPath(str(path)).name
 
 
 def list_page_viewports(
