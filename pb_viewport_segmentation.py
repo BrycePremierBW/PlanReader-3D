@@ -5,15 +5,21 @@ text but its bbox is only the title text bbox.  F.07 turns title evidence into
 spatial ownership for dimensions, scales, openings and references.
 
 Authority states:
-- RESOLVED: title is tied to a native vector frame.
+- RESOLVED: title is tied to exactly one native vector frame.
 - DERIVED: multiple unframed titles support a non-overlapping page partition.
 - AMBIGUOUS / UNSUPPORTED: ownership is not guessed.
 
+A native frame may be a rectangle item, an axis-aligned quad, or one closed
+four-line path. Independent wall lines are not assembled into a frame.
+Largest/smallest/nearest rectangle is never a default owner.
+
 Safety invariants:
 - project/file/path/benchmark identity is never an input;
-- spatial tolerances are derived from page typography or normalized page extent;
+- spatial tolerances are derived from page typography or the candidate frame;
 - prose mentioning a view is not accepted as a drawing title;
 - one frame shared by multiple titles is ambiguous;
+- two equivalent frames competing for one title are ambiguous;
+- page borders, crop boxes, title-block panels, and table grids are not viewports;
 - scale is associated only after viewport ownership; conflicting scales remain
   unresolved;
 - viewport IDs are provenance only, never semantic prediction features.
@@ -91,6 +97,19 @@ class _TitleAnchor:
 
 
 _SCALE_RE = re.compile(r"\b(?:SCALE\s*)?(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)\b", re.I)
+_TITLE_BLOCK_LABEL_RE = re.compile(
+    r"\b(?:drawing\s+(?:title|no\.?|number)|rev(?:ision)?|checked by|drawn by|approved|"
+    r"consultant|client|date)\b",
+    re.I,
+)
+_MAX_FRAME_PAGE_FRACTION = 0.95
+_CROP_EDGE_FRACTION = 0.03
+_MAX_FRAME_ASPECT_RATIO = 8.0
+_TITLE_BELOW_FRAME_HEIGHT_FRACTION = 0.25
+_TITLE_HORIZONTAL_OVERLAP_FRACTION = 0.5
+_NESTED_BAND_SPAN_FRACTION = 0.35
+_TITLE_BLOCK_AREA_FRACTION = 0.20
+_TABLE_CELL_COUNT = 8
 _TITLE_SHAPE_RE = re.compile(
     r"^\s*(?:"
     r"(?:GROUND|FIRST|SECOND|THIRD|UPPER|LOWER|LEVEL\s*[A-Z0-9.-]+)?\s*FLOOR\s+PLAN|"
@@ -133,6 +152,208 @@ def _bbox_overlap_area(a: Sequence[float], b: Sequence[float]) -> float:
     x0 = max(float(a[0]), float(b[0])); y0 = max(float(a[1]), float(b[1]))
     x1 = min(float(a[2]), float(b[2])); y1 = min(float(a[3]), float(b[3]))
     return max(0.0, x1 - x0) * max(0.0, y1 - y0)
+
+
+def _normalized_bbox(x0: float, y0: float, x1: float, y1: float) -> tuple[float, float, float, float]:
+    return (min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
+
+
+def _cluster_values(values: Sequence[float], tol: float) -> list[float]:
+    ordered = sorted(float(v) for v in values)
+    if not ordered:
+        return []
+    groups: list[list[float]] = [[ordered[0]]]
+    for value in ordered[1:]:
+        if abs(value - groups[-1][-1]) <= tol:
+            groups[-1].append(value)
+        else:
+            groups.append([value])
+    return [sum(group) / len(group) for group in groups]
+
+
+def _axis_aligned_quad_bbox(quad: Any, *, tol: float) -> Optional[tuple[float, float, float, float]]:
+    points: list[tuple[float, float]] = []
+    if hasattr(quad, "ul") and hasattr(quad, "ur") and hasattr(quad, "ll") and hasattr(quad, "lr"):
+        for point in (quad.ul, quad.ur, quad.ll, quad.lr):
+            points.append((float(point.x), float(point.y)))
+    elif hasattr(quad, "x0") and hasattr(quad, "y0") and hasattr(quad, "x1") and hasattr(quad, "y1"):
+        return _normalized_bbox(float(quad.x0), float(quad.y0), float(quad.x1), float(quad.y1))
+    else:
+        return None
+    xs = _cluster_values([p[0] for p in points], tol)
+    ys = _cluster_values([p[1] for p in points], tol)
+    if len(xs) != 2 or len(ys) != 2:
+        return None
+    return (min(xs), min(ys), max(xs), max(ys))
+
+
+def _closed_four_line_rect(
+    items: Sequence[Any],
+    *,
+    tol: float,
+) -> Optional[tuple[float, float, float, float]]:
+    if len(items) != 4:
+        return None
+    horiz: list[tuple[float, float, float]] = []
+    vert: list[tuple[float, float, float]] = []
+    for item in items:
+        if not item or item[0] != "l" or len(item) < 3:
+            return None
+        start, end = item[1], item[2]
+        x0, y0, x1, y1 = float(start.x), float(start.y), float(end.x), float(end.y)
+        if abs(y0 - y1) <= tol and abs(x0 - x1) > tol:
+            horiz.append((min(x0, x1), max(x0, x1), (y0 + y1) / 2.0))
+        elif abs(x0 - x1) <= tol and abs(y0 - y1) > tol:
+            vert.append((min(y0, y1), max(y0, y1), (x0 + x1) / 2.0))
+        else:
+            return None
+    if len(horiz) != 2 or len(vert) != 2:
+        return None
+    if abs(horiz[0][2] - horiz[1][2]) <= tol or abs(vert[0][2] - vert[1][2]) <= tol:
+        return None
+    bbox = (min(vert[0][2], vert[1][2]), min(horiz[0][2], horiz[1][2]),
+            max(vert[0][2], vert[1][2]), max(horiz[0][2], horiz[1][2]))
+    width = bbox[2] - bbox[0]
+    height = bbox[3] - bbox[1]
+    if width <= tol or height <= tol:
+        return None
+    if any((span[1] - span[0]) < 0.8 * width for span in horiz):
+        return None
+    if any((span[1] - span[0]) < 0.8 * height for span in vert):
+        return None
+    return bbox
+
+
+def _is_page_or_crop_border(
+    frame: Sequence[float],
+    calibration: ViewportLayoutCalibration,
+) -> bool:
+    page_area = calibration.page_width_pt * calibration.page_height_pt
+    if page_area > 0 and _bbox_area(frame) / page_area >= _MAX_FRAME_PAGE_FRACTION:
+        return True
+    margin_x = calibration.page_width_pt * _CROP_EDGE_FRACTION
+    margin_y = calibration.page_height_pt * _CROP_EDGE_FRACTION
+    return (
+        float(frame[0]) <= margin_x
+        and float(frame[1]) <= margin_y
+        and float(frame[2]) >= calibration.page_width_pt - margin_x
+        and float(frame[3]) >= calibration.page_height_pt - margin_y
+    )
+
+
+def _frame_aspect_ratio(frame: Sequence[float]) -> float:
+    width = max(0.0, float(frame[2]) - float(frame[0]))
+    height = max(0.0, float(frame[3]) - float(frame[1]))
+    shorter = max(min(width, height), 1e-6)
+    return max(width, height) / shorter
+
+
+def _title_horizontal_overlap_fraction(anchor: _TitleAnchor, frame: Sequence[float]) -> float:
+    overlap = min(float(frame[2]), anchor.bbox[2]) - max(float(frame[0]), anchor.bbox[0])
+    width = max(anchor.bbox[2] - anchor.bbox[0], 1e-6)
+    return max(0.0, overlap) / width
+
+
+def _max_title_below_frame_gap(frame: Sequence[float], calibration: ViewportLayoutCalibration) -> float:
+    frame_height = max(0.0, float(frame[3]) - float(frame[1]))
+    return max(calibration.title_frame_gap_pt, _TITLE_BELOW_FRAME_HEIGHT_FRACTION * frame_height)
+
+
+def _other_title_in_title_gap(
+    anchor: _TitleAnchor,
+    frame: Sequence[float],
+    anchors: Sequence[_TitleAnchor],
+) -> bool:
+    gap_box = (float(frame[0]), float(frame[3]), float(frame[2]), float(anchor.bbox[1]))
+    if gap_box[3] <= gap_box[1]:
+        return False
+    return any(
+        other is not anchor and _point_in_bbox(other.center, gap_box)
+        for other in anchors
+    )
+
+
+def _collapse_nested_band_frames(
+    frames: Sequence[tuple[float, float, float, float]],
+) -> list[tuple[float, float, float, float]]:
+    kept: list[tuple[float, float, float, float]] = []
+    for frame in frames:
+        width = float(frame[2]) - float(frame[0])
+        height = float(frame[3]) - float(frame[1])
+        nested_band = False
+        for other in frames:
+            if other == frame:
+                continue
+            if not _bbox_contains(other, frame, margin=1.0):
+                continue
+            other_w = float(other[2]) - float(other[0])
+            other_h = float(other[3]) - float(other[1])
+            if height <= _NESTED_BAND_SPAN_FRACTION * other_h or width <= _NESTED_BAND_SPAN_FRACTION * other_w:
+                nested_band = True
+                break
+        if not nested_band:
+            kept.append(frame)
+    return kept
+
+
+def _frame_has_title_block_labels(
+    frame: Sequence[float],
+    fragments: Sequence[tuple[tuple[float, float, float, float], str]],
+    calibration: ViewportLayoutCalibration,
+) -> bool:
+    labels = 0
+    for bbox, text in fragments:
+        if not _point_in_bbox(_bbox_center(bbox), frame):
+            continue
+        if _TITLE_BLOCK_LABEL_RE.search(text):
+            labels += 1
+    if labels < 2:
+        return False
+    page_area = calibration.page_width_pt * calibration.page_height_pt
+    if page_area <= 0 or _bbox_area(frame) / page_area > _TITLE_BLOCK_AREA_FRACTION:
+        return False
+    center_x, center_y = _bbox_center(frame)
+    in_side_band = center_x >= 0.65 * calibration.page_width_pt or center_x <= 0.35 * calibration.page_width_pt
+    in_lower_band = center_y >= 0.60 * calibration.page_height_pt
+    return in_side_band and in_lower_band
+
+
+def _frame_looks_like_table(
+    frame: Sequence[float],
+    page: Any,
+) -> bool:
+    cells = 0
+    frame_area = _bbox_area(frame)
+    if frame_area <= 0:
+        return False
+    for drawing in page.get_drawings() or []:
+        for item in drawing.get("items", []) or []:
+            if not item or item[0] != "re" or len(item) < 2:
+                continue
+            rect = item[1]
+            cell = _normalized_bbox(float(rect.x0), float(rect.y0), float(rect.x1), float(rect.y1))
+            if not _bbox_contains(frame, cell, margin=1.0):
+                continue
+            if _bbox_area(cell) < 0.15 * frame_area and _bbox_area(cell) > 4.0:
+                cells += 1
+            if cells >= _TABLE_CELL_COUNT:
+                return True
+    return False
+
+
+def _rejected_ownership_frame(
+    page: Any,
+    frame: Sequence[float],
+    calibration: ViewportLayoutCalibration,
+    fragments: Sequence[tuple[tuple[float, float, float, float], str]],
+) -> bool:
+    if _is_page_or_crop_border(frame, calibration):
+        return True
+    if _frame_has_title_block_labels(frame, fragments, calibration):
+        return True
+    if _frame_looks_like_table(frame, page):
+        return True
+    return False
 
 
 def _normalise_text(text: str) -> str:
@@ -239,24 +460,39 @@ def extract_view_title_anchors(page: Any) -> list[_TitleAnchor]:
 
 
 def extract_vector_frames(page: Any, calibration: ViewportLayoutCalibration) -> list[tuple[float, float, float, float]]:
-    page_area = calibration.page_width_pt * calibration.page_height_pt
     frames: list[tuple[float, float, float, float]] = []
+    tol = max(calibration.median_word_height_pt * 0.15, 0.75)
     for drawing in page.get_drawings() or []:
-        for item in drawing.get("items", []) or []:
-            if not item or item[0] != "re" or len(item) < 2:
+        items = drawing.get("items", []) or []
+        closed = _closed_four_line_rect(items, tol=tol)
+        if closed is not None:
+            frames.append(closed)
+        for item in items:
+            if not item:
                 continue
-            rect = item[1]
-            bbox = (float(rect.x0), float(rect.y0), float(rect.x1), float(rect.y1))
-            width = bbox[2] - bbox[0]; height = bbox[3] - bbox[1]
-            if width < calibration.minimum_frame_span_pt or height < calibration.minimum_frame_span_pt:
-                continue
-            area = _bbox_area(bbox)
-            if page_area > 0 and area / page_area >= 0.95:
+            bbox = None
+            if item[0] == "re" and len(item) >= 2:
+                rect = item[1]
+                bbox = _normalized_bbox(float(rect.x0), float(rect.y0), float(rect.x1), float(rect.y1))
+            elif item[0] == "qu" and len(item) >= 2:
+                bbox = _axis_aligned_quad_bbox(item[1], tol=tol)
+            if bbox is None:
                 continue
             frames.append(bbox)
+    usable: list[tuple[float, float, float, float]] = []
+    for bbox in frames:
+        width = bbox[2] - bbox[0]
+        height = bbox[3] - bbox[1]
+        if width < calibration.minimum_frame_span_pt or height < calibration.minimum_frame_span_pt:
+            continue
+        if _frame_aspect_ratio(bbox) > _MAX_FRAME_ASPECT_RATIO:
+            continue
+        if _is_page_or_crop_border(bbox, calibration):
+            continue
+        usable.append(bbox)
     unique: list[tuple[float, float, float, float]] = []
     eps = max(calibration.median_word_height_pt * 0.1, 0.25)
-    for frame in sorted(frames, key=lambda b: (_bbox_area(b), b)):
+    for frame in sorted(usable, key=lambda b: (_bbox_area(b), b)):
         if any(all(abs(frame[i] - other[i]) <= eps for i in range(4)) for other in unique):
             continue
         unique.append(frame)
@@ -267,17 +503,25 @@ def _frame_candidates_for_title(
     anchor: _TitleAnchor,
     frames: Sequence[tuple[float, float, float, float]],
     calibration: ViewportLayoutCalibration,
+    anchors: Sequence[_TitleAnchor] = (),
 ) -> list[tuple[float, float, float, float]]:
     candidates: list[tuple[float, float, float, float]] = []
     title_center = anchor.center
     for frame in frames:
         if _bbox_contains(frame, anchor.bbox, margin=calibration.median_word_height_pt * 0.25):
-            candidates.append(frame); continue
-        horizontally_aligned = frame[0] <= title_center[0] <= frame[2]
-        gap = anchor.bbox[1] - frame[3]
-        if horizontally_aligned and 0 <= gap <= calibration.title_frame_gap_pt:
             candidates.append(frame)
-    return sorted(candidates, key=lambda b: (_bbox_area(b), b))
+            continue
+        if _title_horizontal_overlap_fraction(anchor, frame) < _TITLE_HORIZONTAL_OVERLAP_FRACTION:
+            continue
+        if not (frame[0] <= title_center[0] <= frame[2]):
+            continue
+        gap = anchor.bbox[1] - frame[3]
+        if not (0 <= gap <= _max_title_below_frame_gap(frame, calibration)):
+            continue
+        if _other_title_in_title_gap(anchor, frame, anchors):
+            continue
+        candidates.append(frame)
+    return candidates
 
 
 def _extract_scales_for_bbox(page: Any, bbox: Sequence[float]) -> tuple[Optional[str], Optional[float], bool, list[str]]:
@@ -308,17 +552,34 @@ def _frame_resolved_viewports(
     *,
     page_number: int,
 ) -> tuple[list[SegmentedViewport], set[int]]:
+    fragments = _text_fragments(page)
     selected: dict[int, tuple[float, float, float, float]] = {}
+    out: list[SegmentedViewport] = []; consumed: set[int] = set()
     for index, anchor in enumerate(anchors):
-        candidates = _frame_candidates_for_title(anchor, frames, calibration)
-        if candidates:
-            selected[index] = candidates[0]
+        candidates = _frame_candidates_for_title(anchor, frames, calibration, anchors=anchors)
+        usable = [
+            frame for frame in candidates
+            if not _rejected_ownership_frame(page, frame, calibration, fragments)
+        ]
+        usable = _collapse_nested_band_frames(usable)
+        if len(usable) > 1:
+            out.append(SegmentedViewport(
+                view_id=f"view_p{page_number}_{index + 1}", page_number=page_number,
+                view_type=anchor.view_type, label=anchor.text, title_bbox=anchor.bbox,
+                bounding_box=None, status=ViewportSegmentationStatus.AMBIGUOUS.value,
+                boundary_source=ViewportBoundarySource.NONE.value, confidence=0.0,
+                notes=["multiple equivalent vector frames compete for this title"],
+                provenance={"candidate_frames": list(usable)},
+            ))
+            consumed.add(index)
+            continue
+        if len(usable) == 1:
+            selected[index] = usable[0]
 
     frame_to_indices: dict[tuple[float, float, float, float], list[int]] = {}
     for index, frame in selected.items():
         frame_to_indices.setdefault(frame, []).append(index)
 
-    out: list[SegmentedViewport] = []; consumed: set[int] = set()
     for frame, indices in frame_to_indices.items():
         if len(indices) > 1:
             for index in indices:
