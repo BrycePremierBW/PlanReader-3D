@@ -50,25 +50,27 @@ def _q(
 
 
 def _length(**kw) -> QuantityEvidence:
-    return _q(
+    args = dict(
         family="wall_length",
         semantic_key="wall_length:WALL-1",
         value=4.0,
         unit="m",
         authority=MeasurementAuthorityType.PDF_SCALED.value,
-        **kw,
     )
+    args.update(kw)
+    return _q(**args)
 
 
 def _height(**kw) -> QuantityEvidence:
-    return _q(
+    args = dict(
         family="wall_height",
         semantic_key="wall_height:WALL-1",
         value=3.0,
         unit="m",
         authority=MeasurementAuthorityType.DOCUMENTED_DIMENSION.value,
-        **kw,
     )
+    args.update(kw)
+    return _q(**args)
 
 
 def test_gross_area_requires_firm_matching_dependencies() -> None:
