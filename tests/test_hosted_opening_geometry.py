@@ -372,6 +372,59 @@ def test_dungicha_front_wall_finds_repeated_w1_windows_without_identity():
         assert not hasattr(w, "identity")
 
 
+def test_dungicha_repeated_windows_stable_under_bbox_perturbation():
+    """Real-fixture bbox-sensitivity regression (Phase 9 of the local-
+    component audit): expanding the viewport must only ever ADD a window
+    with an identical signature to its siblings (never mutate an existing
+    one), and contracting must only ever cleanly drop the one window whose
+    own evidence is clipped (never touch the others) -- confirmed for the
+    Gap Chain Rule fix by an exhaustive mechanical perturbation matrix
+    during that audit; this locks in the two most informative points from
+    it (a real 12th window becoming visible on expansion; the first window
+    cleanly dropping on left contraction) as a permanent check."""
+    base_bbox = (60, 600, 800, 780)
+
+    def _signature(ev):
+        return sorted(
+            (o.subtype, round(o.jamb_start[0], 1), round(o.jamb_end[0], 1), round(o.span_pt, 1))
+            for o in ev.openings
+        )
+
+    doc, page = _load_page(_DUNGICHA_PDF, _DUNGICHA_PLAN_PAGE_INDEX)
+    try:
+        base_ev = resolve_hosted_opening_spans(
+            page, viewport_bbox=base_bbox, scale_authority=_DUNGICHA_SCALE_PT_PER_M
+        )
+        base_sig = _signature(base_ev)
+        assert len(base_sig) == 11
+
+        x0, y0, x1, y1 = base_bbox
+        w = x1 - x0
+        expanded_bbox = (x0 - w * 0.05, y0, x1 + w * 0.05, y1)
+        expanded_ev = resolve_hosted_opening_spans(
+            page, viewport_bbox=expanded_bbox, scale_authority=_DUNGICHA_SCALE_PT_PER_M
+        )
+        expanded_sig = _signature(expanded_ev)
+        assert len(expanded_sig) == 12
+        assert set(base_sig).issubset(set(expanded_sig)), (
+            "expansion must only add a window, never mutate an existing one -- "
+            f"lost or changed: {set(base_sig) - set(expanded_sig)}"
+        )
+
+        contracted_bbox = (x0 + w * 0.10, y0, x1, y1)
+        contracted_ev = resolve_hosted_opening_spans(
+            page, viewport_bbox=contracted_bbox, scale_authority=_DUNGICHA_SCALE_PT_PER_M
+        )
+        contracted_sig = _signature(contracted_ev)
+        assert len(contracted_sig) == 10
+        assert set(contracted_sig).issubset(set(base_sig)), (
+            "contraction must only drop windows, never mutate a surviving one -- "
+            f"unexpected: {set(contracted_sig) - set(base_sig)}"
+        )
+    finally:
+        doc.close()
+
+
 def test_dungicha_door_area_is_a_documented_limitation_not_a_crash():
     """Dungicha's own door sits on a wall whose hatch-tick pattern runs
     fully continuous straight through the door's real-space location --
