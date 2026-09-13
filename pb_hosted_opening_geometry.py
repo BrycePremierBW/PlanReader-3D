@@ -185,8 +185,90 @@ def _is_credible_wall_face(covered: Sequence[_Interval], span_lo: float, span_hi
     return density <= _MAX_GAP_DENSITY_PER_100PT
 
 
+def _gap_is_crossable(
+    edge_a: float,
+    edge_b: float,
+    min_run_pt: float,
+    crossable_gaps: Sequence[Tuple[float, float]],
+) -> bool:
+    """True when the gap between two window edges, encountered while
+    _local_credibility_window walks outward for MORE local coverage, is
+    itself one of this row-pair's own independently-validated hosted-
+    opening candidates -- see that function's "Gap Chain Rule" docstring.
+
+    A gap no wider than ``_FACE_COORD_TOL_PT`` is always crossable outright,
+    with no further check -- the same "same coordinate" tolerance this
+    module already applies everywhere two real points that should coincide
+    exactly are instead a fraction of a point apart (confirmed against real
+    Dungicha data: two consecutive segments of what is otherwise one
+    continuous face line can land 0.01-0.04pt apart, a raw export/precision
+    artifact of the source PDF, not a real interruption -- _merge_intervals'
+    own much tighter 1e-6 merge tolerance does not always absorb it).
+
+    Otherwise, two conditions, both required:
+    - the gap must match (within ``_FACE_COORD_TOL_PT``) one of
+      ``crossable_gaps``: gaps already computed, by the caller, to be
+      aligned on both faces and passing this module's own existing
+      ``_MIN_GAP_PT``/``_MIN_GAP_TO_THICKNESS_RATIO`` validity checks --
+      exactly the same bar any accepted opening in this module must clear,
+      never a weaker one;
+    - the gap must not itself exceed ``min_run_pt``: a void that already
+      exceeds the very minimum span this whole check exists to establish
+      cannot be "explained away" as part of establishing that span. Reuses
+      the existing constant symmetrically rather than adding a new one.
+    """
+    lo, hi = (edge_a, edge_b) if edge_a <= edge_b else (edge_b, edge_a)
+    if hi - lo <= _FACE_COORD_TOL_PT:
+        return True
+    if hi - lo > min_run_pt:
+        return False
+    tol = _FACE_COORD_TOL_PT
+    return any(abs(lo - g_lo) <= tol and abs(hi - g_hi) <= tol for g_lo, g_hi in crossable_gaps)
+
+
+def _recognized_face_intervals(
+    merged: Sequence[_Interval], validated_openings: Sequence[Tuple[float, float]]
+) -> frozenset:
+    """The subset of this face's own merged intervals that directly contain
+    or flank one of this row pair's already-validated openings -- i.e.
+    intervals independently known to be real per-opening wall-face
+    evidence, safe for a DIFFERENT candidate's local credibility window to
+    extend into regardless of the exact raw gap width needed to reach them.
+
+    Exists because a real opening's own tick-pattern (or aligned-face-line)
+    bounds do not always land at exactly the same coordinate as this
+    face's own recorded interval boundary nearby -- confirmed against real
+    Dungicha data, where the two can disagree by a couple of points (the
+    same class of small drafting/measurement discrepancy documented
+    elsewhere in this module for tick-pattern vs. face-line bounds).
+    Matching by "is the interval I would land on itself known to border a
+    real opening" is robust to that disagreement in a way that matching
+    the crossed gap's own coordinates to a precomputed list is not."""
+    tol = _JAMB_COVERAGE_TOL_PT
+    recognized = set()
+    for o_lo, o_hi in validated_openings:
+        containing = next((iv for iv in merged if iv.lo <= o_lo + tol and iv.hi >= o_hi - tol), None)
+        if containing is not None:
+            recognized.add((containing.lo, containing.hi))
+            continue
+        before = [iv for iv in merged if iv.hi <= o_lo + tol]
+        after = [iv for iv in merged if iv.lo >= o_hi - tol]
+        if before:
+            nearest_before = max(before, key=lambda iv: iv.hi)
+            recognized.add((nearest_before.lo, nearest_before.hi))
+        if after:
+            nearest_after = min(after, key=lambda iv: iv.lo)
+            recognized.add((nearest_after.lo, nearest_after.hi))
+    return frozenset(recognized)
+
+
 def _local_credibility_window(
-    merged: Sequence[_Interval], gap_lo: float, gap_hi: float, min_run_pt: float
+    merged: Sequence[_Interval],
+    gap_lo: float,
+    gap_hi: float,
+    min_run_pt: float,
+    crossable_gaps: Sequence[Tuple[float, float]] = (),
+    recognized_intervals: frozenset = frozenset(),
 ) -> Tuple[float, float]:
     """Derive a locally-scoped [lo, hi] window around one candidate gap by
     walking outward through this face's OWN merged coverage intervals
@@ -206,6 +288,23 @@ def _local_credibility_window(
     whole row's global extent, keeps a distant unrelated fragment from ever
     entering a gap's credibility computation unless it is genuinely close
     enough to be part of the same local run.
+
+    GAP CHAIN RULE: the CANDIDATE gap itself (``gap_lo``/``gap_hi``) is
+    always crossable -- that is what is being evaluated, via the initial
+    "nearest neighbour on each side" step below, and a genuinely wide real
+    opening must remain detectable regardless of its own width (gap width
+    alone is never proof of disconnection for the candidate being tested).
+    Any FURTHER hop beyond that -- reaching past the candidate's own
+    immediate neighbours into another gap for more accumulated span -- is
+    only taken when that intervening gap is independently confirmed as a
+    real interruption in the SAME row pair (``_gap_is_crossable``), not
+    merely "whatever happens to be nearest". This is what lets a real wall
+    run with several real, repeated openings correctly lend each opening's
+    own credibility to its neighbours (Section E of this module's test
+    matrix), while stopping cold at an unexplained void rather than
+    silently bridging it to reach an unrelated, coincidentally-aligned
+    fragment (Sections C/D) -- confirmed necessary running this pipeline's
+    own synthetic regression suite, not a hypothetical.
 
     Boundary comparisons below tolerate up to ``_JAMB_COVERAGE_TOL_PT`` of
     overlap into the gap itself -- the same small drafting/measurement
@@ -242,17 +341,31 @@ def _local_credibility_window(
         before, after = before[1:], after[1:]
 
     bi = ai = 0
-    while (hi - lo) < min_run_pt and (bi < len(before) or ai < len(after)):
-        can_before = bi < len(before)
-        can_after = ai < len(after)
-        if can_before and (not can_after or (lo - before[bi].hi) <= (after[ai].lo - hi)):
-            lo = before[bi].lo
-            bi += 1
-        elif can_after:
-            hi = after[ai].hi
-            ai += 1
-        else:
+    before_blocked = after_blocked = False
+    while (hi - lo) < min_run_pt and not (before_blocked and after_blocked):
+        can_before = (not before_blocked) and bi < len(before)
+        can_after = (not after_blocked) and ai < len(after)
+        if not can_before and not can_after:
             break
+        take_before = can_before and (not can_after or (lo - before[bi].hi) <= (after[ai].lo - hi))
+        if take_before:
+            target = before[bi]
+            if (target.lo, target.hi) in recognized_intervals or _gap_is_crossable(
+                target.hi, lo, min_run_pt, crossable_gaps
+            ):
+                lo = target.lo
+                bi += 1
+            else:
+                before_blocked = True
+        else:
+            target = after[ai]
+            if (target.lo, target.hi) in recognized_intervals or _gap_is_crossable(
+                hi, target.lo, min_run_pt, crossable_gaps
+            ):
+                hi = target.hi
+                ai += 1
+            else:
+                after_blocked = True
     return lo, hi
 
 
@@ -601,6 +714,20 @@ def _diagonal_hatch_tick_gaps(
     return gaps
 
 
+def _boundary_confirmed(
+    x: float, fills: Sequence[Tuple[float, float, float, float]], jambs: Sequence[float]
+) -> bool:
+    """True when x is confirmed as a real wall-face boundary by a fill's own
+    edge or a full-thickness jamb-vertical crossing -- the same evidence
+    this module already requires of any accepted opening's own boundaries,
+    reused identically to validate an intervening gap encountered while
+    extending a local credibility window (see _local_credibility_window's
+    Gap Chain Rule)."""
+    return any(
+        abs(f[0] - x) <= _FACE_COORD_TOL_PT or abs(f[2] - x) <= _FACE_COORD_TOL_PT for f in fills
+    ) or any(abs(j - x) <= _JAMB_COVERAGE_TOL_PT for j in jambs)
+
+
 def _resolve_horizontal_openings(
     page,
     horiz_lines: Sequence[Tuple[float, float, float, float]],
@@ -636,6 +763,58 @@ def _resolve_horizontal_openings(
             gaps_a = {round(g.lo, 1): g for g in _gaps_between(merged_a, span_lo, span_hi)}
             gaps_b = {round(g.lo, 1): g for g in _gaps_between(merged_b, span_lo, span_hi)}
             aligned_keys = set(gaps_a) & set(gaps_b)
+            jambs_for_row = _vertical_jamb_positions(vert_lines, y_a, y_b)
+
+            # Independently-validated gaps for THIS row pair -- aligned on
+            # both faces, width/thickness-ratio valid, and boundary-
+            # confirmed, exactly the bar any accepted opening here must
+            # clear. Computed once and reused as the crossable-gap set for
+            # _local_credibility_window's Gap Chain Rule below: a real,
+            # already-confirmed sibling opening (e.g. a repeated window in
+            # the same wall run) may lend its own flanking material to a
+            # neighbour's credibility; an unconfirmed void may not.
+            validated_other_gaps: List[Tuple[float, float]] = []
+            for other_key in aligned_keys:
+                oga, ogb = gaps_a[other_key], gaps_b[other_key]
+                o_lo, o_hi = max(oga.lo, ogb.lo), min(oga.hi, ogb.hi)
+                if o_hi <= o_lo:
+                    continue
+                o_width = o_hi - o_lo
+                if o_width < _MIN_GAP_PT or o_width < _MIN_GAP_TO_THICKNESS_RATIO * thickness:
+                    continue
+                if _boundary_confirmed(o_lo, fills, jambs_for_row) and _boundary_confirmed(
+                    o_hi, fills, jambs_for_row
+                ):
+                    validated_other_gaps.append((o_lo, o_hi))
+            diagonal_gaps_for_row = [
+                (min(g_lo, g_hi), max(g_lo, g_hi))
+                for g_lo, g_hi in _diagonal_hatch_tick_gaps(diag_lines, y_a, y_b)
+            ]
+            all_validated_openings = validated_other_gaps + diagonal_gaps_for_row
+
+            # The wall PIER between two consecutive, already-validated real
+            # openings in this same row pair is also crossable -- not
+            # because it is itself an opening, but because a face's own
+            # coverage can legitimately be recorded per-opening rather than
+            # as one continuous run (confirmed against real Dungicha data:
+            # one face row there carries a short, separate segment for each
+            # window's own local evidence, with no direct coverage recorded
+            # in between, even though the two adjacent windows being real
+            # and confirmed already proves that intervening material is
+            # part of the same wall run). Only the span STRICTLY between two
+            # validated openings' own edges qualifies -- this can never
+            # reach past the outermost validated openings toward an
+            # unconfirmed void beyond them.
+            ordered_openings = sorted(all_validated_openings)
+            pier_gaps = [
+                (ordered_openings[k][1], ordered_openings[k + 1][0])
+                for k in range(len(ordered_openings) - 1)
+                if ordered_openings[k][1] < ordered_openings[k + 1][0]
+            ]
+            crossable_gaps = all_validated_openings + pier_gaps
+            recognized_a = _recognized_face_intervals(merged_a, all_validated_openings)
+            recognized_b = _recognized_face_intervals(merged_b, all_validated_openings)
+
             for key in aligned_keys:
                 ga, gb = gaps_a[key], gaps_b[key]
                 gap_lo = max(ga.lo, gb.lo)
@@ -645,26 +824,24 @@ def _resolve_horizontal_openings(
                 gap_width = gap_hi - gap_lo
                 if gap_width < _MIN_GAP_PT or gap_width < _MIN_GAP_TO_THICKNESS_RATIO * thickness:
                     continue
-                local_lo_a, local_hi_a = _local_credibility_window(merged_a, gap_lo, gap_hi, _MIN_BAND_RUN_PT)
-                local_lo_b, local_hi_b = _local_credibility_window(merged_b, gap_lo, gap_hi, _MIN_BAND_RUN_PT)
+                local_lo_a, local_hi_a = _local_credibility_window(
+                    merged_a, gap_lo, gap_hi, _MIN_BAND_RUN_PT, crossable_gaps, recognized_a
+                )
+                local_lo_b, local_hi_b = _local_credibility_window(
+                    merged_b, gap_lo, gap_hi, _MIN_BAND_RUN_PT, crossable_gaps, recognized_b
+                )
                 if not (
                     _is_credible_wall_face(merged_a, local_lo_a, local_hi_a)
                     and _is_credible_wall_face(merged_b, local_lo_b, local_hi_b)
                 ):
                     continue
-                jambs_start = _vertical_jamb_positions(vert_lines, y_a, y_b)
+                jambs_start = jambs_for_row
                 # Fill-edge boundaries are themselves valid jambs (the
                 # pier's own face) -- a fill-backed gap boundary always
                 # qualifies; a line-only gap boundary requires an explicit
                 # crossing stroke.
-                boundary_confirmed_start = any(
-                    abs(f[0] - gap_lo) <= _FACE_COORD_TOL_PT or abs(f[2] - gap_lo) <= _FACE_COORD_TOL_PT
-                    for f in fills
-                ) or any(abs(x - gap_lo) <= _JAMB_COVERAGE_TOL_PT for x in jambs_start)
-                boundary_confirmed_end = any(
-                    abs(f[0] - gap_hi) <= _FACE_COORD_TOL_PT or abs(f[2] - gap_hi) <= _FACE_COORD_TOL_PT
-                    for f in fills
-                ) or any(abs(x - gap_hi) <= _JAMB_COVERAGE_TOL_PT for x in jambs_start)
+                boundary_confirmed_start = _boundary_confirmed(gap_lo, fills, jambs_start)
+                boundary_confirmed_end = _boundary_confirmed(gap_hi, fills, jambs_start)
                 if not (boundary_confirmed_start and boundary_confirmed_end):
                     continue
 
@@ -717,14 +894,18 @@ def _resolve_horizontal_openings(
                 gap_width = gap_hi - gap_lo
                 if gap_width < _MIN_GAP_PT or gap_width < _MIN_GAP_TO_THICKNESS_RATIO * thickness:
                     continue
-                local_lo_a, local_hi_a = _local_credibility_window(merged_a, gap_lo, gap_hi, _MIN_BAND_RUN_PT)
-                local_lo_b, local_hi_b = _local_credibility_window(merged_b, gap_lo, gap_hi, _MIN_BAND_RUN_PT)
+                local_lo_a, local_hi_a = _local_credibility_window(
+                    merged_a, gap_lo, gap_hi, _MIN_BAND_RUN_PT, crossable_gaps, recognized_a
+                )
+                local_lo_b, local_hi_b = _local_credibility_window(
+                    merged_b, gap_lo, gap_hi, _MIN_BAND_RUN_PT, crossable_gaps, recognized_b
+                )
                 if not (
                     _is_credible_wall_face(merged_a, local_lo_a, local_hi_a)
                     and _is_credible_wall_face(merged_b, local_lo_b, local_hi_b)
                 ):
                     continue
-                jambs = _vertical_jamb_positions(vert_lines, y_a, y_b)
+                jambs = jambs_for_row
                 jamb_start_ok = any(abs(x - gap_lo) <= _JAMB_COVERAGE_TOL_PT for x in jambs)
                 jamb_end_ok = any(abs(x - gap_hi) <= _JAMB_COVERAGE_TOL_PT for x in jambs)
                 is_door = _door_swing_anchor(page, gap_lo, gap_hi, y_a, y_b, swapped=swapped)
