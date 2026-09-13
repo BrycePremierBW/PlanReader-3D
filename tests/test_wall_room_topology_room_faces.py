@@ -215,21 +215,58 @@ class TestInvariance:
         assert len(base_rooms) == len(translated_rooms) == 1
         assert math.isclose(base_rooms[0].area_page_pts2, translated_rooms[0].area_page_pts2)
 
-    def test_14_rotation_invariance_of_structure(self) -> None:
-        def rotate(x, y, deg):
-            rad = math.radians(deg)
-            return (x * math.cos(rad) - y * math.sin(rad), x * math.sin(rad) + y * math.cos(rad))
+    @staticmethod
+    def _rotate(x, y, deg):
+        rad = math.radians(deg)
+        return (x * math.cos(rad) - y * math.sin(rad), x * math.sin(rad) + y * math.cos(rad))
 
+    def _assert_rotation_invariant_area(self, deg: float) -> None:
         segments = _rect("r", 0, 0, 300, 200)
         rotated = []
         for s in segments:
-            x1, y1 = rotate(s["x1"], s["y1"], 29.0)
-            x2, y2 = rotate(s["x2"], s["y2"], 29.0)
+            x1, y1 = self._rotate(s["x1"], s["y1"], deg)
+            x2, y2 = self._rotate(s["x2"], s["y2"], deg)
             rotated.append(_seg(s["id"], x1, y1, x2, y2))
         base_rooms, _ = _rooms(segments)
         rotated_rooms, _ = _rooms(rotated)
         assert len(base_rooms) == len(rotated_rooms) == 1
         assert math.isclose(base_rooms[0].area_page_pts2, rotated_rooms[0].area_page_pts2, rel_tol=1e-6)
+
+    def test_14_rotation_invariance_of_structure(self) -> None:
+        self._assert_rotation_invariant_area(29.0)
+
+    def test_14b_rotation_invariance_90deg(self) -> None:
+        self._assert_rotation_invariant_area(90.0)
+
+    def test_14c_rotation_invariance_180deg(self) -> None:
+        self._assert_rotation_invariant_area(180.0)
+
+    def test_14d_rotation_invariance_270deg(self) -> None:
+        self._assert_rotation_invariant_area(270.0)
+
+    def _assert_scale_invariant_area(self, factor: float) -> None:
+        segments = _rect("r", 0, 0, 300, 200)
+        scaled = [
+            _seg(s["id"], s["x1"] * factor, s["y1"] * factor, s["x2"] * factor, s["y2"] * factor)
+            for s in segments
+        ]
+        base_rooms, _ = _rooms(segments)
+        scaled_rooms, _ = _rooms(scaled)
+        assert len(base_rooms) == len(scaled_rooms) == 1
+        assert math.isclose(
+            scaled_rooms[0].area_page_pts2,
+            base_rooms[0].area_page_pts2 * (factor ** 2),
+            rel_tol=1e-6,
+        )
+
+    def test_14e_scale_invariance_half(self) -> None:
+        self._assert_scale_invariant_area(0.5)
+
+    def test_14f_scale_invariance_1_35x(self) -> None:
+        self._assert_scale_invariant_area(1.35)
+
+    def test_14g_scale_invariance_double(self) -> None:
+        self._assert_scale_invariant_area(2.0)
 
     def test_15_split_merge_representation_invariance(self) -> None:
         one_piece = _rect("r", 0, 0, 300, 200)

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import random
 
+import pytest
+
 from pb_wall_room_topology_stage_a import (
     build_wall_graph_for_viewport,
     filter_structural_segments,
@@ -240,6 +242,63 @@ class TestOrderAndTranslationInvariance:
         edge_sets = [sorted(round(e["length_pt"], 3) for e in g["edges"]) for g in results]
         assert all(ns == node_sets[0] for ns in node_sets)
         assert all(es == edge_sets[0] for es in edge_sets)
+
+    @staticmethod
+    def _rotate(x, y, deg):
+        import math
+
+        rad = math.radians(deg)
+        return (x * math.cos(rad) - y * math.sin(rad), x * math.sin(rad) + y * math.cos(rad))
+
+    def _assert_rotation_invariant(self, deg: float) -> None:
+        segments = _rectangle_segments()
+        rotated = [
+            _seg(s["id"], *self._rotate(s["x1"], s["y1"], deg), *self._rotate(s["x2"], s["y2"], deg))
+            for s in segments
+        ]
+        graph_a = build_wall_graph_for_viewport(segments)
+        graph_b = build_wall_graph_for_viewport(rotated)
+        assert len(graph_a["nodes"]) == len(graph_b["nodes"])
+        assert len(graph_a["edges"]) == len(graph_b["edges"])
+        lengths_a = sorted(round(e["length_pt"], 3) for e in graph_a["edges"])
+        lengths_b = sorted(round(e["length_pt"], 3) for e in graph_b["edges"])
+        assert lengths_a == lengths_b
+
+    def test_rotation_invariance_90deg(self) -> None:
+        self._assert_rotation_invariant(90.0)
+
+    def test_rotation_invariance_180deg(self) -> None:
+        self._assert_rotation_invariant(180.0)
+
+    def test_rotation_invariance_270deg(self) -> None:
+        self._assert_rotation_invariant(270.0)
+
+    def test_rotation_invariance_non_round_angle(self) -> None:
+        self._assert_rotation_invariant(63.0)
+
+    def _assert_scale_invariant_ratio(self, factor: float) -> None:
+        segments = _rectangle_segments()
+        scaled = [
+            _seg(s["id"], s["x1"] * factor, s["y1"] * factor, s["x2"] * factor, s["y2"] * factor)
+            for s in segments
+        ]
+        graph_a = build_wall_graph_for_viewport(segments)
+        graph_b = build_wall_graph_for_viewport(scaled)
+        assert len(graph_a["nodes"]) == len(graph_b["nodes"])
+        assert len(graph_a["edges"]) == len(graph_b["edges"])
+        lengths_a = sorted(round(e["length_pt"], 3) for e in graph_a["edges"])
+        lengths_b = sorted(round(e["length_pt"], 3) for e in graph_b["edges"])
+        for la, lb in zip(lengths_a, lengths_b):
+            assert lb == pytest.approx(la * factor, rel=1e-6)
+
+    def test_scale_invariance_half(self) -> None:
+        self._assert_scale_invariant_ratio(0.5)
+
+    def test_scale_invariance_1_35x(self) -> None:
+        self._assert_scale_invariant_ratio(1.35)
+
+    def test_scale_invariance_double(self) -> None:
+        self._assert_scale_invariant_ratio(2.0)
 
 
 class TestFourWayCrossing:
