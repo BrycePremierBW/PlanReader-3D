@@ -71,6 +71,17 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="List F.07 viewports for the page and exit without running W2-W10.",
     )
+    parser.add_argument(
+        "--rank-walls",
+        action="store_true",
+        help="Reissue W4 walls through #273 ranking. Research/shadow only.",
+    )
+    parser.add_argument(
+        "--scale-pt-per-m",
+        dest="scale_pt_per_m",
+        type=float,
+        help="Optional caller-supplied scale for ranking. Never inferred.",
+    )
     return parser
 
 
@@ -125,6 +136,17 @@ def _print_counts(report: dict) -> None:
         f"BOUND={binding.get('BOUND', 0)} AMBIGUOUS={binding.get('AMBIGUOUS', 0)} "
         f"UNBOUND={binding.get('UNBOUND', 0)} not_evaluated={binding.get('not_evaluated', 0)}"
     )
+    ranking = dist.get("evidence_ranking") or {}
+    buckets = ranking.get("buckets") or {}
+    print(
+        "evidence_ranking "
+        f"w4_unranked={buckets.get('w4_unranked', 0)} "
+        f"abstained={buckets.get('abstained', 0)} "
+        f"candidate_single={buckets.get('candidate_single', 0)} "
+        f"candidate_multi={buckets.get('candidate_multi', 0)} "
+        f"ambiguous={buckets.get('ambiguous', 0)} "
+        f"corroborated={buckets.get('corroborated', 0)}"
+    )
     print("top20_by_junction_degree=" + ",".join(report.get("highest_connectivity_candidate_ids") or []))
     print("top20_by_length=" + ",".join(report.get("longest_candidate_ids") or []))
     print("top20_in_largest_component=" + ",".join(report.get("largest_component_candidate_ids") or []))
@@ -175,6 +197,26 @@ def main(argv: list[str] | None = None) -> int:
             viewport_id=args.viewport_id,
             viewport_bbox=caller_bbox,
         )
+        if args.rank_walls and not snapshot.fail_closed_reason:
+            from pb_wall_topology_ranking_validation import (
+                apply_ranking_to_snapshot,
+                scoped_wall_like_fills,
+            )
+
+            bbox = caller_bbox
+            if bbox is None:
+                for row in list_page_viewports(
+                    page, page_number=args.page, allow_derived=args.allow_derived
+                ):
+                    if row.get("view_id") == snapshot.viewport_id and row.get("bounding_box"):
+                        bbox = row["bounding_box"]
+                        break
+            fills = scoped_wall_like_fills(page, bbox) if bbox is not None else ()
+            snapshot = apply_ranking_to_snapshot(
+                snapshot,
+                wall_like_fills=fills,
+                scale_pt_per_m=args.scale_pt_per_m,
+            )
     finally:
         doc.close()
 

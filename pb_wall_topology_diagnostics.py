@@ -40,6 +40,7 @@ from pb_wall_room_topology_room_label_binding import bind_room_labels_from_words
 from pb_wall_room_topology_room_wall_relationships import derive_room_wall_relationships
 from pb_wall_room_topology_stage_a import build_wall_graph_for_viewport
 from pb_wall_room_topology_wall_assembly import assemble_wall_candidates, rekey_junctions_to_wall_candidates
+from pb_wall_topology_ranking_validation import ranking_bucket, ranking_signals, summarize_ranking
 
 DIAGNOSTIC_SCHEMA_VERSION = "1.0.0"
 FLOAT_DIGITS = 6
@@ -576,6 +577,8 @@ def diagnose_wall_topology(snapshot: TopologySnapshot) -> Dict[str, Any]:
                     "supporting_evidence_ids": list(wall.supporting_evidence_ids),
                     "conflicting_evidence_ids": list(wall.conflicting_evidence_ids),
                 },
+                "ranking_bucket": ranking_bucket(wall),
+                "ranking_signals": ranking_signals(wall),
                 "resolution_status": wall.status.value,
                 "ambiguity_state": (
                     "ambiguous"
@@ -730,6 +733,7 @@ def diagnose_wall_topology(snapshot: TopologySnapshot) -> Dict[str, Any]:
                 "UNBOUND": binding_counts.get("UNBOUND", 0),
                 "not_evaluated": binding_counts.get(NOT_EVALUATED, 0),
             },
+            "evidence_ranking": summarize_ranking(walls),
         },
         "components": components,
         "junctions": [
@@ -851,6 +855,31 @@ def report_to_markdown(report: Mapping[str, Any]) -> str:
             "",
             f"- BOUND `{binding.get('BOUND', 0)}` / AMBIGUOUS `{binding.get('AMBIGUOUS', 0)}` / "
             f"UNBOUND `{binding.get('UNBOUND', 0)}` / not evaluated `{binding.get('not_evaluated', 0)}`",
+            "",
+            "## Evidence Ranking",
+            "",
+        ]
+    )
+    ranking = dist.get("evidence_ranking") or {}
+    buckets = ranking.get("buckets") or {}
+    signals = ranking.get("signals") or {}
+    lines.append(
+        "- buckets: "
+        + ", ".join(f"`{name}` `{buckets.get(name, 0)}`" for name in (
+            "w4_unranked",
+            "abstained",
+            "candidate_single",
+            "candidate_multi",
+            "ambiguous",
+            "corroborated",
+        ))
+    )
+    lines.append(
+        "- signals: "
+        + ", ".join(f"`{name}` `{signals.get(name, 0)}`" for name in signals)
+    )
+    lines.extend(
+        [
             "",
             "## Highest-Connectivity Candidates",
             "",
