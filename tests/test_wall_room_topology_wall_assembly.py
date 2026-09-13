@@ -3,6 +3,8 @@ from __future__ import annotations
 import math
 import random
 
+import pytest
+
 from pb_migration_contracts import EvidenceResolutionStatus
 from pb_wall_room_topology_contracts import JunctionType
 from pb_wall_room_topology_junction_classifier import classify_junctions
@@ -158,20 +160,60 @@ class TestDeterminismAndDuplication:
         )
         assert base_lengths == translated_lengths
 
-    def test_11_rotation_invariance_of_structure(self) -> None:
-        def rotate(x, y, deg):
-            rad = math.radians(deg)
-            return (x * math.cos(rad) - y * math.sin(rad), x * math.sin(rad) + y * math.cos(rad))
+    @staticmethod
+    def _rotate(x, y, deg):
+        rad = math.radians(deg)
+        return (x * math.cos(rad) - y * math.sin(rad), x * math.sin(rad) + y * math.cos(rad))
 
+    def _assert_rotation_invariant_structure(self, deg: float) -> None:
         segments = [_seg("h", -150, 0, 150, 0), _seg("v", 0, -150, 0, 150)]
         rotated = []
         for s in segments:
-            x1, y1 = rotate(s["x1"], s["y1"], 41.0)
-            x2, y2 = rotate(s["x2"], s["y2"], 41.0)
+            x1, y1 = self._rotate(s["x1"], s["y1"], deg)
+            x2, y2 = self._rotate(s["x2"], s["y2"], deg)
             rotated.append(_seg(s["id"], x1, y1, x2, y2))
         base_walls, _ = _assemble(segments)
         rotated_walls, _ = _assemble(rotated)
         assert len(base_walls) == len(rotated_walls) == 2
+
+    def test_11_rotation_invariance_of_structure(self) -> None:
+        self._assert_rotation_invariant_structure(41.0)
+
+    def test_11b_rotation_invariance_90deg(self) -> None:
+        self._assert_rotation_invariant_structure(90.0)
+
+    def test_11c_rotation_invariance_180deg(self) -> None:
+        self._assert_rotation_invariant_structure(180.0)
+
+    def test_11d_rotation_invariance_270deg(self) -> None:
+        self._assert_rotation_invariant_structure(270.0)
+
+    def _assert_scale_invariant_structure(self, factor: float) -> None:
+        segments = [_seg("a", 0, 0, 300, 0), _seg("b", 300, 0, 300, 300)]
+        scaled = [
+            _seg(s["id"], s["x1"] * factor, s["y1"] * factor, s["x2"] * factor, s["y2"] * factor)
+            for s in segments
+        ]
+        base_walls, _ = _assemble(segments)
+        scaled_walls, _ = _assemble(scaled)
+        assert len(base_walls) == len(scaled_walls) == 2
+        base_lengths = sorted(
+            round(math.dist(w.centerline_pts[0], w.centerline_pts[-1]), 3) for w in base_walls
+        )
+        scaled_lengths = sorted(
+            round(math.dist(w.centerline_pts[0], w.centerline_pts[-1]), 3) for w in scaled_walls
+        )
+        for base_len, scaled_len in zip(base_lengths, scaled_lengths):
+            assert scaled_len == pytest.approx(base_len * factor, rel=1e-6)
+
+    def test_11e_scale_invariance_half(self) -> None:
+        self._assert_scale_invariant_structure(0.5)
+
+    def test_11f_scale_invariance_1_35x(self) -> None:
+        self._assert_scale_invariant_structure(1.35)
+
+    def test_11g_scale_invariance_double(self) -> None:
+        self._assert_scale_invariant_structure(2.0)
 
     def test_12_split_merge_invariance_same_wall_id(self) -> None:
         # Semantic topology invariance: the SAME overall wall span, drawn as
