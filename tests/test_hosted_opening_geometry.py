@@ -372,6 +372,59 @@ def test_dungicha_front_wall_finds_repeated_w1_windows_without_identity():
         assert not hasattr(w, "identity")
 
 
+def test_dungicha_repeated_windows_stable_under_bbox_perturbation():
+    """Real-fixture bbox-sensitivity regression (Phase 9 of the local-
+    component audit): expanding the viewport must only ever ADD a window
+    with an identical signature to its siblings (never mutate an existing
+    one), and contracting must only ever cleanly drop the one window whose
+    own evidence is clipped (never touch the others) -- confirmed for the
+    Gap Chain Rule fix by an exhaustive mechanical perturbation matrix
+    during that audit; this locks in the two most informative points from
+    it (a real 12th window becoming visible on expansion; the first window
+    cleanly dropping on left contraction) as a permanent check."""
+    base_bbox = (60, 600, 800, 780)
+
+    def _signature(ev):
+        return sorted(
+            (o.subtype, round(o.jamb_start[0], 1), round(o.jamb_end[0], 1), round(o.span_pt, 1))
+            for o in ev.openings
+        )
+
+    doc, page = _load_page(_DUNGICHA_PDF, _DUNGICHA_PLAN_PAGE_INDEX)
+    try:
+        base_ev = resolve_hosted_opening_spans(
+            page, viewport_bbox=base_bbox, scale_authority=_DUNGICHA_SCALE_PT_PER_M
+        )
+        base_sig = _signature(base_ev)
+        assert len(base_sig) == 11
+
+        x0, y0, x1, y1 = base_bbox
+        w = x1 - x0
+        expanded_bbox = (x0 - w * 0.05, y0, x1 + w * 0.05, y1)
+        expanded_ev = resolve_hosted_opening_spans(
+            page, viewport_bbox=expanded_bbox, scale_authority=_DUNGICHA_SCALE_PT_PER_M
+        )
+        expanded_sig = _signature(expanded_ev)
+        assert len(expanded_sig) == 12
+        assert set(base_sig).issubset(set(expanded_sig)), (
+            "expansion must only add a window, never mutate an existing one -- "
+            f"lost or changed: {set(base_sig) - set(expanded_sig)}"
+        )
+
+        contracted_bbox = (x0 + w * 0.10, y0, x1, y1)
+        contracted_ev = resolve_hosted_opening_spans(
+            page, viewport_bbox=contracted_bbox, scale_authority=_DUNGICHA_SCALE_PT_PER_M
+        )
+        contracted_sig = _signature(contracted_ev)
+        assert len(contracted_sig) == 10
+        assert set(contracted_sig).issubset(set(base_sig)), (
+            "contraction must only drop windows, never mutate a surviving one -- "
+            f"unexpected: {set(contracted_sig) - set(base_sig)}"
+        )
+    finally:
+        doc.close()
+
+
 def test_dungicha_door_area_is_a_documented_limitation_not_a_crash():
     """Dungicha's own door sits on a wall whose hatch-tick pattern runs
     fully continuous straight through the door's real-space location --
@@ -964,9 +1017,14 @@ def test_cropping_away_one_wall_face_aborts_rather_than_invents():
 @pytest.mark.xfail(
     strict=True,
     reason=(
-        "known residual locality defect: _local_credibility_window can "
-        "absorb arbitrarily distant same-row coverage when the immediate "
-        "local span is below _MIN_BAND_RUN_PT"
+        "the Gap Chain Rule fix (see _local_credibility_window) resolves "
+        "the marginal-gap-borrowing half of this -- the 10pt gap is no "
+        "longer manufactured -- but the 150pt gap between the second pier "
+        "and the fragment is now found DIRECTLY: its own two immediate "
+        "flanking pieces already satisfy _MIN_BAND_RUN_PT with no extra hop "
+        "needed, which is structurally indistinguishable from a genuine "
+        "wide doorway given this data model alone (same class of ambiguity "
+        "as defect 2, not a Gap Chain Rule defect -- see the audit report)"
     ),
 )
 def test_distant_long_fragment_must_not_manufacture_credibility_for_a_marginal_gap():
@@ -1030,4 +1088,240 @@ def test_distant_long_fragment_must_not_manufacture_credibility_for_a_marginal_g
         f"fragment is present -- the correct result is a clean abstention, "
         f"not any combination of the marginal gap and/or the synthetic gap "
         f"to the fragment; got status={ev_wide.status!r} openings={ev_wide.openings!r}"
+    )
+
+# ---------------------------------------------------------------------------
+# Gap Chain Rule invariant matrix (A-J): principled locality bound for
+# _local_credibility_window. See pb_hosted_opening_geometry.py's own
+# docstring on _local_credibility_window for the precise rule. Every case
+# below is independent of project names, benchmark values, or fixture
+# coordinates from any real drawing -- purely synthetic, purely structural.
+# ---------------------------------------------------------------------------
+
+
+def _pier_wall_with_gap(pier1_len, gap_len, pier2_len, *, y0=100.0, thickness=6.0, x0=0.0):
+    """One real two-face-fill wall band: pier1 -- gap -- pier2, all at the
+    same y0/thickness. Returns (drawings, gap_lo, gap_hi)."""
+    y1 = y0 + thickness
+    p1_lo, p1_hi = x0, x0 + pier1_len
+    gap_lo, gap_hi = p1_hi, p1_hi + gap_len
+    p2_lo, p2_hi = gap_hi, gap_hi + pier2_len
+    drawings = [_fill_rect(p1_lo, y0, p1_hi, y1), _fill_rect(p2_lo, y0, p2_hi, y1)]
+    return drawings, gap_lo, gap_hi
+
+
+def test_locality_a_valid_local_wall_is_found():
+    """A: long piers on each side of a real gap -- ample immediate local
+    coverage, no extra hop ever needed. Must be found."""
+    drawings, gap_lo, gap_hi = _pier_wall_with_gap(150.0, 40.0, 150.0)
+    bbox = (-20.0, 90.0, 360.0, 116.0)
+    ev = resolve_hosted_opening_spans(_FakePage(drawings), viewport_bbox=bbox, scale_authority=25.0)
+    assert ev.status == "found" and len(ev.openings) == 1
+    o = ev.openings[0]
+    assert (o.jamb_start[0], o.jamb_end[0]) == (gap_lo, gap_hi)
+
+
+def test_locality_b_marginal_local_wall_abstains_alone():
+    """B: two short piers, insufficient immediate local coverage (50pt <
+    _MIN_BAND_RUN_PT) with nothing else nearby at all. Must abstain."""
+    drawings, gap_lo, gap_hi = _pier_wall_with_gap(20.0, 10.0, 20.0)
+    bbox = (-10.0, 90.0, 60.0, 116.0)
+    ev = resolve_hosted_opening_spans(_FakePage(drawings), viewport_bbox=bbox, scale_authority=25.0)
+    assert ev.status == "abstained"
+    assert ev.openings == ()
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "the Gap Chain Rule fix resolves the marginal-borrowing half of this "
+        "(the 10pt gap is no longer manufactured), but the 150pt gap between "
+        "pier2 and the fragment is now found DIRECTLY -- its own two "
+        "immediate flanking pieces (pier2, fragment) already satisfy "
+        "_MIN_BAND_RUN_PT with zero extra hops, which is indistinguishable, "
+        "by any evidence this two-interval-and-a-gap data model carries, "
+        "from test_locality_g's genuine wide doorway (structurally identical "
+        "fixture shape). This is the same class of ambiguity as defect 2 "
+        "(two coincidentally-aligned real structures read as one wall band), "
+        "not a bug in the Gap Chain Rule itself -- see the final report."
+    ),
+)
+def test_locality_c_distant_unrelated_fragment_does_not_manufacture_credibility():
+    """C: the core defect reproduction (same as the strict xfail below). A
+    40pt-long fragment 150pt beyond the marginal wall's own material must
+    not make the 10pt gap credible, and must not manufacture a second,
+    synthetic 150pt "opening" either."""
+    drawings, gap_lo, gap_hi = _pier_wall_with_gap(20.0, 10.0, 20.0)
+    far_fragment = _fill_rect(200.0, 100.0, 240.0, 106.0)
+    drawings = drawings + [far_fragment]
+    bbox = (-10.0, 90.0, 250.0, 116.0)
+    ev = resolve_hosted_opening_spans(_FakePage(drawings), viewport_bbox=bbox, scale_authority=25.0)
+    assert ev.status == "abstained" and ev.openings == (), (
+        f"expected clean abstention, got status={ev.status!r} openings={ev.openings!r}"
+    )
+
+
+def test_locality_d_nearby_but_disconnected_fragment_does_not_contribute():
+    """D: a fragment only 10pt beyond the marginal wall's own material (far
+    closer than case C) must still not contribute, because it only exists
+    on the NEAR face's own row (y=100) -- the far face (y=106) has no
+    matching evidence there at all, so the gap to it can never be an
+    independently-validated, both-faces-aligned opening. Proximity alone,
+    without that independent validation, must not help."""
+    drawings, gap_lo, gap_hi = _pier_wall_with_gap(20.0, 10.0, 20.0)
+    # Present only at y=100 (matches the near face's own row) with y1=101,
+    # far from the real far face at y=106 -- never visible to that row at all.
+    one_sided_fragment = _fill_rect(60.0, 100.0, 100.0, 101.0)
+    drawings = drawings + [one_sided_fragment]
+    bbox = (-10.0, 90.0, 110.0, 116.0)
+    ev = resolve_hosted_opening_spans(_FakePage(drawings), viewport_bbox=bbox, scale_authority=25.0)
+    assert ev.status == "abstained" and ev.openings == (), (
+        f"expected clean abstention (fragment is not independently connected to "
+        f"the wall band), got status={ev.status!r} openings={ev.openings!r}"
+    )
+
+
+def test_locality_e_repeated_real_openings_in_one_wall_run_both_survive():
+    """E: pier -- windowA -- short mullion pier -- windowB -- pier. Neither
+    individual pier alone reaches _MIN_BAND_RUN_PT, so each window's own
+    credibility legitimately needs to borrow across the OTHER, real,
+    independently-validated window -- and must be ALLOWED to, since that
+    intervening gap is itself a genuine two-face-aligned opening in the
+    same row pair, not an unexplained void. Both windows must be found."""
+    y0, y1 = 100.0, 106.0
+    pier1 = _fill_rect(0.0, y0, 20.0, y1)
+    # windowA: 20 -> 60
+    pier2 = _fill_rect(60.0, y0, 80.0, y1)
+    # windowB: 80 -> 120
+    pier3 = _fill_rect(120.0, y0, 220.0, y1)
+    drawings = [pier1, pier2, pier3]
+    bbox = (-10.0, 90.0, 230.0, 116.0)
+    ev = resolve_hosted_opening_spans(_FakePage(drawings), viewport_bbox=bbox, scale_authority=25.0)
+    assert ev.status == "found", f"expected both windows found, got {ev.status}: {ev.reason}"
+    gaps = sorted((o.jamb_start[0], o.jamb_end[0]) for o in ev.openings)
+    assert gaps == [(20.0, 60.0), (80.0, 120.0)], f"expected both real windows, got {gaps}"
+
+
+def test_locality_f_short_but_locally_sufficient_wall_is_not_penalized():
+    """F: individually modest piers whose COMBINED immediate local coverage
+    already clears _MIN_BAND_RUN_PT without any extra hop. The fix must not
+    make this any stricter than before."""
+    drawings, gap_lo, gap_hi = _pier_wall_with_gap(35.0, 15.0, 35.0)  # 35+15+35=85 >= 60
+    bbox = (-10.0, 90.0, 100.0, 116.0)
+    ev = resolve_hosted_opening_spans(_FakePage(drawings), viewport_bbox=bbox, scale_authority=25.0)
+    assert ev.status == "found" and len(ev.openings) == 1
+
+
+def test_locality_g_large_real_opening_remains_detectable():
+    """G: a genuinely wide doorway/opening (150pt, evidenced by proper
+    flanking piers) must remain detectable -- gap width alone is never
+    proof of disconnection for the CANDIDATE gap itself."""
+    drawings, gap_lo, gap_hi = _pier_wall_with_gap(40.0, 150.0, 40.0)
+    bbox = (-10.0, 90.0, 240.0, 116.0)
+    ev = resolve_hosted_opening_spans(_FakePage(drawings), viewport_bbox=bbox, scale_authority=25.0)
+    assert ev.status == "found" and len(ev.openings) == 1
+    assert ev.openings[0].span_pt == pytest.approx(150.0, abs=0.5)
+
+
+def test_locality_h_unrelated_noise_does_not_join_wall_evidence():
+    """H: unrelated diagonal marks near a marginal wall (furniture/hatch-
+    like strokes that never pass the axis-aligned face-line or wall-like-
+    fill filters at all) must not change the correct abstention -- a basic
+    filtering-hygiene check under the new code path."""
+    drawings, gap_lo, gap_hi = _pier_wall_with_gap(20.0, 10.0, 20.0)
+    noise = [
+        _line(25.0, 200.0, 32.0, 208.0, color=(0.3, 0.3, 0.3), width=0.3),  # diagonal, different y entirely
+        _line(5.0, 100.0, 5.0, 100.3, color=(0.3, 0.3, 0.3), width=0.3),  # degenerate near-zero-length
+    ]
+    drawings = drawings + noise
+    bbox = (-10.0, 90.0, 60.0, 220.0)
+    ev = resolve_hosted_opening_spans(_FakePage(drawings), viewport_bbox=bbox, scale_authority=25.0)
+    assert ev.status == "abstained"
+
+
+def _rotate_pt(x, y, deg):
+    rad = math.radians(deg)
+    return (x * math.cos(rad) - y * math.sin(rad), x * math.sin(rad) + y * math.cos(rad))
+
+
+def _rotate_drawings(drawings, deg):
+    out = []
+    for d in drawings:
+        new_items = []
+        for item in d["items"]:
+            op = item[0]
+            pts = [_rotate_pt(p.x, p.y, deg) for p in item[1:]]
+            new_items.append((op, *[_Pt(px, py) for px, py in pts]))
+        new_d = dict(d)
+        new_d["items"] = new_items
+        if d.get("rect") is not None:
+            xs = [p.x for it in new_items for p in it[1:]]
+            ys = [p.y for it in new_items for p in it[1:]]
+            new_d["rect"] = _Rect(min(xs), min(ys), max(xs), max(ys))
+        out.append(new_d)
+    return out
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="same unresolved direct-adjacency ambiguity as test_locality_c, at every axis-preserving orientation",
+)
+@pytest.mark.parametrize("deg", [90.0, 180.0, 270.0], ids=["rotate90", "rotate180", "rotate270"])
+def test_locality_i_case_c_holds_under_rotation(deg):
+    """I: the case-C defect-reproduction scenario must resolve the same way
+    (clean abstention) at every axis-preserving orientation.
+
+    Deliberately does NOT test a non-round angle: this detector is
+    explicitly axis-aligned-only by design (its own module docstring:
+    "Both axis-aligned orientations... are checked"), and a fill's own
+    bounding "rect" (both in real PyMuPDF output and in this fixture's
+    _rotate_drawings, which recomputes it the same way) is inherently
+    axis-aligned -- rotating a real wall-like fill by a non-multiple of 90
+    degrees does not produce "the same wall viewed at an angle", it
+    produces an axis-aligned bounding diamond with a different aspect
+    ratio, silently testing a different, invalid fixture instead (confirmed
+    by trying 41 degrees here: fills stopped qualifying as wall-like at
+    all, and the test passed for an uninteresting, unrelated reason). This
+    matches why the existing repository metamorphic test for this module
+    also only exercises rotate90, not an arbitrary angle."""
+    drawings, _, _ = _pier_wall_with_gap(20.0, 10.0, 20.0)
+    far_fragment = _fill_rect(200.0, 100.0, 240.0, 106.0)
+    drawings = drawings + [far_fragment]
+    rotated = _rotate_drawings(drawings, deg)
+    big_viewport = (-500.0, -500.0, 500.0, 500.0)
+    ev = resolve_hosted_opening_spans(_FakePage(rotated), viewport_bbox=big_viewport, scale_authority=25.0)
+    assert ev.status == "abstained" and ev.openings == (), (
+        f"deg={deg}: expected clean abstention, got status={ev.status!r} openings={ev.openings!r}"
+    )
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="same unresolved direct-adjacency ambiguity as test_locality_c, independent of scale_authority",
+)
+@pytest.mark.parametrize("scale_authority", [12.5, 33.75, 50.0], ids=["scale_half", "scale_1_35x", "scale_double"])
+def test_locality_j_case_c_holds_under_scale_authority(scale_authority):
+    """J: the qualitative result (marginal + distant-unrelated -> clean
+    abstention) must be independent of the caller-supplied scale_authority.
+
+    Deliberately does NOT scale the raw fixture geometry itself:
+    _MIN_BAND_RUN_PT, _MIN_GAP_PT, and every other threshold in this
+    module operate on raw PDF points, not real-world metres -- they are
+    fixed absolute constants, not scale-relative (confirmed directly:
+    naively scaling this same fixture's raw coordinates by 2x made the
+    "marginal" wall's own immediate local coverage exceed _MIN_BAND_RUN_PT
+    on its own, silently testing a different, no-longer-marginal scenario
+    instead of the same one at a different scale). scale_authority's only
+    real effect anywhere in this module is the width_m conversion applied
+    to an already-resolved span_pt -- it must never change whether a span
+    is found, abstained, or how it is classified, which is exactly what
+    varying only scale_authority against fixed raw geometry tests."""
+    drawings, _, _ = _pier_wall_with_gap(20.0, 10.0, 20.0)
+    far_fragment = _fill_rect(200.0, 100.0, 240.0, 106.0)
+    drawings = drawings + [far_fragment]
+    bbox = (-10.0, 90.0, 250.0, 116.0)
+    ev = resolve_hosted_opening_spans(_FakePage(drawings), viewport_bbox=bbox, scale_authority=scale_authority)
+    assert ev.status == "abstained" and ev.openings == (), (
+        f"scale_authority={scale_authority}: expected clean abstention, "
+        f"got status={ev.status!r} openings={ev.openings!r}"
     )
