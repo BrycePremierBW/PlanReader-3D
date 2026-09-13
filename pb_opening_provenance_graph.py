@@ -100,8 +100,12 @@ class OpeningProvenanceResolution:
         return payload
 
 
-def empty_opening_provenance_shadow(*, reason: str) -> Dict[str, Any]:
-    return {
+def empty_opening_provenance_shadow(
+    *,
+    reason: str,
+    viewport_census: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    payload = {
         "status": "abstained",
         "reason": reason,
         "physical_openings": [],
@@ -110,6 +114,9 @@ def empty_opening_provenance_shadow(*, reason: str) -> Dict[str, Any]:
         "resolutions": [],
         "conflicts": [],
     }
+    if viewport_census is not None:
+        payload["viewport_census"] = viewport_census
+    return payload
 
 
 def local_opening_bbox(
@@ -697,7 +704,10 @@ def collect_opening_provenance_shadow(
 ) -> Dict[str, Any]:
     """Build a diagnostic graph. Never mutates predictions or F.9 inputs."""
     if hosted_shadow and hosted_shadow.get("reason") == SHADOW_BLOCKED_ON_VIEWPORT_AUTHORITY:
-        return empty_opening_provenance_shadow(reason=SHADOW_BLOCKED_ON_VIEWPORT_AUTHORITY)
+        return empty_opening_provenance_shadow(
+            reason=SHADOW_BLOCKED_ON_VIEWPORT_AUTHORITY,
+            viewport_census=hosted_shadow.get("viewport_census"),
+        )
     nodes: List[OpeningEvidenceNode] = []
     for record in (hosted_shadow or {}).get("evidence") or []:
         nodes.append(physical_node_from_hosted_record(record))
@@ -747,7 +757,10 @@ def collect_opening_provenance_shadow_for_doc(
     from pb_opening_callout_dimension_binder import parse_opening_size_callouts
 
     if hosted_shadow.get("reason") == SHADOW_BLOCKED_ON_VIEWPORT_AUTHORITY:
-        return empty_opening_provenance_shadow(reason=SHADOW_BLOCKED_ON_VIEWPORT_AUTHORITY)
+        return empty_opening_provenance_shadow(
+            reason=SHADOW_BLOCKED_ON_VIEWPORT_AUTHORITY,
+            viewport_census=hosted_shadow.get("viewport_census"),
+        )
 
     extra: List[OpeningEvidenceNode] = []
     had_viewport = False

@@ -13,6 +13,7 @@ from pb_hosted_opening_instance_adapter import (
     collect_hosted_opening_shadow_evidence,
     hosted_opening_span_id,
     hosted_span_to_shadow_record,
+    summarize_viewport_authority,
 )
 from pb_planreader_pdf_extractor import GenericPlanReaderExtractor
 from pb_viewport_segmentation import (
@@ -172,6 +173,29 @@ def test_derived_or_elevation_viewport_is_not_authority() -> None:
         shadow = collect_hosted_opening_shadow_evidence(doc, [0])
     doc.close()
     assert shadow["reason"] == SHADOW_BLOCKED_ON_VIEWPORT_AUTHORITY
+    census = shadow["viewport_census"]
+    assert census["authoritative_floor_plan_count"] == 0
+    assert census["view_type_counts"][DrawingViewType.FLOOR_PLAN.value] == 1
+    assert census["rejected_floor_plans"][0]["reject_reason"] == "floor_plan_not_resolved"
+    assert census["rejected_floor_plans"][0]["has_bbox"] is True
+
+
+def test_ambiguous_floor_plan_without_bbox_is_censused_not_authoritative() -> None:
+    ambiguous = _viewport(
+        status=ViewportSegmentationStatus.AMBIGUOUS.value,
+        bbox=None,
+    )
+    summary = summarize_viewport_authority([ambiguous], page_number=54)
+    assert summary["authoritative_floor_plan_count"] == 0
+    assert summary["rejected_floor_plans"] == [
+        {
+            "page": 54,
+            "status": ViewportSegmentationStatus.AMBIGUOUS.value,
+            "has_bbox": False,
+            "label": "GROUND FLOOR PLAN",
+            "reject_reason": "floor_plan_not_resolved",
+        }
+    ]
 
 
 def authoritative_floor_plan_viewports_via_public(page):

@@ -122,8 +122,83 @@ def hosted_spans_to_opening_instances(
     return instances
 
 
-def empty_hosted_opening_shadow(*, reason: str) -> Dict[str, Any]:
-    return {"status": "abstained", "reason": reason, "evidence": []}
+def empty_hosted_opening_shadow(
+    *,
+    reason: str,
+    viewport_census: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {"status": "abstained", "reason": reason, "evidence": []}
+    if viewport_census is not None:
+        payload["viewport_census"] = viewport_census
+    return payload
+
+
+def summarize_viewport_authority(viewports: Sequence[Any], *, page_number: int) -> Dict[str, Any]:
+    """Diagnostic census. Does not promote DERIVED/AMBIGUOUS into authority."""
+    from pb_drawing_evidence_binding import DrawingViewType
+    from pb_viewport_segmentation import ViewportSegmentationStatus
+
+    status_counts: Dict[str, int] = {}
+    view_type_counts: Dict[str, int] = {}
+    rejected_floor_plans: List[Dict[str, Any]] = []
+    authoritative = 0
+    for viewport in viewports:
+        status_counts[viewport.status] = status_counts.get(viewport.status, 0) + 1
+        view_type_counts[viewport.view_type] = view_type_counts.get(viewport.view_type, 0) + 1
+        is_floor_plan = viewport.view_type == DrawingViewType.FLOOR_PLAN.value
+        is_resolved = viewport.status == ViewportSegmentationStatus.RESOLVED.value
+        has_bbox = viewport.bounding_box is not None
+        if is_floor_plan and is_resolved and has_bbox:
+            authoritative += 1
+            continue
+        if is_floor_plan:
+            if not is_resolved:
+                reject_reason = "floor_plan_not_resolved"
+            else:
+                reject_reason = "floor_plan_missing_bbox"
+            rejected_floor_plans.append(
+                {
+                    "page": page_number,
+                    "status": viewport.status,
+                    "has_bbox": has_bbox,
+                    "label": viewport.label,
+                    "reject_reason": reject_reason,
+                }
+            )
+    return {
+        "authoritative_floor_plan_count": authoritative,
+        "status_counts": status_counts,
+        "view_type_counts": view_type_counts,
+        "rejected_floor_plans": rejected_floor_plans,
+    }
+
+
+def collect_viewport_authority_census(doc: Any, pages: Sequence[int]) -> Dict[str, Any]:
+    """One-pass F.07 census for why hosted shadow stayed blocked."""
+    from pb_viewport_segmentation import segment_page_viewports
+
+    merged = {
+        "authoritative_floor_plan_count": 0,
+        "status_counts": {},
+        "view_type_counts": {},
+        "rejected_floor_plans": [],
+    }
+    for page_index in pages:
+        if page_index < 0 or page_index >= len(doc):
+            continue
+        page_number = page_index + 1
+        summary = summarize_viewport_authority(
+            segment_page_viewports(doc[page_index], page_number=page_number),
+            page_number=page_number,
+        )
+        merged["authoritative_floor_plan_count"] += summary["authoritative_floor_plan_count"]
+        for key, value in summary["status_counts"].items():
+            merged["status_counts"][key] = merged["status_counts"].get(key, 0) + value
+        for key, value in summary["view_type_counts"].items():
+            merged["view_type_counts"][key] = merged["view_type_counts"].get(key, 0) + value
+        merged["rejected_floor_plans"].extend(summary["rejected_floor_plans"])
+    merged["rejected_floor_plans"] = merged["rejected_floor_plans"][:24]
+    return merged
 
 
 def hosted_span_to_shadow_record(span: HostedOpeningSpan) -> Optional[Dict[str, Any]]:
@@ -194,7 +269,10 @@ def collect_hosted_opening_shadow_evidence(
                 if record is not None:
                     evidence.append(record)
     if not had_viewport:
-        return empty_hosted_opening_shadow(reason=SHADOW_BLOCKED_ON_VIEWPORT_AUTHORITY)
+        return empty_hosted_opening_shadow(
+            reason=SHADOW_BLOCKED_ON_VIEWPORT_AUTHORITY,
+            viewport_census=collect_viewport_authority_census(doc, pages),
+        )
     if not evidence:
         return empty_hosted_opening_shadow(
             reason="no_hosted_opening_span_in_authoritative_floor_plan_viewport"

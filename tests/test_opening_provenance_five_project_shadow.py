@@ -56,3 +56,7 @@ def test_five_project_provenance_shadow_is_fail_closed(name: str, filename: str)
     # Provenance must not be the source of new anonymous hosted-span predictions.
     assert not any(str(tag).startswith("hosted-span-") for tag in pred_tags)
     assert extractor.opening_provenance_shadow.get("resolutions") is not None
+    if extractor.opening_provenance_shadow.get("reason") == "BLOCKED_ON_VIEWPORT_AUTHORITY":
+        census = extractor.hosted_opening_shadow.get("viewport_census") or {}
+        assert census.get("authoritative_floor_plan_count") == 0
+        assert extractor.opening_provenance_shadow.get("viewport_census") == census
