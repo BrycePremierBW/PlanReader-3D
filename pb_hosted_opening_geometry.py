@@ -185,6 +185,77 @@ def _is_credible_wall_face(covered: Sequence[_Interval], span_lo: float, span_hi
     return density <= _MAX_GAP_DENSITY_PER_100PT
 
 
+def _local_credibility_window(
+    merged: Sequence[_Interval], gap_lo: float, gap_hi: float, min_run_pt: float
+) -> Tuple[float, float]:
+    """Derive a locally-scoped [lo, hi] window around one candidate gap by
+    walking outward through this face's OWN merged coverage intervals
+    (nearest neighbor first on each side) until at least ``min_run_pt`` of
+    considered span is accumulated, or this face's own coverage nearby is
+    exhausted.
+
+    Exists because ``span_lo``/``span_hi`` computed as the global min/max
+    across an entire row's coverage is not robust to a single, spatially
+    disconnected fragment elsewhere in the same viewport that happens to
+    share this row's y-coordinate purely by coincidence (a real hazard once
+    a caller's viewport spans more than one architecturally unrelated area
+    of a drawing) -- such a fragment can dilute the coverage-fraction and
+    gap-density check for a real, local, otherwise-credible wall run
+    without ever touching that run's own immediate surroundings. Walking
+    outward from the specific gap under evaluation, rather than taking the
+    whole row's global extent, keeps a distant unrelated fragment from ever
+    entering a gap's credibility computation unless it is genuinely close
+    enough to be part of the same local run.
+
+    Boundary comparisons below tolerate up to ``_JAMB_COVERAGE_TOL_PT`` of
+    overlap into the gap itself -- the same small drafting/measurement
+    discrepancy this module's diagonal-hatch-tick channel already expects
+    between a tick-pattern gap's own extent and the boundary face lines'
+    real coordinates (confirmed against real Baghau data, where a face
+    line's own endpoint can land a little over a point inside the tick
+    gap's nominal bound)."""
+    tol = _JAMB_COVERAGE_TOL_PT
+    containing = next((iv for iv in merged if iv.lo <= gap_lo + tol and iv.hi >= gap_hi - tol), None)
+    if containing is not None:
+        # This face has no real break at the gap location at all (e.g. the
+        # diagonal-hatch-tick-gap convention, where the boundary face lines
+        # stay fully continuous through the opening and the interruption is
+        # only ever a hatch-pattern gap, evaluated separately) -- anchor
+        # the local window to this already-real, already-continuous
+        # interval rather than treating the gap's own (empty, by
+        # definition, for the aligned-two-face-gap channel) bounds as a
+        # starting point.
+        lo, hi = containing.lo, containing.hi
+        before = sorted((iv for iv in merged if iv.hi <= lo), key=lambda iv: -iv.hi)
+        after = sorted((iv for iv in merged if iv.lo >= hi), key=lambda iv: iv.lo)
+    else:
+        before = sorted((iv for iv in merged if iv.hi <= gap_lo + tol), key=lambda iv: -iv.hi)
+        after = sorted((iv for iv in merged if iv.lo >= gap_hi - tol), key=lambda iv: iv.lo)
+        if not before or not after:
+            # No real coverage at all on one side of the gap on this face --
+            # nothing to anchor a meaningful local window to. Returning the
+            # bare gap bounds correctly fails the coverage-fraction check
+            # below rather than fabricating a window with no real evidence
+            # in it.
+            return gap_lo, gap_hi
+        lo, hi = before[0].lo, after[0].hi
+        before, after = before[1:], after[1:]
+
+    bi = ai = 0
+    while (hi - lo) < min_run_pt and (bi < len(before) or ai < len(after)):
+        can_before = bi < len(before)
+        can_after = ai < len(after)
+        if can_before and (not can_after or (lo - before[bi].hi) <= (after[ai].lo - hi)):
+            lo = before[bi].lo
+            bi += 1
+        elif can_after:
+            hi = after[ai].hi
+            ai += 1
+        else:
+            break
+    return lo, hi
+
+
 def _gaps_between(intervals: Sequence[_Interval], lo: float, hi: float) -> List[_Interval]:
     """Internal gaps only -- never the space before the first or after the
     last covered interval (that would be the wall simply ending, not an
@@ -557,11 +628,11 @@ def _resolve_horizontal_openings(
             span_hi = min(max(iv.hi for iv in merged_a), max(iv.hi for iv in merged_b))
             if span_hi <= span_lo:
                 continue
-            if not (
-                _is_credible_wall_face(merged_a, span_lo, span_hi)
-                and _is_credible_wall_face(merged_b, span_lo, span_hi)
-            ):
-                continue
+            # Credibility is deliberately NOT gated here on the row's own
+            # global span_lo/span_hi -- see _local_credibility_window's
+            # docstring. It is instead evaluated per candidate gap below,
+            # using a window derived from that gap's own immediate
+            # surroundings on each face.
             gaps_a = {round(g.lo, 1): g for g in _gaps_between(merged_a, span_lo, span_hi)}
             gaps_b = {round(g.lo, 1): g for g in _gaps_between(merged_b, span_lo, span_hi)}
             aligned_keys = set(gaps_a) & set(gaps_b)
@@ -573,6 +644,13 @@ def _resolve_horizontal_openings(
                     continue
                 gap_width = gap_hi - gap_lo
                 if gap_width < _MIN_GAP_PT or gap_width < _MIN_GAP_TO_THICKNESS_RATIO * thickness:
+                    continue
+                local_lo_a, local_hi_a = _local_credibility_window(merged_a, gap_lo, gap_hi, _MIN_BAND_RUN_PT)
+                local_lo_b, local_hi_b = _local_credibility_window(merged_b, gap_lo, gap_hi, _MIN_BAND_RUN_PT)
+                if not (
+                    _is_credible_wall_face(merged_a, local_lo_a, local_hi_a)
+                    and _is_credible_wall_face(merged_b, local_lo_b, local_hi_b)
+                ):
                     continue
                 jambs_start = _vertical_jamb_positions(vert_lines, y_a, y_b)
                 # Fill-edge boundaries are themselves valid jambs (the
@@ -638,6 +716,13 @@ def _resolve_horizontal_openings(
                     continue
                 gap_width = gap_hi - gap_lo
                 if gap_width < _MIN_GAP_PT or gap_width < _MIN_GAP_TO_THICKNESS_RATIO * thickness:
+                    continue
+                local_lo_a, local_hi_a = _local_credibility_window(merged_a, gap_lo, gap_hi, _MIN_BAND_RUN_PT)
+                local_lo_b, local_hi_b = _local_credibility_window(merged_b, gap_lo, gap_hi, _MIN_BAND_RUN_PT)
+                if not (
+                    _is_credible_wall_face(merged_a, local_lo_a, local_hi_a)
+                    and _is_credible_wall_face(merged_b, local_lo_b, local_hi_b)
+                ):
                     continue
                 jambs = _vertical_jamb_positions(vert_lines, y_a, y_b)
                 jamb_start_ok = any(abs(x - gap_lo) <= _JAMB_COVERAGE_TOL_PT for x in jambs)
