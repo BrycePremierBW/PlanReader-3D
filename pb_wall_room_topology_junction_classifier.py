@@ -295,18 +295,30 @@ def classify_junctions(
             merged_edge = next(
                 (e for e in edges if e.get("id") == node["merged_into_edge"]), None
             )
-            incident_ids = [str(merged_edge.get("id"))] if merged_edge else []
+            if merged_edge is None:
+                # Fail closed: this node's Stage-A collinear merge produced
+                # a new edge that deduplicate_coincident_edges (called
+                # above, in this same function) then discarded as a
+                # duplicate of another edge sharing the same node pair --
+                # found running this pipeline against real Baghau drawing
+                # data, where a wall drawn as two collinear fragments plus a
+                # separate, undivided line spanning the same two far
+                # endpoints hits exactly this case. The edge that survives
+                # dedup in that situation shares the merged edge's node
+                # pair but is not guaranteed to actually pass through this
+                # node's own location, so this node abstains rather than
+                # emit a COLLINEAR_CONTINUATION referencing an edge that may
+                # not spatially touch it.
+                base_results[node_idx] = (
+                    JunctionType.UNRESOLVED,
+                    ["collinear_merge_target_edge_missing"],
+                    [],
+                )
+                continue
             base_results[node_idx] = (
                 JunctionType.COLLINEAR_CONTINUATION,
                 ["collinear_merge_applied"],
-                [
-                    {
-                        "edge_id": incident_ids[0] if incident_ids else "",
-                        "angle_deg": merged_edge["angle_deg"] if merged_edge else 0.0,
-                    }
-                ]
-                if incident_ids
-                else [],
+                [{"edge_id": str(merged_edge.get("id")), "angle_deg": merged_edge["angle_deg"]}],
             )
             continue
         infos = _incident_edge_infos(node_idx, edges, adjacency)

@@ -227,6 +227,56 @@ class TestInvariance:
         hosts_b = detect_opening_host_candidates(walls_b)
         assert len(hosts_a) == len(hosts_b) == 1
 
+    @staticmethod
+    def _rotate(x, y, deg):
+        import math
+
+        rad = math.radians(deg)
+        return (x * math.cos(rad) - y * math.sin(rad), x * math.sin(rad) + y * math.cos(rad))
+
+    def _assert_rotation_invariant(self, deg: float) -> None:
+        rotated_segments = [
+            _seg(s["id"], *self._rotate(s["x1"], s["y1"], deg), *self._rotate(s["x2"], s["y2"], deg))
+            for s in _DOOR_GAP_RECTANGLE
+        ]
+        walls_a = _assemble(_DOOR_GAP_RECTANGLE)
+        walls_b = _assemble(rotated_segments)
+        hosts_a = detect_opening_host_candidates(walls_a)
+        hosts_b = detect_opening_host_candidates(walls_b)
+        assert len(hosts_a) == len(hosts_b) == 1
+
+    def test_rotation_invariance_90deg(self) -> None:
+        self._assert_rotation_invariant(90.0)
+
+    def test_rotation_invariance_180deg(self) -> None:
+        self._assert_rotation_invariant(180.0)
+
+    def test_rotation_invariance_270deg(self) -> None:
+        self._assert_rotation_invariant(270.0)
+
+    def test_rotation_invariance_non_round_angle(self) -> None:
+        self._assert_rotation_invariant(53.0)
+
+    def _assert_scale_invariant(self, factor: float) -> None:
+        scaled_segments = [
+            _seg(s["id"], s["x1"] * factor, s["y1"] * factor, s["x2"] * factor, s["y2"] * factor)
+            for s in _DOOR_GAP_RECTANGLE
+        ]
+        walls_a = _assemble(_DOOR_GAP_RECTANGLE)
+        walls_b = _assemble(scaled_segments)
+        hosts_a = detect_opening_host_candidates(walls_a)
+        hosts_b = detect_opening_host_candidates(walls_b)
+        assert len(hosts_a) == len(hosts_b) == 1
+
+    def test_scale_invariance_half(self) -> None:
+        self._assert_scale_invariant(0.5)
+
+    def test_scale_invariance_1_35x(self) -> None:
+        self._assert_scale_invariant(1.35)
+
+    def test_scale_invariance_double(self) -> None:
+        self._assert_scale_invariant(2.0)
+
 
 class TestProvenance:
     def test_reason_codes_always_present_for_ambiguous_host(self) -> None:
