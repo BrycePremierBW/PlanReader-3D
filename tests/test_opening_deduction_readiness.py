@@ -89,6 +89,7 @@ def _host(
     wall_id: str = "WALL-1",
     gap_width_m: float | None = None,
 ) -> OpeningHostCandidate:
+    reason_codes = ("multiple_candidate_walls",) if status == "ambiguous_host" else ()
     return OpeningHostCandidate(
         host_candidate_id=opening_id,
         wall_candidate_id=wall_id,
@@ -97,6 +98,7 @@ def _host(
         host_status=status,
         candidate_wall_ids_considered=tuple(walls),
         confidence=0.9,
+        reason_codes=reason_codes,
     )
 
 
