@@ -66,6 +66,131 @@ class ScheduleRow:
         }
 
 
+_CHAIN_VALUE_TOL_MM = 25.0
+_OPENING_WIDTH_MM = (700.0, 3600.0)
+_PIER_WIDTH_MM = (150.0, 1000.0)
+_DOOR_LEAF_WIDTH_MM = (800.0, 1250.0)
+_MIN_UNIFORM_OPENINGS = 3
+_FLOOR_PLAN_TEXT_RE = re.compile(
+    r"\b(?:ground\s*floor\s*plan|floor\s*plan|floor\s*layout|layout\s*plan)\b",
+    re.I,
+)
+
+
+def _chain_values_close(left: float, right: float, tol: float = _CHAIN_VALUE_TOL_MM) -> bool:
+    return abs(float(left) - float(right)) <= tol
+
+
+def _bucket_mm(value: float) -> int:
+    return int(round(float(value) / _CHAIN_VALUE_TOL_MM) * _CHAIN_VALUE_TOL_MM)
+
+
+def uniform_opening_pier_count(
+    values_mm: Sequence[float],
+) -> Optional[Tuple[int, float, float]]:
+    """Return (opening_count, opening_mm, pier_mm) for a uniform wall chain.
+
+    A qualifying chain is optional unique end returns plus strictly
+    alternating opening / pier segments that end on an opening, so
+    ``n_openings == n_piers + 1``. Equal-count W×H callout pairs
+    (2900, 900, 2900, 900, ...) are rejected.
+    """
+    values = [float(v) for v in values_mm if v is not None]
+    if len(values) < 5:
+        return None
+
+    work = list(values)
+    buckets = _bucket_groups(work)
+    if len(buckets) == 3:
+        rare_label = min(buckets.items(), key=lambda item: (len(item[1]), sum(item[1]) / len(item[1])))[0]
+        if _bucket_mm(work[0]) == rare_label and _bucket_mm(work[-1]) == rare_label:
+            work = work[1:-1]
+            buckets = _bucket_groups(work)
+    if len(buckets) != 2:
+        return None
+    return _uniform_opening_pier_from_interior(work)
+
+
+def _bucket_groups(values: Sequence[float]) -> Dict[int, List[float]]:
+    grouped: Dict[int, List[float]] = {}
+    for value in values:
+        grouped.setdefault(_bucket_mm(value), []).append(float(value))
+    return grouped
+
+
+def _uniform_opening_pier_from_interior(
+    interior: Sequence[float],
+) -> Optional[Tuple[int, float, float]]:
+    buckets = _bucket_groups(interior)
+    if len(buckets) != 2:
+        return None
+    (label_a, group_a), (label_b, group_b) = sorted(
+        buckets.items(), key=lambda item: sum(item[1]) / len(item[1])
+    )
+    pier_mm = sum(group_a) / len(group_a)
+    opening_mm = sum(group_b) / len(group_b)
+    if not (_PIER_WIDTH_MM[0] <= pier_mm <= _PIER_WIDTH_MM[1]):
+        return None
+    if not (_OPENING_WIDTH_MM[0] <= opening_mm <= _OPENING_WIDTH_MM[1]):
+        return None
+    if opening_mm < pier_mm + 200.0:
+        return None
+
+    n_open = 0
+    n_pier = 0
+    expected_opening = True
+    for value in interior:
+        if expected_opening:
+            if not _chain_values_close(value, opening_mm):
+                return None
+            n_open += 1
+            expected_opening = False
+        else:
+            if not _chain_values_close(value, pier_mm):
+                return None
+            n_pier += 1
+            expected_opening = True
+    if n_open < _MIN_UNIFORM_OPENINGS or n_open != n_pier + 1:
+        return None
+    return n_open, opening_mm, pier_mm
+
+
+def repeated_bay_door_count(values_mm: Sequence[float]) -> Optional[int]:
+    """Count doors that close each copy of a repeated floor-plan bay.
+
+    Classroom / lab blocks are often dimensioned as the same bay repeated
+    N times, with one door-leaf width at the same index in every copy.
+    """
+    values = [float(v) for v in values_mm if v is not None]
+    n = len(values)
+    if n < 8:
+        return None
+    for period in range(4, n // 2 + 1):
+        if n % period != 0 or n // period < 2:
+            continue
+        bay = values[:period]
+        tiled = True
+        for offset in range(period, n, period):
+            for idx in range(period):
+                if not _chain_values_close(values[offset + idx], bay[idx]):
+                    tiled = False
+                    break
+            if not tiled:
+                break
+        if not tiled:
+            continue
+        door_idxs = []
+        start = 1 if bay[0] < 1000.0 else 0
+        for idx in range(start, period):
+            width = bay[idx]
+            if _DOOR_LEAF_WIDTH_MM[0] <= width <= _DOOR_LEAF_WIDTH_MM[1]:
+                door_idxs.append(idx)
+        if len(door_idxs) != 1:
+            continue
+        return n // period
+    return None
+
+
 class GenericScheduleTableExtractor:
     """Generic schedule table and callout extractor.
     
@@ -154,7 +279,149 @@ class GenericScheduleTableExtractor:
                 )
             )
 
+        # Floor-plan opening/pier chains and repeated-bay door runs. Skipped
+        # when this page already has an explicit documented W/D identity so
+        # card/table schedules (and their tags) remain authoritative.
+        if not any(normalize_opening_tag(row.tag) for row in page_rows):
+            page_rows.extend(self._extract_plan_opening_dimension_chains(page, page_num))
+
         return page_rows
+
+    def _plan_chain_regions(self, page: fitz.Page, page_num: int) -> List[Tuple[float, float, float, float]]:
+        """Return floor-plan bboxes when F.07 resolved/derived a plan view."""
+        try:
+            from pb_drawing_evidence_binding import DrawingViewType
+            from pb_viewport_segmentation import segment_page_viewports
+        except Exception:
+            return []
+        regions: List[Tuple[float, float, float, float]] = []
+        try:
+            for viewport in segment_page_viewports(page, page_number=page_num):
+                if viewport.view_type != DrawingViewType.FLOOR_PLAN.value:
+                    continue
+                box = getattr(viewport, "bounding_box", None)
+                if box and len(box) >= 4:
+                    regions.append((float(box[0]), float(box[1]), float(box[2]), float(box[3])))
+        except Exception:
+            return []
+        return regions
+
+    @staticmethod
+    def _chain_midpoint(observations: Sequence[Any]) -> Optional[Tuple[float, float]]:
+        xs: List[float] = []
+        ys: List[float] = []
+        for obs in observations:
+            bbox = getattr(obs, "bbox", None)
+            if not bbox or len(bbox) < 4:
+                continue
+            xs.append((float(bbox[0]) + float(bbox[2])) / 2.0)
+            ys.append((float(bbox[1]) + float(bbox[3])) / 2.0)
+        if not xs:
+            return None
+        return (sum(xs) / len(xs), sum(ys) / len(ys))
+
+    @staticmethod
+    def _point_in_bbox(point: Tuple[float, float], bbox: Tuple[float, float, float, float]) -> bool:
+        x, y = point
+        return bbox[0] <= x <= bbox[2] and bbox[1] <= y <= bbox[3]
+
+    def _extract_plan_opening_dimension_chains(self, page: fitz.Page, page_num: int) -> List[ScheduleRow]:
+        """Count unlabeled floor-plan openings from figured dimension chains.
+
+        Uniform opening/pier walls with three or more equal openings become
+        the single conventional window type W1. Repeated identical bays with
+        one door-leaf width per bay become D1. Mixed widths never mint W2/D2.
+        Dimension callout pairs (width × height in one note) are not chains.
+        """
+        page_text = page.get_text("text") or ""
+        plan_regions = self._plan_chain_regions(page, page_num)
+        if not plan_regions and not _FLOOR_PLAN_TEXT_RE.search(page_text):
+            return []
+
+        try:
+            from pb_dimension_chain_evidence_extractor import extract_dimension_chains_from_page
+        except Exception:
+            return []
+
+        try:
+            chains = extract_dimension_chains_from_page(
+                page,
+                page_num=page_num,
+                view_id=f"page_{page_num}",
+            )
+        except Exception:
+            return []
+
+        window_hits: List[Tuple[int, float, Tuple[float, float, float, float], str]] = []
+        door_hits: List[Tuple[int, Tuple[float, float, float, float], str]] = []
+
+        for chain in chains:
+            observations = list(getattr(chain, "observations", []) or [])
+            values = [float(obs.value_m) * 1000.0 for obs in observations]
+            if len(values) < 5:
+                continue
+            midpoint = self._chain_midpoint(observations)
+            if plan_regions:
+                if midpoint is None or not any(
+                    self._point_in_bbox(midpoint, region) for region in plan_regions
+                ):
+                    continue
+            x0 = min((obs.bbox[0] for obs in observations if obs.bbox), default=0.0)
+            y0 = min((obs.bbox[1] for obs in observations if obs.bbox), default=0.0)
+            x1 = max((obs.bbox[2] for obs in observations if obs.bbox), default=0.0)
+            y1 = max((obs.bbox[3] for obs in observations if obs.bbox), default=0.0)
+            bbox = (x0, y0, x1, y1)
+            evidence = ",".join(str(int(round(v))) for v in values)
+
+            uniform = uniform_opening_pier_count(values)
+            if uniform is not None:
+                count, opening_mm, pier_mm = uniform
+                window_hits.append((count, opening_mm, bbox, evidence))
+            door_count = repeated_bay_door_count(values)
+            if door_count is not None:
+                door_hits.append((door_count, bbox, evidence))
+
+        rows: List[ScheduleRow] = []
+        if window_hits:
+            widths = {_bucket_mm(hit[1]) for hit in window_hits}
+            counts = {hit[0] for hit in window_hits}
+            if len(widths) == 1 and len(counts) == 1:
+                count, opening_mm, bbox, evidence = window_hits[0]
+                rows.append(
+                    ScheduleRow(
+                        tag="W1",
+                        trade_type="windows",
+                        description=(
+                            f"W1 plan opening/pier chain "
+                            f"({int(count)} No, {int(round(opening_mm))} mm)"
+                        ),
+                        quantity=float(count),
+                        unit="NO",
+                        dimensions=[float(opening_mm)],
+                        source_page=page_num,
+                        bbox=bbox,
+                        confidence=0.86,
+                        evidence_text=f"uniform opening/pier chain mm={evidence}",
+                    )
+                )
+        if door_hits:
+            counts = {hit[0] for hit in door_hits}
+            if len(counts) == 1:
+                count, bbox, evidence = door_hits[0]
+                rows.append(
+                    ScheduleRow(
+                        tag="D1",
+                        trade_type="doors",
+                        description=f"D1 repeated floor-plan bay doors ({int(count)} No)",
+                        quantity=float(count),
+                        unit="NO",
+                        source_page=page_num,
+                        bbox=bbox,
+                        confidence=0.86,
+                        evidence_text=f"repeated bay door chain mm={evidence}",
+                    )
+                )
+        return rows
 
     def _extract_card_style_schedules(self, page: fitz.Page, page_num: int) -> List[ScheduleRow]:
         """Detect a vertical 'card' schedule shape.
@@ -788,7 +1055,11 @@ class GenericScheduleTableExtractor:
                     vent_pages[r.source_page] = r.quantity
                 continue
 
-            dim_str = f"_{int(r.dimensions[0])}x{int(r.dimensions[1])}" if r.dimensions else ""
+            dim_str = ""
+            if r.dimensions and len(r.dimensions) >= 2:
+                dim_str = f"_{int(r.dimensions[0])}x{int(r.dimensions[1])}"
+            elif r.dimensions and len(r.dimensions) == 1:
+                dim_str = f"_{int(r.dimensions[0])}"
             key = f"{r.tag}{dim_str}"
 
             if key not in deduped:

@@ -67,8 +67,9 @@ class GenericPlanReaderExtractor:
 
     def __init__(self, default_ceiling_height_m: float = 2.80) -> None:
         self.default_ceiling_height_m = default_ceiling_height_m
+        self._ocr_text_by_page: Dict[int, str] = {}
 
-    def is_drawing_page(self, page_text: str) -> bool:
+    def is_drawing_page(self, page_text: str, page: Optional[fitz.Page] = None) -> bool:
         """Heuristically determine if a PDF page contains architectural drawings."""
         t_lower = page_text.lower()
         # Bill of Quantities text pages with item rates/amounts are not drawing sheets
@@ -96,7 +97,20 @@ class GenericPlanReaderExtractor:
             "schedule of windows",
             "schedule of finishes",
         ]
-        return any(ind in t_lower for ind in drawing_indicators)
+        if any(ind in t_lower for ind in drawing_indicators):
+            return True
+        # Outlined-font CAD sheets and embedded plan rasters often have no
+        # extractable text layer; treat dense vector/raster drawing content
+        # as a drawing page so OCR/spec recovery can still run.
+        if page is not None:
+            if self._page_has_large_raster(page):
+                return True
+            try:
+                if len(page.get_drawings()) >= 200:
+                    return True
+            except Exception:
+                return False
+        return False
 
     def extract_sheet_number(self, page_text: str, page_number: int) -> str:
         """Extract sheet number from drawing title block, or fallback to page index."""
@@ -126,6 +140,157 @@ class GenericPlanReaderExtractor:
             or re.search(r"\bdamp[\s-]*proof\s+membrane\b", normalized)
             or re.search(r"\bpolythene\b", normalized)
         )
+
+    @staticmethod
+    def _should_replace_slab_bound_quantity(
+        existing: Optional[Any],
+        new_quantity: float,
+        new_metadata: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """Replace first-page slab-bound quantities when a later page is stronger.
+
+        DPM, mesh, surface bed, and DPC are derived from the current floor
+        envelope.  A small early reconstructed rectangle must not lock them
+        out of a later explicit FLOOR AREA, and a later weaker envelope must
+        not clobber that explicit quantity.
+        """
+        if new_quantity <= 0:
+            return False
+        if existing is None:
+            return True
+        existing_meta = existing.metadata or {}
+        new_meta = new_metadata or {}
+        existing_explicit = existing_meta.get("area_authority") == "explicit_drawing_floor_area"
+        new_explicit = new_meta.get("area_authority") == "explicit_drawing_floor_area"
+        if new_explicit and not existing_explicit:
+            return True
+        if new_explicit == existing_explicit:
+            return new_quantity > float(existing.quantity or 0)
+        return False
+
+    @staticmethod
+    def _has_dpc_specification(page_text: str) -> bool:
+        """Return whether drawing text explicitly specifies a damp-proof course.
+
+        CAD notes commonly write ``DPC`` without dots, and some title-block
+        spellings drop the second 'p' (``Dam Proof Course``).  Membrane
+        wording is excluded: DPM is a different measured item.
+        """
+        normalized = re.sub(r"\s+", " ", page_text.lower())
+        return bool(
+            re.search(r"\bd\s*\.?\s*p\s*\.?\s*c\s*\.?\b", normalized)
+            or re.search(r"\bdam(?:p)?[\s-]*proof\s+course\b", normalized)
+        )
+
+    @staticmethod
+    def _split_into_logical_notes(page_text: str) -> List[str]:
+        """Segment raw page text into logical notes/sentences.
+
+        Numbered drafting notes are commonly hard-wrapped across multiple
+        PDF text lines with no sentence-ending punctuation at the wrap
+        point (e.g. "...to be of approved\n   bitumious felt provided
+        under all walls..."). A naive split on every newline would sever
+        that single note into two meaningless fragments. A naive refusal
+        to ever split on newlines would instead conflate two genuinely
+        separate, newline-only-separated notes into one.
+
+        Distinguishes the two using the one reliable, generic (not
+        drawing-specific) typographic signal available: a wrapped
+        continuation resumes a sentence already in progress, so it starts
+        with a lowercase letter; a new note or sentence starts with an
+        uppercase letter or an explicit numbering marker ("3.", "06)").
+        Semicolons and periods always end a note outright -- they are
+        never treated as wrap points.
+        """
+        # Periods and semicolons are hard, unambiguous note boundaries.
+        segments = re.split(r"[.;]", page_text)
+        notes: List[str] = []
+        for segment in segments:
+            merged_lines: List[str] = []
+            for raw_line in segment.splitlines():
+                line = raw_line.strip()
+                if not line:
+                    continue
+                starts_new_note = bool(re.match(r"^(?:\d+\s*[.)\]:]|[A-Z])", line))
+                if merged_lines and not starts_new_note:
+                    merged_lines[-1] = f"{merged_lines[-1]} {line}"
+                else:
+                    merged_lines.append(line)
+            notes.extend(merged_lines)
+        return notes
+
+    @staticmethod
+    def _has_dpc_all_walls_scope(page_text: str) -> bool:
+        """Return whether the drawing's own DPC note explicitly extends its
+        scope to every wall, not just the external envelope.
+
+        Some drawings state this outright (e.g. "DPC ... provided under
+        all walls on ground floor"). Only when this is genuinely present
+        should an internal partition's evidenced length be added to the
+        DPC quantity -- otherwise DPC stays scoped to the external
+        perimeter alone, matching the narrower default reading.
+
+        Clause-bound: the DPC identity and the "all walls" wording must
+        belong to the SAME logical note (see _split_into_logical_notes),
+        not merely the same page or the same period-delimited chunk. Two
+        notes separated only by a newline (no terminal punctuation at
+        all) -- e.g. an unrelated plaster note on the very next line --
+        must not be conflated with a DPC note that says nothing about
+        scope, even though a plain ``.`` split cannot see that boundary
+        while a wrapped DPC note has none to split on either. When the
+        note association is ambiguous, this fails closed (returns False).
+        """
+        for note in GenericPlanReaderExtractor._split_into_logical_notes(page_text):
+            normalized_note = re.sub(r"\s+", " ", note.lower())
+            if not re.search(r"\b(?:under|to|beneath)\s+all\s+walls\b", normalized_note):
+                continue
+            if GenericPlanReaderExtractor._has_dpc_specification(note):
+                return True
+        return False
+
+    @staticmethod
+    def _standalone_chalkboard_label_count(page_text: str) -> int:
+        """Count plan labels whose entire line is a chalkboard identity.
+
+        Elevation notes such as ``painted surface to be used as the black
+        board`` are sentences, not instance labels, and must not inflate
+        the count.  Two classroom plan labels ``Chalkboard`` are two
+        fixtures.
+        """
+        count = 0
+        for raw in (page_text or "").splitlines():
+            line = raw.strip().strip(":-.")
+            if re.fullmatch(r"(?:chalk\s*board|chalkboard|black\s*board|blackboard)", line, re.I):
+                count += 1
+        return count
+
+    @staticmethod
+    def _page_has_large_raster(page: fitz.Page) -> bool:
+        """True when the page embeds a drawing-sized raster (plan often lives there)."""
+        try:
+            for image in page.get_images():
+                width = int(image[2] or 0)
+                height = int(image[3] or 0)
+                if width * height >= 400 * 400:
+                    return True
+        except Exception:
+            return False
+        return False
+
+    def _ocr_text_for_page(self, page: fitz.Page, page_index: int) -> str:
+        """Raster-OCR a page once and cache the concatenated line text."""
+        cached = self._ocr_text_by_page.get(page_index)
+        if cached is not None:
+            return cached
+        text = ""
+        try:
+            from pb_drawing_ocr_evidence_layer import DrawingOCREngine
+            lines = DrawingOCREngine().recognize_page_rect(page, dpi=150)
+            text = "\n".join(str(line.get("text") or "") for line in lines)
+        except Exception:
+            text = ""
+        self._ocr_text_by_page[page_index] = text
+        return text
 
     @staticmethod
     def _has_surface_bed_specification(page_text: str) -> bool:
@@ -325,9 +490,15 @@ class GenericPlanReaderExtractor:
         for p_idx in target_pages:
             if p_idx < 0 or p_idx >= len(doc):
                 continue
-            pg_txt = doc[p_idx].get_text("text")
-            if not self.is_drawing_page(pg_txt):
+            page_obj = doc[p_idx]
+            pg_txt = page_obj.get_text("text")
+            if not self.is_drawing_page(pg_txt, page_obj):
                 continue
+            native_sparse = len((pg_txt or "").strip()) < 150
+            if native_sparse or self._page_has_large_raster(page_obj):
+                ocr_txt = self._ocr_text_for_page(page_obj, p_idx)
+                if ocr_txt.strip():
+                    pg_txt = f"{pg_txt}\n{ocr_txt}"
             norm_pg = re.sub(r"\s+", " ", pg_txt.lower())
 
             # F.26: explicit figured overall FLOOR AREA on an actual plan sheet
@@ -377,7 +548,7 @@ class GenericPlanReaderExtractor:
                     global_roof_pitch_deg = float(pm.group(1))
 
             # Material specification mentions
-            if "d.p.c" in norm_pg or "damp proof course" in norm_pg:
+            if self._has_dpc_specification(pg_txt):
                 global_has_dpc = True
             if self._has_dpm_specification(norm_pg):
                 global_has_dpm = True
@@ -501,7 +672,7 @@ class GenericPlanReaderExtractor:
             page = doc[pno]
             page_text = page.get_text("text")
 
-            if not self.is_drawing_page(page_text):
+            if not self.is_drawing_page(page_text, page):
                 continue
 
             sheet_no = self.extract_sheet_number(page_text, pno + 1)
@@ -672,6 +843,39 @@ class GenericPlanReaderExtractor:
                         total_floor_screed = floor_finish_geometry.floor_finish_area_m2
 
                 perimeter_m = round(2 * (length_m + width_m), 2)
+
+                # F.32: a naive rectangular perimeter counts every side as
+                # solid, which overstates wall length when the drawing's own
+                # vector hatch geometry shows part of a side is genuinely
+                # open (e.g. a verandah front). This only ever SUBTRACTS a
+                # length that is independently confirmed open by both (a)
+                # the absence of a masonry hatch signature AND (b) a named
+                # open/semi-open space label (verandah/porch/etc.) sitting
+                # outward of that specific edge -- hatch absence alone is
+                # never sufficient, since some walls on some drawings are
+                # genuinely solid without a continuous hatch signature (see
+                # module docstring). Fails closed to the unchanged naive
+                # perimeter on any ambiguity, missing evidence, or error.
+                hatch_confirmed_open_length_m = None
+                try:
+                    from pb_hatch_detection_v160 import detect_hatch_patterns
+                    from pb_wall_hatch_perimeter_correction import (
+                        resolve_hatch_confirmed_open_length_m,
+                    )
+
+                    _, _hatch_clusters, _ = detect_hatch_patterns(
+                        page, scale_info=None, words=None
+                    )
+                    _correction = resolve_hatch_confirmed_open_length_m(
+                        _hatch_clusters, length_m=length_m, width_m=width_m, page=page
+                    )
+                    if _correction.status == "corrected" and _correction.open_length_m > 0:
+                        hatch_confirmed_open_length_m = _correction.open_length_m
+                        perimeter_m = round(
+                            max(0.0, perimeter_m - hatch_confirmed_open_length_m), 2
+                        )
+                except Exception:
+                    hatch_confirmed_open_length_m = None
 
                 existing_area = pred_dict.get("floor_screed")
                 current_best_area = existing_area.quantity if existing_area else 0.0
@@ -945,6 +1149,18 @@ class GenericPlanReaderExtractor:
                                 else "default_ceiling_height_assumption"
                             ),
                             "wall_height_authority": wall_height_authority,
+                            **(
+                                {
+                                    "hatch_confirmed_open_length_m": hatch_confirmed_open_length_m,
+                                    "perimeter_reduction_reason": (
+                                        "vector hatch evidence confirms part of the naive "
+                                        "rectangular perimeter is open, corroborated by a "
+                                        "named open/semi-open space label"
+                                    ),
+                                }
+                                if hatch_confirmed_open_length_m is not None
+                                else {}
+                            ),
                         },
                     )
 
@@ -1099,17 +1315,69 @@ class GenericPlanReaderExtractor:
 
                 # DPC from building perimeter: exactly equal to perimeter P
                 # NO hardcoded 67.0 fallback
-                if global_has_dpc and "damp_proof_course" not in pred_dict and cur_perim > 0:
-                    pred_dict["damp_proof_course"] = ExtractedPrediction(
-                        tag="damp_proof_course",
-                        trade_type="finishes",
-                        description=f"Bituminous damp proof course ({cur_perim:.1f}m perimeter)",
-                        quantity=round(cur_perim, 1),
-                        unit="M",
-                        confidence=0.90,
-                        source_page=page_num,
-                        sheet_number=sheet_no,
-                    )
+                if global_has_dpc and cur_perim > 0:
+                    dpc_length_m = cur_perim
+                    internal_partition_dpc_length_m = None
+                    # F.33: only when THIS PAGE's own DPC note explicitly
+                    # extends scope to "all walls" (not just the external
+                    # envelope) does an evidenced internal partition's
+                    # length get added here. Deliberately page-local, not
+                    # document-global: a document-wide flag would let an
+                    # "all walls" note on one sheet leak into a DPC
+                    # quantity computed from a different page's geometry
+                    # that carries no such scope statement of its own.
+                    # Never applied to perimeter_walling/internal_plaster/
+                    # internal_paint -- DPC is a distinct linear quantity
+                    # and this partition-length evidence is only being
+                    # asserted for the specific case this page's own note
+                    # describes.
+                    page_dpc_scoped_to_all_walls = self._has_dpc_all_walls_scope(page_text)
+                    if page_dpc_scoped_to_all_walls:
+                        try:
+                            from pb_wall_fill_internal_partition_evidence import (
+                                resolve_internal_partition_length_m,
+                            )
+
+                            _partition_evidence = resolve_internal_partition_length_m(
+                                page.get_drawings(), length_m=length_m, width_m=width_m, page=page
+                            )
+                            if (
+                                _partition_evidence.status == "found"
+                                and _partition_evidence.total_length_m > 0
+                            ):
+                                internal_partition_dpc_length_m = _partition_evidence.total_length_m
+                                dpc_length_m = round(
+                                    cur_perim + internal_partition_dpc_length_m, 2
+                                )
+                        except Exception:
+                            internal_partition_dpc_length_m = None
+                            dpc_length_m = cur_perim
+                    dpc_qty = round(dpc_length_m, 1)
+                    dpc_meta = dict(pred_dict["floor_screed"].metadata or {})
+                    if internal_partition_dpc_length_m is not None:
+                        dpc_meta["internal_partition_length_m"] = internal_partition_dpc_length_m
+                        dpc_meta["dpc_scope"] = "external_perimeter_plus_evidenced_internal_partitions"
+                        dpc_description = (
+                            f"Bituminous damp proof course ({cur_perim:.1f}m external perimeter + "
+                            f"{internal_partition_dpc_length_m:.1f}m evidenced internal partition, "
+                            "per drawing's own \"under all walls\" note)"
+                        )
+                    else:
+                        dpc_description = f"Bituminous damp proof course ({dpc_qty:.1f}m perimeter)"
+                    if self._should_replace_slab_bound_quantity(
+                        pred_dict.get("damp_proof_course"), dpc_qty, dpc_meta
+                    ):
+                        pred_dict["damp_proof_course"] = ExtractedPrediction(
+                            tag="damp_proof_course",
+                            trade_type="finishes",
+                            description=dpc_description,
+                            quantity=dpc_qty,
+                            unit="M",
+                            confidence=0.90,
+                            source_page=page_num,
+                            sheet_number=sheet_no,
+                            metadata=dpc_meta,
+                        )
 
                 # Substructure DPM & mesh: exactly equal to floor slab area
                 # NO 1.06 magic multiplier
@@ -1121,7 +1389,11 @@ class GenericPlanReaderExtractor:
                         flr_meta.get("gross_floor_area_m2", tot_flr),
                     )
                 )
-                if global_has_dpm and "substructure_bed_dpm" not in pred_dict and bed_area_for_substructure_m2 > 0:
+                if global_has_dpm and self._should_replace_slab_bound_quantity(
+                    pred_dict.get("substructure_bed_dpm"),
+                    bed_area_for_substructure_m2,
+                    flr_meta,
+                ):
                     pred_dict["substructure_bed_dpm"] = ExtractedPrediction(
                         tag="substructure_bed_dpm",
                         trade_type="finishes",
@@ -1133,7 +1405,11 @@ class GenericPlanReaderExtractor:
                         sheet_number=sheet_no,
                         metadata=flr_meta,
                     )
-                if global_has_mesh and "substructure_a142_mesh" not in pred_dict and bed_area_for_substructure_m2 > 0:
+                if global_has_mesh and self._should_replace_slab_bound_quantity(
+                    pred_dict.get("substructure_a142_mesh"),
+                    bed_area_for_substructure_m2,
+                    flr_meta,
+                ):
                     pred_dict["substructure_a142_mesh"] = ExtractedPrediction(
                         tag="substructure_a142_mesh",
                         trade_type="structure",
@@ -1145,7 +1421,11 @@ class GenericPlanReaderExtractor:
                         sheet_number=sheet_no,
                         metadata=flr_meta,
                     )
-                if global_has_surface_bed and "substructure_surface_bed" not in pred_dict and bed_area_for_substructure_m2 > 0:
+                if global_has_surface_bed and self._should_replace_slab_bound_quantity(
+                    pred_dict.get("substructure_surface_bed"),
+                    bed_area_for_substructure_m2,
+                    flr_meta,
+                ):
                     pred_dict["substructure_surface_bed"] = ExtractedPrediction(
                         tag="substructure_surface_bed",
                         trade_type="structure",
@@ -1298,14 +1578,23 @@ class GenericPlanReaderExtractor:
                 pt_norm,
                 re.I,
             )
+            standalone_bb = self._standalone_chalkboard_label_count(page_text)
 
-            if bb_matches or bb_count_m:
-                bb_qty = float(bb_count_m[0]) if bb_count_m else 1.0
+            if bb_matches or bb_count_m or standalone_bb:
+                if bb_count_m:
+                    bb_qty = float(bb_count_m[0])
+                elif standalone_bb:
+                    bb_qty = float(standalone_bb)
+                else:
+                    bb_qty = 1.0
                 if bb_matches:
                     bb_w = float(bb_matches[0][0].replace(",", "").replace(".", ""))
                     bb_h = float(bb_matches[0][1].replace(",", "").replace(".", ""))
                     bb_dims = [bb_w, bb_h]
                     bb_desc = f"Classroom chalkboard ({int(bb_w)}mm x {int(bb_h)}mm parsed from drawing)"
+                elif standalone_bb:
+                    bb_dims = None
+                    bb_desc = f"Classroom chalkboard ({int(bb_qty)} labelled instances on drawing)"
                 else:
                     bb_dims = None
                     bb_desc = f"Classroom chalkboard ({int(bb_qty)} No parsed from schedule)"
@@ -1348,7 +1637,7 @@ class GenericPlanReaderExtractor:
         try:
             from pb_raster_schedule_extractor import GenericScheduleTableExtractor
             schedule_extractor = GenericScheduleTableExtractor()
-            dwg_pages = [p for p in target_pages if 0 <= p < len(doc) and self.is_drawing_page(doc[p].get_text("text"))]
+            dwg_pages = [p for p in target_pages if 0 <= p < len(doc) and self.is_drawing_page(doc[p].get_text("text"), doc[p])]
             schedule_rows = schedule_extractor.extract_from_document(doc, pages=dwg_pages)
 
             for s_row in schedule_rows:
@@ -1372,6 +1661,140 @@ class GenericPlanReaderExtractor:
             pass
 
         # ------------------------------------------------------------------
+        # Plan instance marks (hyphenated W-# / D-# stamps on scanned plans)
+        # ------------------------------------------------------------------
+        try:
+            from pb_plan_opening_instance_marks import (
+                extract_plan_instance_opening_totals,
+                package_documents_casement_windows,
+                should_emit_casement_window_total,
+            )
+
+            dwg_pages = [
+                p for p in target_pages
+                if 0 <= p < len(doc) and self.is_drawing_page(doc[p].get_text("text"), doc[p])
+            ]
+            drawing_texts = [doc[p].get_text("text") or "" for p in dwg_pages]
+            if package_documents_casement_windows(drawing_texts):
+                totals = extract_plan_instance_opening_totals(doc, dwg_pages)
+                if totals is not None and should_emit_casement_window_total(
+                    totals, pred_dict.keys()
+                ):
+                    pred_dict["steel_casement_windows"] = ExtractedPrediction(
+                        tag="steel_casement_windows",
+                        trade_type="windows",
+                        description=(
+                            "Steel casement windows complete "
+                            f"({totals.window_count} No from plan instance marks)"
+                        ),
+                        quantity=float(totals.window_count),
+                        unit="NO",
+                        confidence=0.86,
+                        source_page=totals.source_page,
+                        metadata={
+                            "derivation": "plan_instance_opening_marks",
+                            "window_types": list(totals.window_types),
+                            "raw_evidence_ref": totals.evidence_text,
+                        },
+                    )
+        except Exception:
+            pass
+
+        # ------------------------------------------------------------------
+        # Sole unlabeled floor-plan door swing (native quarter-circle cubic)
+        # ------------------------------------------------------------------
+        try:
+            from pb_plan_door_swing_geometry import (
+                extract_sole_plan_door_swing,
+                should_emit_sole_unlabeled_door,
+            )
+
+            dwg_pages = [
+                p for p in target_pages
+                if 0 <= p < len(doc) and self.is_drawing_page(doc[p].get_text("text"), doc[p])
+            ]
+            sole = extract_sole_plan_door_swing(doc, dwg_pages)
+            if (
+                sole is not None
+                and should_emit_sole_unlabeled_door(sole.count, pred_dict.keys())
+            ):
+                pred_dict["D1"] = ExtractedPrediction(
+                    tag="D1",
+                    trade_type="doors",
+                    description="Door complete (1 No from unique plan door swing)",
+                    quantity=1.0,
+                    unit="NO",
+                    confidence=0.84,
+                    source_page=sole.source_page,
+                    metadata={
+                        "derivation": "plan_door_swing_cubic",
+                        "raw_evidence_ref": sole.evidence_text,
+                    },
+                )
+        except Exception:
+            pass
+
+        # ------------------------------------------------------------------
+        # Interior unlabeled door swings on inverted CAD floor-plan rasters
+        # ------------------------------------------------------------------
+        try:
+            from pb_plan_raster_door_swings import (
+                extract_exterior_plan_door_swings,
+                extract_interior_plan_door_swings,
+                should_emit_exterior_door_total,
+                should_emit_interior_door_total,
+            )
+
+            dwg_pages = [
+                p for p in target_pages
+                if 0 <= p < len(doc) and self.is_drawing_page(doc[p].get_text("text"), doc[p])
+            ]
+            interior = extract_interior_plan_door_swings(doc, dwg_pages)
+            if interior is not None and should_emit_interior_door_total(
+                interior.count,
+                interior.radii,
+                pred_dict.keys(),
+            ):
+                pred_dict["D2"] = ExtractedPrediction(
+                    tag="D2",
+                    trade_type="doors",
+                    description=(
+                        "Interior doors complete "
+                        f"({interior.count} No from inverted-CAD door swings)"
+                    ),
+                    quantity=float(interior.count),
+                    unit="NO",
+                    confidence=0.83,
+                    source_page=interior.source_page,
+                    metadata={
+                        "derivation": "plan_raster_interior_door_swings",
+                        "raw_evidence_ref": interior.evidence_text,
+                    },
+                )
+            exterior = extract_exterior_plan_door_swings(doc, dwg_pages)
+            if exterior is not None and should_emit_exterior_door_total(
+                exterior.count, pred_dict.keys()
+            ):
+                pred_dict["D1"] = ExtractedPrediction(
+                    tag="D1",
+                    trade_type="doors",
+                    description=(
+                        "External doors complete "
+                        f"({exterior.count} No from inverted-CAD double-leaf swings)"
+                    ),
+                    quantity=float(exterior.count),
+                    unit="NO",
+                    confidence=0.83,
+                    source_page=exterior.source_page,
+                    metadata={
+                        "derivation": "plan_raster_exterior_door_swings",
+                        "raw_evidence_ref": exterior.evidence_text,
+                    },
+                )
+        except Exception:
+            pass
+
+        # ------------------------------------------------------------------
         # Generic Drawing Vision / OCR Evidence Layer (Phase F.10)
         # ------------------------------------------------------------------
         try:
@@ -1385,7 +1808,7 @@ class GenericPlanReaderExtractor:
             )
 
             ocr_engine = DrawingOCREngine()
-            dwg_pages = [p for p in target_pages if 0 <= p < len(doc) and self.is_drawing_page(doc[p].get_text("text"))]
+            dwg_pages = [p for p in target_pages if 0 <= p < len(doc) and self.is_drawing_page(doc[p].get_text("text"), doc[p])]
 
             for p_num in dwg_pages:
                 page = doc[p_num]
@@ -1423,8 +1846,10 @@ class GenericPlanReaderExtractor:
                     )
                 )
 
-                native_insufficient = is_scanned_or_raster or (
-                    (has_schedule_word or has_opening_keyword) and not has_complete_native_openings
+                native_insufficient = (
+                    is_scanned_or_raster
+                    or (self._page_has_large_raster(page) and not has_complete_native_openings)
+                    or ((has_schedule_word or has_opening_keyword) and not has_complete_native_openings)
                 )
                 if not native_insufficient:
                     continue
@@ -1508,6 +1933,23 @@ class GenericPlanReaderExtractor:
                         elif r.status == EvidenceStatus.CONFLICT_MANUAL_REVIEW.value:
                             if r.tag in pred_dict:
                                 del pred_dict[r.tag]
+        except Exception:
+            pass
+
+        # ------------------------------------------------------------------
+        # Unique door WxH callout → already identified dimensionless D#
+        # ------------------------------------------------------------------
+        try:
+            from pb_opening_callout_dimension_binder import (
+                bind_unique_door_callout_dimensions,
+            )
+
+            dwg_texts = [
+                doc[p].get_text("text") or ""
+                for p in target_pages
+                if 0 <= p < len(doc)
+            ]
+            bind_unique_door_callout_dimensions(list(pred_dict.values()), dwg_texts)
         except Exception:
             pass
 
