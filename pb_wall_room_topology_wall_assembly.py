@@ -60,6 +60,7 @@ a false combined wall or silently disappearing.
 """
 from __future__ import annotations
 
+import math
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 from pb_geometry_takeoff_model import MeasurementAuthorityType
@@ -209,28 +210,124 @@ def _order_chain_path(
     return points, start_node, end_node, True
 
 
-def _canonical_wall_candidate_id(
-    viewport_id: str, p1: Tuple[float, float], p2: Tuple[float, float]
-) -> str:
-    """Content-derived, direction- and order-invariant wall candidate id.
-
-    Deliberately hashes the chain's two *boundary endpoint coordinates*
-    (canonically ordered), never the contributing Stage-A edge id strings --
-    those are themselves order-dependent artifacts of
-    ``split_segments_at_intersections``' internal enumeration and so are not
-    a valid basis for a stable id. This is also why two representations of
-    the same overall wall span -- one drawn as a single segment, another as
-    three fragments merged back into one chain -- receive the *identical*
-    candidate id: this is semantic topology invariance (the physical wall is
-    the same), not source-evidence identity invariance (its
-    ``face_a_segment_ids`` provenance list will correctly differ between the
-    two cases -- see module docstring).
-    """
-    ordered = sorted(
-        (tuple(round(c, 6) for c in p1), tuple(round(c, 6) for c in p2))
+def _polyline_length(points: Sequence[Tuple[float, float]]) -> float:
+    return sum(
+        math.hypot(points[i + 1][0] - points[i][0], points[i + 1][1] - points[i][1])
+        for i in range(len(points) - 1)
     )
+
+
+def _point_at_arc_length(points: Sequence[Tuple[float, float]], target: float) -> Tuple[float, float]:
+    """Point at arc-length ``target`` along the piecewise-linear ``points``
+    path (clamped to the path's own extent)."""
+    if target <= 0.0:
+        return points[0]
+    travelled = 0.0
+    for i in range(len(points) - 1):
+        ax, ay = points[i]
+        bx, by = points[i + 1]
+        seg_len = math.hypot(bx - ax, by - ay)
+        if seg_len <= 0.0:
+            continue
+        if travelled + seg_len >= target:
+            t = (target - travelled) / seg_len
+            return (ax + t * (bx - ax), ay + t * (by - ay))
+        travelled += seg_len
+    return points[-1]
+
+
+# Deciles (10%..90% of the path's own arc length) -- a fixed, round sample
+# count chosen for the fingerprint below, not tuned to any one project's
+# geometry. See _shape_fingerprint's own docstring for why this, rather than
+# the chain's raw interior vertices, is what gets hashed.
+_SHAPE_FINGERPRINT_SAMPLE_FRACTIONS = (0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
+
+
+def _shape_fingerprint(points: Sequence[Tuple[float, float]]) -> Tuple[float, ...]:
+    """Direction-canonical, re-chunking-stable fingerprint of a polyline's
+    own SHAPE, expressed as each fixed-arc-length sample point's
+    perpendicular deviation from the straight chord joining the path's two
+    endpoints.
+
+    Why not just hash the endpoints (the previous behaviour), and why not
+    hash the raw interior vertices directly:
+
+    - Endpoints alone is what caused a real, confirmed defect: on real
+      Baghau p36 data, two geometrically DISTINCT diagonal traces (different
+      constituent Stage-A edges, different interior paths) happened to share
+      both outer endpoints and collided onto the same candidate_id, which
+      then crashed a downstream evidence-ranking pass expecting per-object
+      identity uniqueness.
+    - Hashing the raw interior vertices directly would break the
+      long-standing, deliberately-tested invariant that the SAME straight
+      wall drawn as one segment vs. pre-split into three fragments must
+      yield the IDENTICAL id (``test_12_split_merge_invariance_same_wall_id``)
+      -- re-chunking changes which points exist along the path without
+      changing the path's own shape.
+
+    Sampling the path's own shape at FIXED arc-length fractions (rather than
+    at its raw, chunking-dependent vertices) resolves both: interpolating a
+    piecewise-linear path at a fixed fraction of its own length gives the
+    same point regardless of how many vertices define the straight sections
+    between real shape changes, so harmless re-chunking is still invariant;
+    two chains that are genuinely different shapes (even ones whose
+    consecutive-segment angle deltas are each individually small -- as the
+    real Baghau collision's own two colliding chains were) accumulate a
+    measurably different deviation from their shared chord, so they are no
+    longer treated as the same id merely for sharing two endpoints.
+
+    Deterministic and pure: no randomness, no dependency on dict/set
+    iteration order (the caller is responsible for supplying ``points`` in
+    one canonical direction -- see ``_canonical_wall_candidate_id``).
+    """
+    if len(points) < 3:
+        return ()
+    ax, ay = points[0]
+    bx, by = points[-1]
+    chord_dx, chord_dy = bx - ax, by - ay
+    chord_len = math.hypot(chord_dx, chord_dy)
+    if chord_len <= 0.0:
+        return ()
+    ux, uy = chord_dx / chord_len, chord_dy / chord_len
+    total_len = _polyline_length(points)
+    samples = []
+    for fraction in _SHAPE_FINGERPRINT_SAMPLE_FRACTIONS:
+        px, py = _point_at_arc_length(points, fraction * total_len)
+        # Perpendicular (cross-product) offset of this sample from the chord.
+        offset = (px - ax) * (-uy) + (py - ay) * ux
+        samples.append(round(offset, 6))
+    return tuple(samples)
+
+
+def _canonical_wall_candidate_id(
+    viewport_id: str, points: Sequence[Tuple[float, float]]
+) -> str:
+    """Content-derived, direction- and re-chunking-invariant wall candidate id.
+
+    Hashes the chain's two boundary endpoints (canonically ordered, as
+    before) PLUS a direction-canonical shape fingerprint of the path between
+    them (see ``_shape_fingerprint``) -- so two chains sharing both endpoints
+    but following genuinely different interior paths (the real, confirmed
+    Baghau collision this fixes) receive DIFFERENT ids, while the same
+    physical wall re-chunked into a different number of collinear fragments
+    still receives the IDENTICAL id (the same physical wall's own shape,
+    resampled at the same fixed arc-length fractions, does not change merely
+    because it has more or fewer defining vertices).
+
+    Both the endpoint pair and the fingerprint are computed in whichever of
+    the two traversal directions sorts first (matching the endpoint-only
+    ordering this function already used), so reversing the input polyline's
+    own direction does not change the id.
+    """
+    forward_key = tuple(round(c, 6) for c in points[0])
+    backward_key = tuple(round(c, 6) for c in points[-1])
+    if backward_key < forward_key:
+        points = tuple(reversed(points))
+    p1 = tuple(round(c, 6) for c in points[0])
+    p2 = tuple(round(c, 6) for c in points[-1])
+    fingerprint = _shape_fingerprint(points)
     return stable_contract_id(
-        "wall", {"viewport_id": viewport_id, "p1": ordered[0], "p2": ordered[1]}
+        "wall", {"viewport_id": viewport_id, "p1": p1, "p2": p2, "shape": fingerprint}
     )
 
 
@@ -285,7 +382,7 @@ def assemble_wall_candidates(
         points, start_idx, end_idx, is_simple_path = _order_chain_path(
             edge_ids, edges_by_id, node_lookup
         )
-        candidate_id = _canonical_wall_candidate_id(viewport_id, points[0], points[-1])
+        candidate_id = _canonical_wall_candidate_id(viewport_id, points)
 
         start_junction = junction_by_node_idx.get(start_idx)
         end_junction = junction_by_node_idx.get(end_idx)
