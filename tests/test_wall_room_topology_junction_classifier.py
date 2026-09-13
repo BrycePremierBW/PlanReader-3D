@@ -331,6 +331,46 @@ class TestFalsePositiveCoverageSummary:
         # No relationship should ever reference the discarded duplicate edge.
         assert all(r.from_edge_id == "split_0" for r in relationships)
 
+    def test_duplicate_line_spanning_a_collinear_merge_does_not_crash(self) -> None:
+        # Real-drawing regression (found running the pipeline against Baghau
+        # p36): a wall drawn as two collinear fragments sharing one endpoint
+        # (Stage A's own merge_collinear_degree_two_nodes replaces them with
+        # one "merged_..." edge spanning the shared node's own two FAR
+        # endpoints, and records that new edge's id on the shared node's
+        # "merged_into_edge" field) PLUS a separate line spanning exactly
+        # those same two far endpoints directly (here: split_segments_at_
+        # intersections does not split a line at a point where only another
+        # line's own endpoint -- not a true crossing -- touches its
+        # interior, so a full-span duplicate stays whole and becomes exactly
+        # coincident, by node pair, with the merged edge). This classifier's
+        # own deduplicate_coincident_edges pass then discards the merged
+        # edge as a "duplicate" of that unrelated edge. Before the fix,
+        # classify_junctions still hardcoded COLLINEAR_CONTINUATION for the
+        # shared node even though its merged_into_edge target no longer
+        # existed, building a JunctionCandidate with zero incident ids and
+        # crashing __post_init__. The shared node must fail closed to
+        # UNRESOLVED with an explicit reason code instead of crashing --
+        # and, just as importantly, must NOT silently reference the
+        # surviving duplicate edge, since that edge (by construction here)
+        # does not actually touch this node's own location and claiming it
+        # would misrepresent which physical span is really resolved.
+        segments = [
+            _seg("a", 0, 0, 50, 0),
+            _seg("b", 50, 0, 100, 0),
+            _seg("duplicate_full_span", 0, 0, 100, 0),
+        ]
+        junctions, _ = _classify(segments)
+        by_type = _types_at(junctions)
+        # (0, 0) is the node Stage A's own collinear merge absorbed (its two
+        # original incident edges -- "a" and the whole "duplicate_full_span"
+        # -- get fused into one new far-to-far edge); that new edge is the
+        # one this classifier's own dedup then discards as coincident with
+        # "b", which is what must fail closed rather than crash or mislead.
+        assert by_type[(0.0, 0.0)] == JunctionType.UNRESOLVED
+        merge_point = next(j for j in junctions if j.position_pt == (0.0, 0.0))
+        assert "collinear_merge_target_edge_missing" in merge_point.reason_codes
+        assert merge_point.incident_wall_candidate_ids == ()
+
 
 class TestMetamorphicInvariance:
     def _fixture(self):
@@ -414,20 +454,51 @@ class TestMetamorphicInvariance:
         reversed_junctions, _ = _classify(reversed_dir)
         assert self._type_multiset(base_junctions) == self._type_multiset(reversed_junctions)
 
-    def test_rotation_invariance_for_x_crossing(self) -> None:
+    @staticmethod
+    def _rotate(x, y, deg):
         import math
 
-        def rotate(x, y, deg):
-            rad = math.radians(deg)
-            return (x * math.cos(rad) - y * math.sin(rad), x * math.sin(rad) + y * math.cos(rad))
+        rad = math.radians(deg)
+        return (x * math.cos(rad) - y * math.sin(rad), x * math.sin(rad) + y * math.cos(rad))
 
+    def _assert_x_crossing_rotation_invariant(self, deg: float) -> None:
         base = [_seg("h", -150, 0, 150, 0), _seg("v", 0, -150, 0, 150)]
         rotated = []
         for s in base:
-            x1, y1 = rotate(s["x1"], s["y1"], 37.0)
-            x2, y2 = rotate(s["x2"], s["y2"], 37.0)
+            x1, y1 = self._rotate(s["x1"], s["y1"], deg)
+            x2, y2 = self._rotate(s["x2"], s["y2"], deg)
             rotated.append(_seg(s["id"], x1, y1, x2, y2))
 
         base_junctions, _ = _classify(base)
         rotated_junctions, _ = _classify(rotated)
         assert self._type_multiset(base_junctions) == self._type_multiset(rotated_junctions)
+
+    def test_rotation_invariance_for_x_crossing(self) -> None:
+        self._assert_x_crossing_rotation_invariant(37.0)
+
+    def test_rotation_invariance_90deg(self) -> None:
+        self._assert_x_crossing_rotation_invariant(90.0)
+
+    def test_rotation_invariance_180deg(self) -> None:
+        self._assert_x_crossing_rotation_invariant(180.0)
+
+    def test_rotation_invariance_270deg(self) -> None:
+        self._assert_x_crossing_rotation_invariant(270.0)
+
+    def _assert_scale_invariant(self, factor: float) -> None:
+        scaled = [
+            _seg(s["id"], s["x1"] * factor, s["y1"] * factor, s["x2"] * factor, s["y2"] * factor)
+            for s in self._fixture()
+        ]
+        base_junctions, _ = _classify(self._fixture())
+        scaled_junctions, _ = _classify(scaled)
+        assert self._type_multiset(base_junctions) == self._type_multiset(scaled_junctions)
+
+    def test_scale_invariance_half(self) -> None:
+        self._assert_scale_invariant(0.5)
+
+    def test_scale_invariance_1_35x(self) -> None:
+        self._assert_scale_invariant(1.35)
+
+    def test_scale_invariance_double(self) -> None:
+        self._assert_scale_invariant(2.0)
