@@ -860,3 +860,45 @@ def test_source_w4_node_counts_are_scoped_once_across_competing_labels(monkeypat
         "split_label_primary",
         "split_label_competing",
     }
+
+
+def test_gpt2_b02_duplicate_w4_candidate_id_does_not_authenticate_separator():
+    """Original Maryborough exposed different W4 candidates with one address.
+
+    A shared W4 address does not prove wall physical equivalence or an exact
+    separator. Preserve independent source-owned walls and all face records.
+    """
+    from dataclasses import replace
+    from pb_source_composite_room_face_authority import (
+        _fully_grid_opposed_wall_evidence,
+    )
+
+    original = _wall_scope((_grid_atom("e_sep"), _grid_atom("e_left")))
+    clean_ids, clean_receipts = _fully_grid_opposed_wall_evidence(original)
+    assert "w_sep" in clean_ids and "w_left" in clean_ids
+    assert clean_receipts["w_sep"]
+    duplicate = _wall_record("w_sep", "another_original_source_edge")
+    contaminated = replace(
+        original, records=(*original.records, duplicate)
+    )
+    quarantined, receipts = _fully_grid_opposed_wall_evidence(contaminated)
+    assert "w_sep" not in quarantined
+    assert "w_sep" not in receipts
+    assert "w_left" in quarantined
+    assert receipts["w_left"] == clean_receipts["w_left"]
+    # Exactly the same producer ID repeated twice is also nonunique and
+    # cannot silently grant two physical face-cell ownership claims.
+    repeated = replace(
+        original, records=(*original.records, original.records[0])
+    )
+    repeated_ids, _ = _fully_grid_opposed_wall_evidence(repeated)
+    assert "w_sep" not in repeated_ids
+
+    # A candidate union relying on a colliding W4 separator must abstain.
+    attempted = compose_grid_separated_room_faces(
+        wall_scope=contaminated,
+        room_scope=_room_scope(),
+        label_scope=_label_scope(),
+    )
+    assert attempted.records == ()
+    assert attempted.status is EvidenceResolutionStatus.ABSTAINED
