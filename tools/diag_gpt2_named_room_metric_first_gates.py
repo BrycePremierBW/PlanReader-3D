@@ -17,10 +17,16 @@ def summarize_named_room_metric_first_gates(claim: Any) -> dict[str, Any]:
     assigned to a named room in the diagnostic output.
     """
     named = tuple(
-        (str(getattr(room, "physical_room_id", "") or "").strip(),
-         " ".join(str(getattr(room, "room_label", "") or "").upper().split()))
+        (
+            raw_id.strip() if isinstance(raw_id, str) else "",
+            " ".join(raw_label.upper().split()),
+        )
         for room in getattr(claim, "canonical_rooms", ()) or ()
-        if str(getattr(room, "room_label", "") or "").strip()
+        for raw_id, raw_label in ((
+            getattr(room, "physical_room_id", None),
+            getattr(room, "room_label", None),
+        ),)
+        if isinstance(raw_label, str) and raw_label.strip()
     )
     counts = Counter(room_id for room_id, _ in named)
     owners = {room_id: label for room_id, label in named
