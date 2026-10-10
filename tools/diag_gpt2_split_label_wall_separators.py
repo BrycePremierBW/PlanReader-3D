@@ -64,8 +64,15 @@ def split_face_source_wall_separator_gate(
     faces_by_record_id: dict[str,Any],
 ) -> dict[str,Any]:
     """CANDIDATE-only pairwise source-wall separator provenance."""
-    ids=tuple(str(v) for v in getattr(candidate,"source_room_face_record_ids",()) or ())
-    label=str(getattr(candidate,"label","") or "")
+    raw_ids=getattr(candidate,"source_room_face_record_ids",()) or ()
+    if not isinstance(raw_ids,(tuple,list)):
+        raw_ids=()
+    ids=tuple(
+        value if isinstance(value,str) and value and value==value.strip() else ""
+        for value in raw_ids
+    )
+    raw_label=getattr(candidate,"label",None)
+    label=raw_label if isinstance(raw_label,str) and raw_label.strip() else ""
     result={
         "label":label,
         "source_split_candidate_record_id":str(getattr(candidate,"record_id","") or ""),
@@ -75,7 +82,7 @@ def split_face_source_wall_separator_gate(
         "source_room_label_published":False,
         "metric_quantity_published":False,
     }
-    if not label or len(ids)<2 or len(set(ids))!=len(ids):
+    if not label or len(ids)<2 or any(not value for value in ids) or len(set(ids))!=len(ids):
         result["first_gate"]="split_source_face_identity_invalid"
         return result
     actual=[]
@@ -84,9 +91,14 @@ def split_face_source_wall_separator_gate(
         if face is None or str(getattr(face,"record_id",""))!=face_id:
             result["first_gate"]="split_source_face_record_missing"
             return result
-        if any(getattr(face,field,None)!=getattr(candidate,field,None)
-               for field in ("document_id","revision_id","source_sha256",
-                             "snapshot_id","page_id","decision_scope_id")):
+        if any(
+            not isinstance(getattr(candidate,field,None),str)
+            or not getattr(candidate,field,None)
+            or getattr(candidate,field,None) != getattr(candidate,field,None).strip()
+            or getattr(face,field,None) != getattr(candidate,field,None)
+            for field in ("document_id","revision_id","source_sha256",
+                          "snapshot_id","page_id","decision_scope_id")
+        ):
             result["first_gate"]="split_source_face_lineage_mismatch"
             return result
         actual.append(face)
