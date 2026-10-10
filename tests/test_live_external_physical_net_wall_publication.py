@@ -424,3 +424,33 @@ def test_source_void_must_retain_exact_host_receipt_and_wall_lineage(field, valu
     assert result.status is EvidenceResolutionStatus.CONFLICT
     assert result.quantity_evidence is None
     assert result.canonical_walls == ()
+
+
+@pytest.mark.parametrize("field", ("u1", "z1"))
+def test_fractional_source_void_overhang_never_reaches_boolean_subtraction(field):
+    from pb_physical_opening_void_authority import (
+        PhysicalOpeningVoidAuthority, PhysicalOpeningVoidResult,
+        _AUTHORITY_SEAL as VOID_AUTHORITY_SEAL,
+    )
+    wall_opening, physical_void, gross, roles, original, wall = _chain()
+    selector = physical_void.void_selectors[original.opening_identity_id]
+    limit = float(wall.length_m if field == "u1" else wall.height_m)
+    forged = replace(original, **{field: limit + 5e-10})
+    authority = PhysicalOpeningVoidAuthority({
+        selector.key: PhysicalOpeningVoidResult(
+            status=EvidenceResolutionStatus.CORROBORATED,
+            reason_codes=("source_void_resolved",), record=forged,
+        ),
+    }, _seal=VOID_AUTHORITY_SEAL)
+    altered = replace(physical_void, physical_opening_void_authorities=MappingProxyType({
+        **physical_void.physical_opening_void_authorities, selector.page_id: authority,
+    }))
+    result = compose_live_external_physical_net_wall_publication(
+        wall_opening_composition=wall_opening,
+        physical_void_composition=altered,
+        gross_wall_composition=gross,
+        whole_wall_role_composition=roles,
+    )
+    assert result.status is EvidenceResolutionStatus.CONFLICT
+    assert result.quantity_evidence is None
+    assert result.canonical_walls == ()
