@@ -125,3 +125,20 @@ def test_malformed_source_gate_tuple_keeps_count_but_cannot_crash_ledger():
         "first_gate":"actual_source_gate",
     }]
     assert row["metric_quantity_published"] is False
+
+
+def test_nontext_source_room_label_and_id_do_not_invent_named_room():
+    report=summarize(claim(
+        (room(43, "FREEZER"), room("proper", "PWD"),
+         room("bad-label", {"untrusted":"ROOM"}),
+         room("null-label", None)),
+        same=(("43", "need_metric"), ("proper", "need_figured_measure")),
+    ))
+    assert report["source_named_room_count"] == 2
+    assert report["ambiguous_named_physical_room_ids"] == [""]
+    assert report["uniquely_attributable_named_room_count"] == 1
+    assert report["named_room_metric_first_failure_codes"]["same_view"] == [{
+        "physical_room_id":"proper", "label":"PWD",
+        "first_gate":"need_figured_measure",
+    }]
+    assert report["metric_quantity_published"] is False
