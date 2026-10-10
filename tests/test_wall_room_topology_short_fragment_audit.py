@@ -351,3 +351,25 @@ def test_finite_original_source_points_cannot_overflow_raw_fragment_length(raw):
     with pytest.raises(ValueError, match="nonfinite original split source length"):
         audit([f], s, m)
     assert (f, s, m) == original
+
+@pytest.mark.parametrize("which", [
+    "split_fragment", "surviving_edge", "merge_leaf", "disappearance_receipt",
+])
+def test_whitespace_only_w2_source_receipt_ids_fail_closed(which):
+    source = fragment()
+    snapped, merged = graph()
+    reported = []
+    if which == "split_fragment":
+        source["id"] = "   "
+    elif which == "surviving_edge":
+        snapped["edges"][0]["id"] = "   "
+    elif which == "merge_leaf":
+        merged["edges"][0]["collinear_merge_leaf_edge_ids"] = ["   "]
+    elif which == "disappearance_receipt":
+        reported = [{"id": "   "}]
+    with pytest.raises(ValueError):
+        audit_short_source_fragments(
+            [source], snapped, merged,
+            producer_reported_collapsed_fragments=reported,
+            max_length_pt=2.5,
+        )
