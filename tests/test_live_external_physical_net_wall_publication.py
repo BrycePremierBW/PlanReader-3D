@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import pytest
 from types import MappingProxyType
 
 from pb_gross_wall_geometry_authority import (
@@ -278,6 +279,12 @@ def test_expected_opening_with_missing_void_never_publishes_gross_as_net() -> No
     assert result.status is EvidenceResolutionStatus.ABSTAINED
     assert LIVE_EXTERNAL_PHYSICAL_NET_WALL_VOID_UNRESOLVED in result.reason_codes
     assert result.quantity_evidence is None
+    assert result.canonical_walls == ()
+    assert result.physical_void_record_ids == ()
+    assert result.opening_universe_record_ids == ()
+    assert result.external_wall_ids == ()
+    assert result.gross_geometry_record_ids == ()
+    assert result.whole_wall_role_record_ids == ()
 
 
 def test_physical_publication_has_no_trade_policy_or_quantity_truth_inputs() -> None:
@@ -301,3 +308,45 @@ def test_physical_publication_has_no_trade_policy_or_quantity_truth_inputs() -> 
         "quantity",
     }
     assert not (parameters & forbidden)
+
+def test_duplicate_physical_opening_trace_cannot_hide_behind_set_equality() -> None:
+    """One source opening must have exactly one physical void trace."""
+    from dataclasses import replace
+
+    wall_opening, physical_void, gross, roles, _void, _gross = _chain()
+    assert len(physical_void.traces) == 1
+    duplicated = replace(
+        physical_void,
+        traces=(physical_void.traces[0], physical_void.traces[0]),
+    )
+    result = compose_live_external_physical_net_wall_publication(
+        wall_opening_composition=wall_opening,
+        physical_void_composition=duplicated,
+        gross_wall_composition=gross,
+        whole_wall_role_composition=roles,
+    )
+    assert result.status is EvidenceResolutionStatus.CONFLICT
+    assert LIVE_EXTERNAL_PHYSICAL_NET_WALL_VOID_UNRESOLVED in result.reason_codes
+    assert result.quantity_evidence is None
+
+
+@pytest.mark.parametrize("missing_identity", ("", "   "))
+def test_blank_physical_opening_trace_cannot_hide_behind_set_equality(missing_identity) -> None:
+    """A blank additional trace must not be discarded before coverage proof."""
+    from dataclasses import replace
+
+    wall_opening, physical_void, gross, roles, _void, _gross = _chain()
+    forged = replace(
+        physical_void.traces[0],
+        opening_identity_id=missing_identity,
+    )
+    altered = replace(physical_void, traces=(*physical_void.traces, forged))
+    result = compose_live_external_physical_net_wall_publication(
+        wall_opening_composition=wall_opening,
+        physical_void_composition=altered,
+        gross_wall_composition=gross,
+        whole_wall_role_composition=roles,
+    )
+    assert result.status is EvidenceResolutionStatus.CONFLICT
+    assert LIVE_EXTERNAL_PHYSICAL_NET_WALL_VOID_UNRESOLVED in result.reason_codes
+    assert result.quantity_evidence is None

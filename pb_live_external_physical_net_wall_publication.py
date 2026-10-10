@@ -461,11 +461,20 @@ def compose_live_external_physical_net_wall_publication(
         )
 
     if expected_opening_ids:
-        trace_opening_ids = {
+        trace_ids = tuple(
             _clean(trace.opening_identity_id)
             for trace in physical_void_composition.traces
-            if _clean(trace.opening_identity_id)
-        }
+        )
+        trace_opening_ids = set(trace_ids)
+        if (
+            any(not opening_id for opening_id in trace_ids)
+            or len(trace_opening_ids) != len(trace_ids)
+        ):
+            return _blocked(
+                revision_id=revision_id,
+                status=EvidenceResolutionStatus.CONFLICT,
+                reason=LIVE_EXTERNAL_PHYSICAL_NET_WALL_VOID_UNRESOLVED,
+            )
         if (
             physical_void_composition.status
             is not EvidenceResolutionStatus.CORROBORATED
