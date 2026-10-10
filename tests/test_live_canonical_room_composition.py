@@ -981,3 +981,25 @@ def test_gpt2_composite_physical_identity_cannot_alias_source_or_sibling():
     remaining, accepted = _canonical_composite_supersedence(originals, (valid,))
     assert remaining == ()
     assert accepted == (valid,)
+
+
+def test_gpt2_malformed_composite_membership_does_not_break_independent_room():
+    from types import SimpleNamespace
+    from pb_live_canonical_room_composition import _canonical_composite_supersedence
+
+    originals = tuple(SimpleNamespace(face_id=id, record_id="receipt_" + id)
+                      for id in ("a", "b", "c", "d"))
+    valid = SimpleNamespace(record_id="valid", face_id="new-cd",
+                            constituent_face_ids=("c", "d"),
+                            constituent_source_room_face_record_ids=("receipt_c", "receipt_d"))
+    malformed = (
+        SimpleNamespace(record_id="bad_integer", constituent_face_ids=42),
+        SimpleNamespace(record_id="bad_none", constituent_face_ids=None),
+        SimpleNamespace(record_id="bad_dictionary", constituent_face_ids={"a": True}),
+        SimpleNamespace(record_id="bad_generator", constituent_face_ids=iter(("a", "b"))),
+    )
+    remaining, accepted = _canonical_composite_supersedence(
+        originals, (*malformed, valid)
+    )
+    assert accepted == (valid,)
+    assert remaining == originals[:2]
