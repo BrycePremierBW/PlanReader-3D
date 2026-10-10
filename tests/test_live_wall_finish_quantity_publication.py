@@ -175,3 +175,15 @@ def test_wall_finish_publisher_rejects_blank_physical_source_identity(changes):
     record, _surface = _resolved_record_and_surface()
     with pytest.raises(ValueError, match="physical/source identity"):
         publish_bound_wall_finish_quantity(replace(record, **changes))
+
+@pytest.mark.parametrize("field", (
+    "physical_surface_ids", "physical_face_ids", "physical_wall_ids",
+    "finish_binding_ids", "net_wall_record_ids",
+))
+def test_duplicate_finish_identity_or_receipt_never_publishes(field):
+    record, _surface = _resolved_record_and_surface()
+    original = getattr(record, field)
+    assert original
+    replay = replace(record, **{field: (*original, original[0])})
+    with pytest.raises(ValueError, match="physical/source identity"):
+        publish_bound_wall_finish_quantity(replay)
