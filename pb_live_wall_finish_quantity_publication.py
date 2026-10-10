@@ -54,6 +54,16 @@ def publish_bound_wall_finish_quantity(
         or not record.physical_face_ids
         or not record.physical_wall_ids
         or any(
+            len(set(group)) != len(group)
+            for group in (
+                record.physical_surface_ids,
+                record.physical_face_ids,
+                record.physical_wall_ids,
+                record.finish_binding_ids,
+                record.net_wall_record_ids,
+            )
+        )
+        or any(
             not str(value or "").strip()
             for group in (
                 record.physical_face_ids,
