@@ -183,6 +183,8 @@ def publish_live_authenticated_opening_count_quantities(
             or record.source_sha256 != published.revision.source_sha256
             or record.snapshot_id != published.snapshot.snapshot_id
             or record.opening_record_id != opening_id
+            or record.decision_scope_id != scope_id
+            or record.page_id not in wall_opening_composition.page_ids
         ):
             return ()
 
