@@ -12,7 +12,8 @@ from pb_viewport_segmentation import is_authoritative_derived_viewport
 
 def scoped_rcp_material_occurrence_gate(viewport: Any, result: Any) -> dict[str,Any]:
     view_id=str(getattr(viewport,"view_id","") or "")
-    kind=str(getattr(viewport,"view_type","") or "")
+    view_type_field=getattr(viewport,"view_type","")
+    kind=str(getattr(view_type_field,"value",view_type_field) or "")
     status=str(getattr(viewport,"status","") or "")
     bbox=getattr(viewport,"bounding_box",None)
     scope_status=str(getattr(result,"status",""))
