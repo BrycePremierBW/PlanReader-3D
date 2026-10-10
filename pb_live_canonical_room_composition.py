@@ -279,6 +279,13 @@ def _canonical_polygon_identity(
     # are one physical boundary, not two canonical room identities.
     if len(points) > 1 and points[0] == points[-1]:
         points = points[:-1]
+    # Consecutive duplicate source vertices represent a zero-length edge;
+    # normalize only identity hashing, never mutate the source geometry.
+    distinct_consecutive = []
+    for vertex in points:
+        if not distinct_consecutive or distinct_consecutive[-1] != vertex:
+            distinct_consecutive.append(vertex)
+    points = tuple(distinct_consecutive)
     if len(points) < 3:
         return ()
     variants: list[tuple[tuple[float, float], ...]] = []
