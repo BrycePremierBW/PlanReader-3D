@@ -1179,3 +1179,54 @@ def test_subtract_void_union_boundary_touching_contained_geometry_preserved() ->
     assert not net.is_empty
     assert net.area == pytest.approx(10.0 * 3.0 - 1.0 * 2.0)
 
+
+
+@pytest.mark.parametrize("bounds", (
+    {"u0": -5e-7, "u1": 1.0, "z0": 0.0, "z1": 2.0},
+    {"u0": 9.0, "u1": 10.0 + 5e-7, "z0": 0.0, "z1": 2.0},
+    {"u0": 1.0, "u1": 2.0, "z0": -5e-7, "z1": 2.0},
+    {"u0": 1.0, "u1": 2.0, "z0": 1.0, "z1": 3.0 + 5e-7},
+))
+def test_current_main_strict_opening_bounds_reject_fractional_overhangs(bounds):
+    void = _void_record("op-1", **bounds)
+    deduction = OpeningDeductionResult(
+        EvidenceResolutionStatus.CORROBORATED,
+        (OPENING_DEDUCTION_AUTHORIZED,),
+        _deduction_record("op-1"),
+    )
+    producer, selector = _setup_pipeline(
+        gross=_gross_record(length=10.0, height=3.0),
+        voids=(void,),
+        deductions=(("op-1", deduction),),
+    )
+    result = producer.publish(selector)
+    assert result.status is EvidenceResolutionStatus.CONFLICT
+    assert NET_WALL_VOID_UNRESOLVED in result.reason_codes
+    assert result.record is not None
+    assert result.record.net_area_m2 is None
+    assert result.record.opening_deduction_record_ids == ()
+
+
+@pytest.mark.parametrize("bounds", (
+    {"u0": 0.0, "u1": 1.0, "z0": 0.0, "z1": 2.0},
+    {"u0": 9.0, "u1": 10.0, "z0": 0.0, "z1": 2.0},
+    {"u0": 1.0, "u1": 2.0, "z0": 0.0, "z1": 3.0},
+))
+def test_current_main_strict_bounds_preserve_exact_edge_openings(bounds):
+    void = _void_record("op-1", **bounds)
+    deduction = OpeningDeductionResult(
+        EvidenceResolutionStatus.CORROBORATED,
+        (OPENING_DEDUCTION_AUTHORIZED,),
+        _deduction_record("op-1"),
+    )
+    producer, selector = _setup_pipeline(
+        gross=_gross_record(length=10.0, height=3.0),
+        voids=(void,),
+        deductions=(("op-1", deduction),),
+    )
+    result = producer.publish(selector)
+    assert result.status is EvidenceResolutionStatus.CORROBORATED
+    assert result.record is not None
+    area = (bounds["u1"] - bounds["u0"]) * (bounds["z1"] - bounds["z0"])
+    assert result.record.void_union_area_m2 == pytest.approx(area)
+    assert result.record.net_area_m2 == pytest.approx(30.0 - area)
