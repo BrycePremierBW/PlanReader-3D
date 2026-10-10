@@ -476,3 +476,14 @@ def test_floor_finish_source_seal_rejects_invalid_source_polygon(points):
         build_live_floor_finish_area_source_traces(
             _claim(altered_floor), workspace_id=1, project_id="project-1",
         )
+
+
+def test_floor_finish_cannot_seal_without_complete_original_physical_room_face():
+    for floor in (
+        replace(_floor(), geometry_complete=False),
+        replace(_floor(), polygon_pdf_pts=()),
+    ):
+        with pytest.raises(SourceClosedRunConflictError, match="polygon is invalid or incomplete"):
+            build_live_floor_finish_area_source_traces(
+                _claim(floor), workspace_id=1, project_id="project-1",
+            )
