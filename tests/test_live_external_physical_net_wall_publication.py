@@ -284,6 +284,7 @@ def test_expected_opening_with_missing_void_never_publishes_gross_as_net() -> No
     assert result.opening_universe_record_ids == ()
     assert result.external_wall_ids == ()
     assert result.gross_geometry_record_ids == ()
+    assert result.whole_wall_role_record_ids == ()
 
 
 def test_physical_publication_has_no_trade_policy_or_quantity_truth_inputs() -> None:
