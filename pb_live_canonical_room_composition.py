@@ -356,10 +356,20 @@ def _unique_source_room_labels_by_face(
             source_receipt_faces.setdefault(label.record_id, set()).add(
                 str(label.face_id or "").strip()
             )
+    # The same original source word cannot belong to two different
+    # physical rooms. Detect aliasing across the entire sealed label universe.
+    source_word_faces: dict[str, set[str]] = {}
+    for label in candidates:
+        for observation_id in label.observation_ids:
+            if isinstance(observation_id, str) and observation_id.strip():
+                source_word_faces.setdefault(observation_id, set()).add(
+                    str(label.face_id or "").strip()
+                )
     owned: dict[str, SourceRoomLabelRecord] = {}
     conflicted: set[str] = {
         face
-        for faces in source_receipt_faces.values() if len(faces) > 1
+        for faces in (*source_receipt_faces.values(), *source_word_faces.values())
+        if len(faces) > 1
         for face in faces
     }
     for label in candidates:
