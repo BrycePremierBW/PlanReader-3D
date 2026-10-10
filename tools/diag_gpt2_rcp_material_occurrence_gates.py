@@ -61,6 +61,11 @@ def scoped_rcp_material_occurrence_gate(viewport: Any, result: Any) -> dict[str,
         bool(material_ids) and len(material_ids) == len(set(material_ids))
         and all(material_ids)
     )
+    material_codes_valid = bool(records) and all(
+        isinstance(getattr(record, "code", None), str)
+        and bool(record.code.strip())
+        for record in records
+    )
     page_number = getattr(viewport, "page_number", None)
     record_pages_match = page_number is None or all(
         str(getattr(record, "page_id", "") or "") == str(page_number)
@@ -84,6 +89,8 @@ def scoped_rcp_material_occurrence_gate(viewport: Any, result: Any) -> dict[str,
         gate="producer_occurrence_source_page_mismatch"
     elif not record_identities_unique:
         gate="producer_occurrence_identity_ambiguous"
+    elif not material_codes_valid:
+        gate="producer_occurrence_material_code_missing"
     else:
         gate="producer_authenticated_occurrences_require_room_owner_before_quantity"
     return {
@@ -99,7 +106,7 @@ def scoped_rcp_material_occurrence_gate(viewport: Any, result: Any) -> dict[str,
         "producer_authenticated_record_ids":[
             str(getattr(r,"record_id",""))
             for r in records
-        ] if supported and complete and scope_token=="corroborated" and owned_records and record_pages_match and record_identities_unique else [],
+        ] if supported and complete and scope_token=="corroborated" and owned_records and record_pages_match and record_identities_unique and material_codes_valid else [],
         "first_unclosed_gate":gate,
         "new_room_material_ownership_claim":False,
         "new_metric_quantity_claim":False,
