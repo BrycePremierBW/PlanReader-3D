@@ -73,12 +73,16 @@ def summarize_named_room_metric_first_gates(claim: Any) -> dict[str, Any]:
                 # A scalar string is not a series of independent producer
                 # reasons. Do not silently output its individual characters.
                 codes = reason if isinstance(reason, (tuple, list)) else ()
+                source_reason_receipt_valid = bool(codes) and all(
+                    isinstance(code, str) and bool(code.strip())
+                    for code in codes
+                )
                 detail = {
-                    "first_gates": [str(code) for code in codes],
-                    "source_reason_receipt_valid": bool(codes) and all(
-                        isinstance(code, str) and bool(code.strip())
-                        for code in codes
+                    "first_gates": (
+                        [code.strip() for code in codes]
+                        if source_reason_receipt_valid else []
                     ),
+                    "source_reason_receipt_valid": source_reason_receipt_valid,
                 }
             else:
                 # None, whitespace, or structured objects are not concrete
