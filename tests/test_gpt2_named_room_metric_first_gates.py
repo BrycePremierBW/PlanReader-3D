@@ -69,7 +69,7 @@ def test_malformed_scale_reason_receipt_never_becomes_fake_individual_gates():
         entries = report["named_room_metric_first_failure_codes"]["physical_scale"]
         assert len(entries) == 1
         assert entries[0]["source_reason_receipt_valid"] is False
-        assert entries[0]["first_gates"] in ([], [""])
+        assert entries[0]["first_gates"] == []
         assert report["metric_quantity_published"] is False
 
 
@@ -155,4 +155,15 @@ def test_nontext_failure_owner_cannot_alias_same_printed_source_id():
         "physical_room_id":"43", "label":"OFFICE",
         "first_gate":"real_first_gate",
     }]
+    assert report["metric_quantity_published"] is False
+
+
+def test_partial_scale_gate_list_is_not_reported_as_proven_source():
+    report=summarize(claim(
+        (room("wall-room", "LAUNDRY"),),
+        scale=(("wall-room", ("valid_scale_candidate", None)),),
+    ))
+    entry=report["named_room_metric_first_failure_codes"]["physical_scale"][0]
+    assert entry["source_reason_receipt_valid"] is False
+    assert entry["first_gates"] == []
     assert report["metric_quantity_published"] is False
