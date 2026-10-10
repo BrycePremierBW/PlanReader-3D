@@ -375,14 +375,25 @@ def test_count_bridge_rejects_two_representatives_for_same_opening():
         forged_record, "representative_observation_ids",
         (original_id, "second-observation"),
     )
+    object.__setattr__(
+        forged_record, "physical_opening_record_ids",
+        (*result.record.physical_opening_record_ids, "source-second-opening"),
+    )
     duplicated = replace(
         composition,
         semantic_enumeration_result=replace(result, record=forged_record),
     )
+    forged_existence = replace(
+        same_opening,
+        existence_record=replace(
+            same_opening.existence_record,
+            source_observation_ids=(original_id, "second-observation"),
+        ),
+    )
     with patch.object(
         composition.physical_opening_authority,
         "prove_existence",
-        return_value=same_opening,
+        return_value=forged_existence,
     ):
         assert publish_live_authenticated_opening_count_quantities(
             source_visibility_producer=source,
