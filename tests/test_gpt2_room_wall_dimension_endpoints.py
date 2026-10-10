@@ -68,3 +68,62 @@ def test_malformed_source_endpoint_and_wall_edge_rows_abstain():
     row=inspect(malformed,dimension(((0.,5.),(20.,5.))))
     assert row["first_authority_gate"]=="source_owned_wall_subedges_malformed"
     assert row["metric_area_published"] is False
+
+
+def test_figured_endpoint_contact_does_not_underflow_or_divide_by_tiny_wall():
+    from tools.diag_gpt2_room_wall_dimension_endpoints import (
+        _point_on_native_source_subedge,
+    )
+    epsilon_wall = ((0.0, 0.0), (1e-310, 0.0))
+    assert not _point_on_native_source_subedge(
+        (0.0, 0.0), epsilon_wall, tolerance=0.0001
+    )
+    result = inspect(
+        face((("microscopic-wall", epsilon_wall),)),
+        dimension(((0.0, 0.0), (0.0, 0.0))),
+    )
+    assert result["first_authority_gate"] == "figured_endpoint_not_on_source_room_wall"
+    assert result["room_dimension_owned"] is False
+    assert result["metric_area_published"] is False
+
+
+def test_figured_endpoint_contact_handles_large_finite_native_spans():
+    from tools.diag_gpt2_room_wall_dimension_endpoints import (
+        _point_on_native_source_subedge,
+    )
+    source_edge = ((0.0, 0.0), (1e180, 0.0))
+    assert _point_on_native_source_subedge(
+        (5e179, 0.0), source_edge, tolerance=0.0001
+    )
+    assert not _point_on_native_source_subedge(
+        (-1.0, 0.0), source_edge, tolerance=0.0001
+    )
+    assert not _point_on_native_source_subedge(
+        (5e179, 1.0), source_edge, tolerance=0.0001
+    )
+    # The first-gate ledger still cannot turn two on-wall contacts into a
+    # metric room area or authenticated dimension witness.
+    second_edge = ((-1e180, 0.0), (-1e179, 0.0))
+    result = inspect(
+        face((("long-a", source_edge), ("long-b", second_edge))),
+        dimension(((5e179, 0.0), (-5e179, 0.0))),
+    )
+    assert result["first_authority_gate"] == "two_source_wall_endpoint_contacts_candidate_only"
+    assert result["room_dimension_owned"] is False
+    assert result["metric_area_published"] is False
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), -float("inf")])
+def test_nonfinite_native_figured_endpoint_geometry_stays_unbound(bad):
+    from tools.diag_gpt2_room_wall_dimension_endpoints import (
+        _point_on_native_source_subedge,
+    )
+    assert not _point_on_native_source_subedge(
+        (bad, 5.0), ((0.0, 0.0), (0.0, 10.0)), tolerance=0.0001
+    )
+    assert not _point_on_native_source_subedge(
+        (0.0, 5.0), ((0.0, 0.0), (bad, 10.0)), tolerance=0.0001
+    )
+    assert inspect(face(), dimension(((bad, 5.0), (20.0, 5.0))))[
+        "first_authority_gate"
+    ] == "figured_endpoint_not_on_source_room_wall"
