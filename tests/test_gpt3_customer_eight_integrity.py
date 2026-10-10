@@ -6,7 +6,7 @@ import pytest
 from pb_customer_output_verification import (
     CustomerOutputVerificationError, verify_sealed_customer_output,
 )
-from tests.test_customer_output_verification import sealed_and_rows
+from test_customer_output_verification import sealed_and_rows
 
 
 def check_mutation(mutator, message):
