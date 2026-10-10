@@ -537,7 +537,10 @@ def _canonical_composite_supersedence(
         accepted.append(composite)
         suppressed.update(ids)
     return (
-        tuple(record for record in originals if str(record.face_id) not in suppressed),
+        tuple(
+            record for record in originals
+            if source_id(getattr(record, "face_id", None)) not in suppressed
+        ),
         tuple(accepted),
     )
 
