@@ -104,6 +104,30 @@ def _publish_one(
     ):
         return None
 
+    # Retain the actual source evidence receipt universe before projecting
+    # the canonical ceiling.  Set-based subset tests alone erase empty and
+    # duplicate upstream receipts and can make corrupted source look complete.
+    for receipts in (ceiling.evidence_ids, source.evidence_ids):
+        if (
+            not isinstance(receipts, (tuple, list))
+            or not receipts
+            or any(type(value) is not str or not value.strip() for value in receipts)
+            or len(set(receipts)) != len(receipts)
+        ):
+            return None
+    # Optional source-owned identity metadata is authoritative when recorded.
+    # A shadow ceiling from another source document or physical-room snapshot
+    # must not be replayed onto this canonical ceiling.
+    if (
+        meta.get("document_id") is not None
+        and _clean(meta["document_id"]) != _clean(ceiling.document_id)
+    ):
+        return None
+    if (
+        meta.get("room_snapshot_id") is not None
+        and _clean(meta["room_snapshot_id"]) != _clean(ceiling.snapshot_id)
+    ):
+        return None
     if (
         _clean(meta.get("upstream_area_quantity_id"))
         != _clean(ceiling.room_area_quantity_id)
