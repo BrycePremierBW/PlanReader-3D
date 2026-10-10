@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from copy import copy
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -325,13 +326,9 @@ def test_count_bridge_refuses_malformed_representative_universe(extra_member):
     reps = original.record.representative_observation_ids
     assert reps
     extra = reps[0] if extra_member == "duplicate" else ""
-    malformed = replace(
-        original,
-        record=replace(
-            original.record,
-            representative_observation_ids=(*reps, extra),
-        ),
-    )
+    forged_record = copy(original.record)
+    object.__setattr__(forged_record, "representative_observation_ids", (*reps, extra))
+    malformed = replace(original, record=forged_record)
     changed = replace(composition, semantic_enumeration_result=malformed)
     quantities = publish_live_authenticated_opening_count_quantities(
         source_visibility_producer=source,
@@ -373,15 +370,14 @@ def test_count_bridge_rejects_two_representatives_for_same_opening():
     )
     same_opening = composition.physical_opening_authority.prove_existence(original_selector)
     assert same_opening.existence_record is not None
+    forged_record = copy(result.record)
+    object.__setattr__(
+        forged_record, "representative_observation_ids",
+        (original_id, "second-observation"),
+    )
     duplicated = replace(
         composition,
-        semantic_enumeration_result=replace(
-            result,
-            record=replace(
-                result.record,
-                representative_observation_ids=(original_id, "second-observation"),
-            ),
-        ),
+        semantic_enumeration_result=replace(result, record=forged_record),
     )
     with patch.object(
         composition.physical_opening_authority,
@@ -427,11 +423,11 @@ def test_count_bridge_rejects_eight_malformed_source_inventory_cases(field, valu
     )
     result = composition.semantic_enumeration_result
     assert result.record is not None
+    forged_record = copy(result.record)
+    object.__setattr__(forged_record, field, value)
     altered = replace(
         composition,
-        semantic_enumeration_result=replace(
-            result, record=replace(result.record, **{field: value}),
-        ),
+        semantic_enumeration_result=replace(result, record=forged_record),
     )
     assert publish_live_authenticated_opening_count_quantities(
         source_visibility_producer=source,
