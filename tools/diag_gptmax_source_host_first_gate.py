@@ -81,7 +81,7 @@ def source_first_gate_census(report: dict, *, expected_source_sha: str | None = 
                    for page in semantic_record["page_ids"])
             or len(semantic_record["page_ids"]) != len(set(semantic_record["page_ids"]))
             or set(semantic_record["page_ids"]) != set(pages)):
-        raise ValueError("foreign source semantic opening inventory lineage")
+        raise ValueError("foreign source semantic opening inventory document, revision, snapshot, SHA or page lineage")
     semantic_opening_ids = semantic_record.get("representative_observation_ids")
     if not isinstance(semantic_opening_ids, (tuple, list)):
         raise ValueError("semantic opening inventory missing representative IDs")
