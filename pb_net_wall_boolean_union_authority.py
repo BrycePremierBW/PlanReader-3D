@@ -659,8 +659,29 @@ class NetWallBooleanUnionProducer:
                 and OPENING_DEDUCTION_AUTHORIZED in ded_result.reason_codes
                 and ded_result.record is not None
             ):
+                # The selector lookup alone is not proof that a replayed
+                # deduction receipt belongs to this opening, source, scope
+                # and physical void. A mismatched receipt must not authorize
+                # a geometric subtraction.
+                deduction = ded_result.record
+                if (
+                    not _lineage_matches(selector, deduction)
+                    or deduction.page_id != selector.page_id
+                    or deduction.decision_scope_id != selector.decision_scope_id
+                    or deduction.opening_identity_id != opening_id
+                    or deduction.target_scope_id != selector.trade_scope_id
+                ):
+                    return self._store(
+                        selector,
+                        _blocked_with_gross(
+                            EvidenceResolutionStatus.CONFLICT,
+                            gross_record,
+                            universe_record.record_id,
+                            NET_WALL_LINEAGE_MISMATCH,
+                        ),
+                    )
                 applicable_voids[opening_id] = void_record
-                deduction_record_ids[opening_id] = ded_result.record.record_id
+                deduction_record_ids[opening_id] = deduction.record_id
             elif ded_result.status is EvidenceResolutionStatus.CONFLICT:
                 return self._store(
                     selector,
