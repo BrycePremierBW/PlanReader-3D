@@ -218,3 +218,13 @@ def test_derived_rcp_requires_actual_producer_partition_authority():
                         "provenance":{"partition_mode":"columnar_title_grid",
                                       "grid_validated":False}})
     assert gate(unauthenticated,source)["producer_authenticated_record_ids"]==[]
+
+
+def test_rcp_view_type_enum_matches_producer_string_authority():
+    from pb_drawing_evidence_binding import DrawingViewType
+    rcp=vp(kind=DrawingViewType.REFLECTED_CEILING_PLAN)
+    row=gate(rcp,scope(complete=True,records=(
+        R(record_id="source-rcp",viewport_id="v9",code="FPB"),)))
+    assert row["source_view_type"]=="reflected_ceiling_plan"
+    assert row["first_unclosed_gate"]=="producer_authenticated_occurrences_require_room_owner_before_quantity"
+    assert row["new_metric_quantity_claim"] is False
