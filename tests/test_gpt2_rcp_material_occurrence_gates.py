@@ -243,3 +243,15 @@ def test_source_scope_complete_must_be_strict_boolean_true():
     good=gate(vp(),scope(complete=True, records=(
         R(viewport_id="v9",record_id="source",code="FPB"),)))
     assert good["producer_authenticated_record_ids"]==["source"]
+
+
+def test_missing_source_occurrence_material_code_remains_unverified():
+    for bad in (None, "", "   ", 73):
+        record=R(viewport_id="v9",record_id="source",code=bad)
+        row=gate(vp(),scope(complete=True,records=(record,)))
+        assert row["first_unclosed_gate"]=="producer_occurrence_material_code_missing"
+        assert row["producer_authenticated_record_ids"]==[]
+        assert row["new_room_material_ownership_claim"] is False
+    row=gate(vp(),scope(complete=True,records=(
+        R(viewport_id="v9",record_id="source",code="FPB"),)))
+    assert row["producer_authenticated_record_ids"]==["source"]
