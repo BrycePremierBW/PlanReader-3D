@@ -189,6 +189,16 @@ def publish_live_authenticated_opening_count_quantities(
     ):
         return ()
 
+    # Every physical instance in the closed semantic universe must receive
+    # a corroborated plan-to-schedule binding. Never publish a convenient
+    # subset of marks while another physical member has unresolved authority.
+    if any(
+        binding_results[opening_id].status is not EvidenceResolutionStatus.CORROBORATED
+        or binding_results[opening_id].record is None
+        for opening_id in binding_results
+    ):
+        return ()
+
     binding_authority = binding_producer.authority()
     row_quantity_producer = ScheduleRowQuantityProducer.create()
 
@@ -203,7 +213,7 @@ def publish_live_authenticated_opening_count_quantities(
         if (
             result.status is not EvidenceResolutionStatus.CORROBORATED
             or record is None
-            or not record.schedule_row_count_explicit
+            or record.schedule_row_count_explicit is not True
             or type(record.schedule_row_count) is not int
             or record.schedule_row_count <= 0
         ):
@@ -218,12 +228,19 @@ def publish_live_authenticated_opening_count_quantities(
             or record.page_id not in wall_opening_composition.page_ids
             or not isinstance(record.tag_observation_id, str)
             or not record.tag_observation_id.strip()
+            or not isinstance(record.tag_mark, str)
+            or not record.tag_mark.strip()
         ):
             return ()
 
         normalized = normalize_opening_tag(record.schedule_row_type_mark)
-        if normalized is None:
+        plan_tag = normalize_opening_tag(record.tag_mark)
+        if normalized is None or plan_tag is None:
             continue
+        if normalized.tag != plan_tag.tag:
+            # Disagreement between plan tag and schedule type mark cannot
+            # identify which physical openings belong to this row.
+            return ()
         if (
             not isinstance(record.schedule_page_id, str)
             or not record.schedule_page_id.strip()
