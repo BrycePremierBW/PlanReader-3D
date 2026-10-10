@@ -110,7 +110,7 @@ def audit_short_source_fragments(
     reported = set()
     for row in producer_reported_collapsed_fragments:
         if (not isinstance(row, Mapping) or not isinstance(row.get("id"), str)
-                or not row["id"] or row["id"] in reported):
+                or not row["id"].strip() or row["id"] in reported):
             raise ValueError("invalid or duplicated producer disappearance receipt")
         reported.add(row["id"])
     if reported.intersection(snapped_edges):
@@ -120,14 +120,14 @@ def audit_short_source_fragments(
     direct_ids=set()
     for edge in merged_edges:
         eid=edge.get("id")
-        if not isinstance(eid,str) or not eid:
+        if not isinstance(eid,str) or not eid.strip():
             raise ValueError("final source edge lacks original identity")
         if eid in direct_ids:
             raise ValueError("duplicate final source edge id")
         direct_ids.add(eid)
         leaves=edge.get("collinear_merge_leaf_edge_ids") or (eid,)
         if not isinstance(leaves,(tuple,list)) or any(
-            not isinstance(k,str) or not k for k in leaves
+            not isinstance(k,str) or not k.strip() for k in leaves
         ):
             raise ValueError("invalid W2 merge leaf provenance")
         if (len(set(leaves)) != len(leaves)
@@ -142,7 +142,7 @@ def audit_short_source_fragments(
         if not isinstance(fragment,Mapping):
             raise ValueError("untyped source split fragment")
         fid=fragment.get("id")
-        if not isinstance(fid,str) or not fid or fid in seen:
+        if not isinstance(fid,str) or not fid.strip() or fid in seen:
             raise ValueError("missing or repeated original split-fragment id")
         seen.add(fid)
         try:
