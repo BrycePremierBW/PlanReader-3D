@@ -275,6 +275,10 @@ def _canonical_polygon_identity(
         (round(float(point[0]), 6), round(float(point[1]), 6))
         for point in polygon
     )
+    # An explicitly closed PDF ring and its otherwise identical open ring
+    # are one physical boundary, not two canonical room identities.
+    if len(points) > 1 and points[0] == points[-1]:
+        points = points[:-1]
     if len(points) < 3:
         return ()
     variants: list[tuple[tuple[float, float], ...]] = []
