@@ -119,7 +119,7 @@ def test_unprovable_collision_never_rekeys_from_ambiguous_or_corrupt_source(bad)
         inventory["source-edge-b"]["x1"] = inventory["source-edge-a"]["x1"]
         inventory["source-edge-b"]["x2"] = inventory["source-edge-a"]["x2"]
     original = deepcopy((a, b, inventory, owners))
-    with pytest.raises(ValueError, match="W4 collision"):
+    with pytest.raises(W4SourceCandidateAddressCollision):
         _source_owned_collision_candidate_addresses((a, b), inventory, owners)
     assert (a, b, inventory, owners) == original
 
