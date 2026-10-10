@@ -13,7 +13,9 @@ from hashlib import sha256
 import json
 import math
 from pathlib import Path
+from unittest.mock import patch
 
+import pb_physical_wall_candidate_authority as wall_producer
 from pb_live_physical_net_wall_integration import LIVE_PHYSICAL_NET_WALL_INTEGRATION_SCHEMA_VERSION
 from pb_live_wall_opening_authority_composition import compose_live_wall_opening_authority
 from pb_migration_contracts import EvidenceResolutionStatus
@@ -26,6 +28,7 @@ from pb_opening_host_binding_authority import (
 )
 from pb_wall_room_topology_stage_a import DEFAULT_GAP_SNAP_TOLERANCE_PT
 from pb_wall_room_topology_primitive_lineage import fragment_contained_in_segment
+from pb_wall_room_topology_junction_classifier import deduplicate_coincident_edges
 from pb_physical_wall_candidate_authority import (
     MAX_WALL_TOPOLOGY_SOURCE_SEGMENTS,
     PhysicalWallCandidateSelector,
@@ -101,6 +104,76 @@ def _fragment_geometry_observation(fragment, opening, parent_line) -> dict:
         ),
     })
     return result
+
+
+def nonpublishing_w2_deduplication_receipts(graph) -> dict:
+    """Observe actual W3 snapped-node association without granting sameness.
+
+    The original W2 edges and source parents remain separate. This does not
+    attach an excluded parent to the surviving W4 identity or alter the graph.
+    """
+    nodes = {}
+    for node in graph["nodes"]:
+        nid = node["id"]
+        if type(nid) is not int or nid in nodes:
+            raise ValueError("invalid W2 deduplication node address")
+        position = (float(node["x"]), float(node["y"]))
+        if not all(math.isfinite(v) for v in position):
+            raise ValueError("nonfinite W2 deduplication node geometry")
+        nodes[nid] = position
+
+    edges = {}
+    for edge in graph["edges"]:
+        eid = edge.get("id")
+        if not isinstance(eid, str) or not eid.strip() or eid in edges:
+            raise ValueError("invalid W2 deduplication edge address")
+        pair = (edge["a"], edge["b"])
+        if (any(type(nid) is not int or nid not in nodes for nid in pair)
+                or pair[0] == pair[1]):
+            raise ValueError("invalid W2 deduplication edge endpoints")
+        parents = tuple((edge.get("primitive_lineage") or {}).get("source_primitive_ids", ()))
+        if (any(not isinstance(p, str) or not p.strip() for p in parents)
+                or len(set(parents)) != len(parents)):
+            raise ValueError("invalid W2 deduplication source parent inventory")
+        geometry = tuple(float(edge[k]) for k in ("x1", "y1", "x2", "y2"))
+        if not all(math.isfinite(v) for v in geometry):
+            raise ValueError("nonfinite W2 deduplication edge geometry")
+        edges[eid] = {
+            "source_edge_id": eid,
+            "source_primitive_ids": list(parents),
+            "producer_w2_edge_geometry_pt": list(geometry),
+            "snapped_node_ids": list(pair),
+            "snapped_endpoint_geometry_pt": [list(nodes[nid]) for nid in pair],
+        }
+
+    # Replay the exact existing production helper. It returns a new graph and
+    # does not change the original edges, their lineage or snapped nodes.
+    retained, removed = deduplicate_coincident_edges(graph)
+    retained_by_pair = {
+        frozenset((edge["a"], edge["b"])): edge["id"]
+        for edge in retained["edges"]
+    }
+    rows = []
+    for eid in removed:
+        removed_receipt = edges[eid]
+        kept_id = retained_by_pair[frozenset(removed_receipt["snapped_node_ids"])]
+        rows.append({
+            "removed_w2_edge": removed_receipt,
+            "retained_w2_edge": edges[kept_id],
+            "association_basis": "same_actual_snapped_node_pair",
+            "source_parents_transferred_to_w4": False,
+            "physical_equivalence_proven": False,
+            "host_publication_allowed": False,
+        })
+    return {
+        "original_w2_edge_count": len(graph["edges"]),
+        "retained_w3_edge_count": len(retained["edges"]),
+        "removed_w2_edge_count": len(removed),
+        "removed_edge_receipts": sorted(rows, key=lambda row: row["removed_w2_edge"]["source_edge_id"]),
+        "source_parents_transferred_to_w4": False,
+        "physical_equivalence_proven": False,
+        "host_publication_allowed": False,
+    }
 
 
 def nonpublishing_raster_source_w4_membership(
@@ -300,11 +373,20 @@ def original_raster_host_ancestry_census(
         source_locator="memory://live-physical-net-wall-source.pdf",
         page_ids=(page_id,),
     )
-    composition = compose_live_wall_opening_authority(
-        source_visibility_producer=producer,
-        revision_id=source.revision.revision_id,
-        page_ids=(page_id,),
-    )
+    w2_deduplication_censuses = []
+    build_graph = wall_producer.build_wall_graph_for_viewport
+
+    def observe_actual_w2_graph(segments, **kwargs):
+        graph = build_graph(segments, **kwargs)
+        w2_deduplication_censuses.append(nonpublishing_w2_deduplication_receipts(graph))
+        return graph
+
+    with patch.object(wall_producer, "build_wall_graph_for_viewport", observe_actual_w2_graph):
+        composition = compose_live_wall_opening_authority(
+            source_visibility_producer=producer,
+            revision_id=source.revision.revision_id,
+            page_ids=(page_id,),
+        )
     published = producer.published_snapshot_for_revision(source.revision.revision_id)
     if published is None:
         raise ValueError("original raster source snapshot missing")
@@ -324,6 +406,7 @@ def original_raster_host_ancestry_census(
             "wall_scope_status": str(wall.status.value),
             "wall_scope_complete": False,
             "opening_rows": [],
+            "source_w2_deduplication_censuses": w2_deduplication_censuses,
             "source_audit_abstained": True,
             "host_publication_allowed": False,
             "opening_count_publication_allowed": False,
@@ -390,6 +473,7 @@ def original_raster_host_ancestry_census(
             bool(t.record_id) for t in composition.host_frames
         ),
         "source_original_frame_trace_count": len(composition.host_frames),
+        "source_w2_deduplication_censuses": w2_deduplication_censuses,
         "wall_scope_complete": True,
         "opening_rows": sorted(opening_rows, key=lambda x:x["opening_identity_id"]),
         "source_audit_abstained": False,

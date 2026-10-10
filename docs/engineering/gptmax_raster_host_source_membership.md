@@ -88,3 +88,23 @@ false. Test remote same-parent fragments, conflicting addresses, overflow,
 rotation/replay, and collapsed-only parent evidence. Original PDF runs must
 retain exact opening/host/frame receipts. Source observations and benchmark
 counts do not determine algorithms, constants, IDs or owner selection.
+
+## W2 to W3 source ancestry disappearance trace
+
+Original-source observation on current main `83bd81f`: local raster primitive
+`...:1597` at `(424.5, 272.5)–(424.5, 300)` survives both source filters and
+parents actual W2 edges `split_3305` and `merged_split_1530_split_3306`. Neither
+edge appears in the retained W4 records. The W3/W4 caller applies
+`deduplicate_coincident_edges`, whose association criterion is the snapped
+node pair, and removes alternate edges without a parent-receipt sidecar.
+
+Design: observe the unmodified actual W2 graph during the original diagnostic
+composition; replay that existing read-only deduplication helper and record
+each removed edge alongside the surviving edge sharing its node pair. Retain
+both original edge geometries, snapped endpoints and separate source parents.
+Return the original graph object to production. A shared snapped node pair
+does not authenticate physical sameness, a wall host, source continuity or a
+missing flank. Do not union the removed parent's lineage into W4 authority.
+Regression tests must cover offset raw lines sharing snapped nodes, reversed
+edge direction, input immutability and malformed/duplicate source addresses.
+Fresh original-source receipt retention remains mandatory.

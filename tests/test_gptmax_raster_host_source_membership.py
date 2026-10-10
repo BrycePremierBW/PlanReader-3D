@@ -11,6 +11,7 @@ from pb_live_wall_opening_authority_composition import LiveOpeningHostTrace, Liv
 from pb_migration_contracts import EvidenceResolutionStatus
 from tools.diag_gptmax_raster_host_source_membership import (
     nonpublishing_raster_source_w4_membership,
+    nonpublishing_w2_deduplication_receipts,
     original_raster_host_ancestry_census,
 )
 
@@ -38,6 +39,75 @@ def source_frame_trace(record_id, *, index=0):
         reason_codes=(), record_id=record_id,
         host_wall_id="host-a" if record_id else None, whole_wall_candidate_ids=(),
     )
+
+
+def snapped_duplicate_graph():
+    return {
+        "nodes": [{"id": 0, "x": .75, "y": 0., "degree": 2},
+                  {"id": 1, "x": .75, "y": 10., "degree": 2}],
+        "edges": [
+            {"id": "kept", "a": 0, "b": 1, "x1": 0., "y1": 0., "x2": 0., "y2": 10.,
+             "primitive_lineage": {"source_primitive_ids": ["source-a"]}},
+            {"id": "removed", "a": 0, "b": 1, "x1": 1.5, "y1": 0., "x2": 1.5, "y2": 10.,
+             "primitive_lineage": {"source_primitive_ids": ["source-b"]}},
+        ],
+        "adjacency": {0: [0, 1], 1: [0, 1]},
+    }
+
+
+def test_actual_snapped_duplicate_receipts_keep_offset_source_parents_separate():
+    graph = snapped_duplicate_graph()
+    original = deepcopy(graph)
+    report = nonpublishing_w2_deduplication_receipts(graph)
+    assert graph == original
+    assert report["original_w2_edge_count"] == 2
+    assert report["retained_w3_edge_count"] == 1
+    assert report["removed_w2_edge_count"] == 1
+    row = report["removed_edge_receipts"][0]
+    assert row["removed_w2_edge"]["source_primitive_ids"] == ["source-b"]
+    assert row["retained_w2_edge"]["source_primitive_ids"] == ["source-a"]
+    assert row["removed_w2_edge"]["producer_w2_edge_geometry_pt"] != row["retained_w2_edge"]["producer_w2_edge_geometry_pt"]
+    assert row["removed_w2_edge"]["snapped_endpoint_geometry_pt"] == row["retained_w2_edge"]["snapped_endpoint_geometry_pt"]
+    assert row["association_basis"] == "same_actual_snapped_node_pair"
+    assert row["source_parents_transferred_to_w4"] is False
+    assert row["physical_equivalence_proven"] is False
+    assert row["host_publication_allowed"] is False
+
+
+def test_reversed_w2_duplicate_retains_its_actual_source_direction():
+    graph = snapped_duplicate_graph()
+    edge = graph["edges"][1]
+    edge.update(a=1, b=0, x1=1.5, y1=10., x2=1.5, y2=0.)
+    row = nonpublishing_w2_deduplication_receipts(graph)["removed_edge_receipts"][0]
+    assert row["removed_w2_edge"]["snapped_node_ids"] == [1, 0]
+    assert row["removed_w2_edge"]["producer_w2_edge_geometry_pt"] == [1.5, 10., 1.5, 0.]
+    assert row["retained_w2_edge"]["source_edge_id"] == "kept"
+    assert row["physical_equivalence_proven"] is False
+
+
+@pytest.mark.parametrize("corruption, message", [
+    ("duplicate_edge", "edge address"), ("missing_node", "edge endpoints"),
+    ("duplicate_parent", "parent inventory"), ("blank_parent", "parent inventory"),
+    ("nonfinite_geometry", "edge geometry"), ("duplicate_node", "node address"),
+])
+def test_malformed_w2_duplicate_receipts_fail_closed_without_mutation(corruption, message):
+    graph = snapped_duplicate_graph()
+    if corruption == "duplicate_edge":
+        graph["edges"][1]["id"] = "kept"
+    elif corruption == "missing_node":
+        graph["edges"][1]["b"] = 9
+    elif corruption == "duplicate_parent":
+        graph["edges"][1]["primitive_lineage"]["source_primitive_ids"] = ["source-b", "source-b"]
+    elif corruption == "blank_parent":
+        graph["edges"][1]["primitive_lineage"]["source_primitive_ids"] = [" "]
+    elif corruption == "nonfinite_geometry":
+        graph["edges"][1]["x1"] = float("inf")
+    else:
+        graph["nodes"].append(dict(graph["nodes"][0]))
+    original = deepcopy(graph)
+    with pytest.raises(ValueError, match=message):
+        nonpublishing_w2_deduplication_receipts(graph)
+    assert graph == original
 
 
 def record(id, source_ids, *, usable=True, source_edges=()):
@@ -389,8 +459,14 @@ def test_original_source_audit_counts_frame_receipts_and_retains_abstained_attem
                      source_frame_trace(None,index=1), source_frame_trace(None,index=2)],
     )
     original = deepcopy(composition.host_frames)
+    graph = snapped_duplicate_graph()
+    graph_before = deepcopy(graph)
+    monkeypatch.setattr(diagnostic.wall_producer, "build_wall_graph_for_viewport", lambda segments, **kwargs: graph)
+    def compose_with_actual_graph_passthrough(**kwargs):
+        assert diagnostic.wall_producer.build_wall_graph_for_viewport([]) is graph
+        return composition
     monkeypatch.setattr(diagnostic,"SourceVisibilityProducer",SourceProducer)
-    monkeypatch.setattr(diagnostic,"compose_live_wall_opening_authority",lambda **kwargs:composition)
+    monkeypatch.setattr(diagnostic,"compose_live_wall_opening_authority",compose_with_actual_graph_passthrough)
     report = diagnostic.original_raster_host_ancestry_census(
         data,page_id="3",expected_source_sha=digest)
     assert report["source_original_opening_count"] == 3
@@ -398,6 +474,8 @@ def test_original_source_audit_counts_frame_receipts_and_retains_abstained_attem
     assert report["source_original_frame_count"] == 1
     assert report["source_original_frame_trace_count"] == 3
     assert composition.host_frames == original
+    assert graph == graph_before
+    assert report["source_w2_deduplication_censuses"][0]["removed_w2_edge_count"] == 1
     assert report["opening_bindings"][0]["host_wall_id"] == "host-a"
     assert report["host_frames"][1]["status"] == "abstained"
     assert report["primitive_safety_cap"] == 20_000
