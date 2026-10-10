@@ -218,3 +218,10 @@ def test_exact_terminal_extension_at_other_end_is_equally_eligible():
     result = preview_terminal_source_spans([record()], audit((-1.25, 0., 0., 0.)))
     assert result["source_path_previews"][0]["proposed_source_path_pt"] == (
         (-1.25, 0.), (0., 0.), (10., 0.))
+
+@pytest.mark.parametrize("parent", ("", "   ", "\t"))
+def test_missing_or_whitespace_terminal_source_parent_never_previews(parent):
+    records = [record()]
+    records[0]["physical_identity"]["source_primitive_ids"] = [parent]
+    with pytest.raises(ValueError, match="invalid original source primitive identities"):
+        preview_terminal_source_spans(records, audit())
