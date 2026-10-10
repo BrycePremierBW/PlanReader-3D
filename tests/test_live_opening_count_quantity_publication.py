@@ -398,8 +398,15 @@ def test_count_bridge_rejects_two_representatives_for_same_opening():
     ("representative_observation_ids", ("   ",)),
     ("representative_observation_ids", ("same", "same")),
     ("snapshot_id", "foreign-snapshot"),
+    ("structural_enumeration_complete", False),
+    ("page_ids", ("2",)),
+    ("page_ids", ("1", "1")),
+    ("page_ids", (None,)),
+    ("physical_opening_record_ids", ("foreign-opening",)),
+    ("physical_opening_record_ids", ("   ",)),
+    ("physical_opening_record_ids", ("same", "same")),
 ))
-def test_count_bridge_rejects_eight_malformed_source_inventory_cases(field, value):
+def test_count_bridge_rejects_malformed_source_inventory_cases(field, value):
     """No schedule count may be published from an untrusted semantic inventory."""
     from pb_live_opening_count_quantity_publication import (
         publish_live_authenticated_opening_count_quantities,
