@@ -160,6 +160,11 @@ def publish_live_authenticated_opening_count_quantities(
 
     if not binding_selectors or len(binding_selectors) != len(representatives):
         return ()
+    if any(
+        not isinstance(opening_id, str) or not opening_id.strip()
+        for opening_id in binding_results
+    ):
+        return ()
 
     binding_authority = binding_producer.authority()
     row_quantity_producer = ScheduleRowQuantityProducer.create()
