@@ -1,3 +1,4 @@
+from copy import copy
 from __future__ import annotations
 
 from dataclasses import replace
@@ -450,10 +451,8 @@ def test_floor_finish_seal_cannot_use_missing_floor_occurrence_witness() -> None
 ))
 def test_floor_finish_source_seal_rejects_incomplete_or_duplicate_evidence(evidence):
     claim = _claim()
-    altered_quantity = replace(
-        claim.floor_finish_quantity_evidence[0],
-        evidence_ids=evidence,
-    )
+    altered_quantity = copy(claim.floor_finish_quantity_evidence[0])
+    object.__setattr__(altered_quantity, "evidence_ids", evidence)
     altered_claim = replace(claim, floor_finish_quantity_evidence=(altered_quantity,))
     with pytest.raises(SourceClosedRunConflictError):
         build_live_floor_finish_area_source_traces(
