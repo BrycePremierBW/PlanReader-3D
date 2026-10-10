@@ -103,6 +103,7 @@ def test_source_parent_is_not_evidence_of_a_remote_w2_fragment():
     assert not owner["source_edge_fragments"][0]["w2_flank_metrics"]["flank_predicates_pass"]
     assert not owner["w4_chain_segments"][0]["w4_flank_metrics"]["flank_predicates_pass"]
     assert not owner["host_contact_proven"]
+    assert owner["first_observed_candidate_failure"]=="w2_geometry_not_contained_in_source_parent"
 
 
 def test_all_competing_w4_and_edge_receipts_remain_visible():
@@ -116,6 +117,7 @@ def test_all_competing_w4_and_edge_receipts_remain_visible():
     owners=result["flanks"][0]["matching_original_source_primitives"][0]["w4_ancestry_candidates"]
     assert [r["wall_candidate_id"] for r in owners]==["competing","left"]
     assert all(r["source_edge_fragments"][0]["edge_receipt_conflicted"] for r in owners)
+    assert all(r["first_observed_candidate_failure"]=="w2_source_edge_receipt_ownership_conflict" for r in owners)
     assert not result["host_publication_allowed"]
 
 
@@ -197,3 +199,45 @@ def test_splitting_one_source_edge_preserves_parent_ownership_without_inventing_
     assert [f["source_edge_id"] for f in owner["source_edge_fragments"]]==["left-a","left-b"]
     assert all(f["source_parent_containment_observed"] for f in owner["source_edge_fragments"])
     assert not owner["host_contact_proven"]
+
+
+@pytest.mark.parametrize("failure",["identity","w2_missing","w2_remote","w4_remote"])
+def test_candidate_first_failure_distinguishes_the_missing_source_stage(failure):
+    data=fixture()
+    record=data[0][0]
+    if failure=="identity": record.physical_identity.usable=False
+    elif failure=="w2_missing": record.source_edge_fragments=()
+    elif failure=="w2_remote": record.source_edge_fragments[0].geometry=(-8.,-1.,-6.,-1.)
+    else: record.wall_candidate.centerline_pts=((-8.,-1.),(-6.,-1.))
+    owner=audit(data)["flanks"][0]["matching_original_source_primitives"][0]["w4_ancestry_candidates"][0]
+    assert owner["first_observed_candidate_failure"]=={
+        "identity":"w4_source_identity_unavailable",
+        "w2_missing":"actual_w2_source_edge_receipt_missing",
+        "w2_remote":"local_w2_fragment_misses_sealed_flank",
+        "w4_remote":"local_w4_snapped_chain_misses_sealed_flank",
+    }[failure]
+    assert not owner["host_contact_proven"]
+
+
+def test_foreign_w2_source_parents_are_reported_separately_from_authentic_membership():
+    data=fixture()
+    data[0][0].source_edge_fragments[0].source_primitive_ids=("left-parent","foreign-parent")
+    report=audit(data)
+    assert report["source_edge_parent_identity_contradictions"]==[{
+        "source_edge_id":"left-edge","wall_candidate_id":"left",
+        "unowned_source_parent_ids":["foreign-parent"]}]
+    assert not report["host_publication_allowed"]
+
+
+def test_source_flank_endpoint_mismatch_keeps_every_aligned_line_without_selecting_nearest():
+    data=fixture()
+    data[1]["left-parent"]=(-8.,-1.,-3.,-1.)
+    data[1]["other-line"]=(-8.,1.,-4.,1.)
+    report=audit(data)
+    flank=report["flanks"][0]
+    assert flank["matching_original_source_primitives"]==[]
+    assert flank["first_observed_failure"]=="source_primitive_endpoint_misses_sealed_flank"
+    assert [r["source_primitive_id"] for r in flank["original_source_lines_missing_flank_endpoint"]]==["left-parent","other-line"]
+    assert [r["source_flank_metrics"]["flank_endpoint_distance_pt"] for r in flank["original_source_lines_missing_flank_endpoint"]]==[3.,4.]
+    assert all(not r["host_contact_proven"] for r in flank["original_source_lines_missing_flank_endpoint"])
+    assert not report["host_publication_allowed"]

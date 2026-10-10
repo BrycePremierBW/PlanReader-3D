@@ -137,12 +137,33 @@ def _flank_metrics(line, opening, flank):
         raise ValueError("nonfinite flank endpoint or overlap projection")
     pixel_tol = _RASTER_WHOLE_WALL_CENTER_TOL_PT + _COORD_TOL
     snap_tol = DEFAULT_GAP_SNAP_TOLERANCE_PT + _COORD_TOL
+    inside_band=(flank["normal_band_pt"][0]-pixel_tol <= offset
+                 <= flank["normal_band_pt"][1]+pixel_tol)
     return {"parallel_to_aperture":True, "axis_span_pt":[lo,hi],
             "normal_offset_pt":offset, "flank_endpoint_distance_pt":distance,
             "flank_overlap_pt":overlap,
-            "flank_predicates_pass":bool(distance<=snap_tol and overlap>pixel_tol
-                and flank["normal_band_pt"][0]-pixel_tol <= offset
-                <= flank["normal_band_pt"][1]+pixel_tol)}
+            "endpoint_within_existing_snap_tolerance":distance<=snap_tol,
+            "normal_inside_existing_flank_band":inside_band,
+            "positive_existing_flank_overlap":overlap>pixel_tol,
+            "flank_predicates_pass":bool(distance<=snap_tol and overlap>pixel_tol and inside_band)}
+
+
+def _candidate_first_gate(usable, fragments, chain):
+    """Observed gates in dependency order; never rank competing wall owners."""
+    if not usable:
+        return "w4_source_identity_unavailable"
+    if not fragments:
+        return "actual_w2_source_edge_receipt_missing"
+    if any(f["edge_receipt_conflicted"] for f in fragments):
+        return "w2_source_edge_receipt_ownership_conflict"
+    contained=[f for f in fragments if f["source_parent_containment_observed"]]
+    if not contained:
+        return "w2_geometry_not_contained_in_source_parent"
+    if not any(f["w2_flank_metrics"]["flank_predicates_pass"] for f in contained):
+        return "local_w2_fragment_misses_sealed_flank"
+    if not any(s["w4_flank_metrics"]["flank_predicates_pass"] for s in chain):
+        return "local_w4_snapped_chain_misses_sealed_flank"
+    return "physical_equivalence_and_host_authority_still_required"
 
 
 def audit_raster_flank_ownership(records, source_lines, support, opening_record, opening):
@@ -197,14 +218,24 @@ def audit_raster_flank_ownership(records, source_lines, support, opening_record,
     rows = []
     for flank in flanks:
         primitives = []
+        unmatched = []
         for parent,line in sorted(source_lines.items()):
             if not _id(parent):
                 raise ValueError("invalid authenticated source primitive address")
             metrics = _flank_metrics(line,opening,flank)
             if not metrics["flank_predicates_pass"]:
+                if (metrics["parallel_to_aperture"]
+                        and metrics["normal_inside_existing_flank_band"]
+                        and metrics["positive_existing_flank_overlap"]):
+                    unmatched.append({"source_primitive_id":parent,
+                        "original_source_line_pt":list(_line(line)),
+                        "source_flank_metrics":metrics,
+                        "ancestry_candidate_ids":sorted(r.wall_candidate_id for r in by_source.get(parent,())),
+                        "host_contact_proven":False})
                 continue
             owners = []
             for record in sorted(by_source.get(parent,()),key=lambda r:r.wall_candidate_id):
+                owner_identity = record.physical_identity
                 fragments = []
                 for fragment in sorted(record.source_edge_fragments,key=lambda f:f.edge_id):
                     if parent not in fragment.source_primitive_ids:
@@ -224,8 +255,9 @@ def audit_raster_flank_ownership(records, source_lines, support, opening_record,
                     chain.append({"w4_snapped_line_pt":list(raw),
                                   "w4_flank_metrics":_flank_metrics(raw,opening,flank)})
                 owners.append({"wall_candidate_id":record.wall_candidate_id,
-                    "identity_usable":identity.usable, "source_edge_fragments":fragments,
+                    "identity_usable":owner_identity.usable, "source_edge_fragments":fragments,
                     "w4_chain_segments":sorted(chain,key=lambda x:x["w4_snapped_line_pt"]),
+                    "first_observed_candidate_failure":_candidate_first_gate(owner_identity.usable,fragments,chain),
                     "host_contact_proven":False})
             lost = []
             for record, fragment in sorted(collapsed.get(parent,()),key=lambda x:(x[0].wall_candidate_id,x[1].edge_id)):
@@ -239,7 +271,12 @@ def audit_raster_flank_ownership(records, source_lines, support, opening_record,
                 "original_source_line_pt":list(_line(line)), "source_flank_metrics":metrics,
                 "w4_ancestry_candidates":owners, "collapsed_source_fragments":lost})
         rows.append({**flank,"matching_original_source_primitives":primitives,
-            "first_observed_failure":("no_source_primitive_at_sealed_flank" if not primitives
+            "original_source_lines_missing_flank_endpoint":unmatched,
+            "all_observed_candidate_failures":sorted({
+                owner["first_observed_candidate_failure"] for p in primitives
+                for owner in p["w4_ancestry_candidates"]}),
+            "first_observed_failure":("source_primitive_endpoint_misses_sealed_flank" if not primitives and unmatched
+                else "no_source_primitive_at_sealed_flank" if not primitives
                 else "source_primitive_without_w4_parent" if not any(p["w4_ancestry_candidates"] for p in primitives)
                 else "local_w2_w4_and_equivalence_authority_still_required")})
     return {"flanks":rows,"edge_receipt_conflicts":conflicts,
