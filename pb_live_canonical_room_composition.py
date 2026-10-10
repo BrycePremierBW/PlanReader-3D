@@ -611,7 +611,11 @@ def compose_live_canonical_rooms(
             result.status is EvidenceResolutionStatus.CORROBORATED
             and result.scope_complete
             and result.records
+            and result.face_universe_complete
         ):
+            # Never build a page-wide label authority for an incomplete face
+            # universe. Its source scope must instead use the authenticated
+            # FLOOR_PLAN viewport fallback below.
             page_label_ids.append(str(page_id))
 
     page_label_authority = None
@@ -642,13 +646,15 @@ def compose_live_canonical_rooms(
             result.status is EvidenceResolutionStatus.CORROBORATED
             and result.scope_complete
             and result.records
+            and result.face_universe_complete
         ):
+            # A page-wide incomplete face universe cannot establish persistent
+            # physical identities: missing faces can change room ownership,
+            # adjacency and downstream area/surface quantities. It falls back
+            # to separately authenticated FLOOR_PLAN viewports, not page faces.
             if str(page_id).isdigit():
                 room_pages.add(int(page_id))
-                if result.face_universe_complete:
-                    resolved_pages.add(int(page_id))
-                else:
-                    reasons.append(LIVE_CANONICAL_ROOM_FACE_UNIVERSE_PARTIAL)
+                resolved_pages.add(int(page_id))
             label_records_by_face: dict[str, SourceRoomLabelRecord] = {}
             label_result = None
             if page_label_authority is not None:
@@ -716,6 +722,13 @@ def compose_live_canonical_rooms(
                 for record in composite_records
             )
         else:
+            if (
+                result.status is EvidenceResolutionStatus.CORROBORATED
+                and result.scope_complete
+                and result.records
+                and not result.face_universe_complete
+            ):
+                reasons.append(LIVE_CANONICAL_ROOM_FACE_UNIVERSE_PARTIAL)
             reasons.extend(result.reason_codes)
             unresolved_pages.append(str(page_id))
 
