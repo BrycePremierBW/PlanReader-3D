@@ -54,7 +54,7 @@ def summarize_named_room_metric_first_gates(claim: Any) -> dict[str, Any]:
         malformed_receipts[key] = total[key] - len(codes)
         owned_reasons: dict[str, set[str]] = defaultdict(set)
         for source_room_id, reason in codes:
-            rid = str(source_room_id or "").strip()
+            rid = source_room_id.strip() if isinstance(source_room_id, str) else ""
             if rid in owners:
                 witnessed_room_ids.add(rid)
                 owned_reasons[rid].add(repr(reason))
@@ -65,7 +65,7 @@ def summarize_named_room_metric_first_gates(claim: Any) -> dict[str, Any]:
         entries = []
         emitted: set[str] = set()
         for source_room_id, reason in codes:
-            room_id = str(source_room_id or "").strip()
+            room_id = source_room_id.strip() if isinstance(source_room_id, str) else ""
             if room_id not in owners or room_id in conflicted or room_id in emitted:
                 continue
             emitted.add(room_id)
