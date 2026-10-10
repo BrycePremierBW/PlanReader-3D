@@ -21,7 +21,7 @@ def scoped_rcp_material_occurrence_gate(viewport: Any, result: Any) -> dict[str,
     # "EvidenceResolutionStatus.CORROBORATED", not its value.
     scope_token=str(getattr(getattr(result,"status",None),"value",getattr(result,"status","")) or "")
     reasons=list(getattr(result,"reason_codes",()) or ())
-    complete=bool(getattr(result,"scope_complete",False))
+    complete=getattr(result,"scope_complete",False) is True
     records=tuple(getattr(result,"records",()) or ())
     # Diagnostic-only source viewport shape classification; production
     # source ownership is never granted by this diagnostic helper.
