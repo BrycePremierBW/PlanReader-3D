@@ -35,6 +35,30 @@ def _edge_reverse_equal(first,second) -> bool:
     )
 
 
+def _opposite_collinear_positive_overlap(first, second):
+    """Observe original collinear opposite source strokes without joining them.
+
+    Only exact collinearity is considered. Endpoint touching, offset parallel
+    lines, same-direction lines, and near-collinear snapped guesses do not pass.
+    This is a read-only first-failure observation, never wall equivalence.
+    """
+    a,b=first
+    c,d=second
+    ux,uy=b[0]-a[0],b[1]-a[1]
+    vx,vy=d[0]-c[0],d[1]-c[1]
+    if ux*vy-uy*vx != 0.0 or ux*vx+uy*vy >= 0.0:
+        return False
+    if ux*(c[1]-a[1])-uy*(c[0]-a[0]) != 0.0:
+        return False
+    norm=ux*ux+uy*uy
+    if not math.isfinite(norm) or norm <= _EPS_PDF_PT*_EPS_PDF_PT:
+        return False
+    t1=((c[0]-a[0])*ux+(c[1]-a[1])*uy)/norm
+    t2=((d[0]-a[0])*ux+(d[1]-a[1])*uy)/norm
+    overlap=min(1.0,max(t1,t2))-max(0.0,min(t1,t2))
+    return overlap > _EPS_PDF_PT/math.sqrt(norm)
+
+
 def split_face_source_wall_separator_gate(
     candidate: Any,
     faces_by_record_id: dict[str,Any],
@@ -86,9 +110,16 @@ def split_face_source_wall_separator_gate(
                     bag.append((str(wall_id),parsed))
             shared=[]
             competing=[]
+            partial_same_wall=[]
+            partial_competing=[]
             for wall_a,geom_a in edge_a:
                 for wall_b,geom_b in edge_b:
-                    if not _edge_reverse_equal(geom_a,geom_b):
+                    exact_reverse=_edge_reverse_equal(geom_a,geom_b)
+                    partial_collinear=(
+                        not exact_reverse
+                        and _opposite_collinear_positive_overlap(geom_a,geom_b)
+                    )
+                    if not exact_reverse and not partial_collinear:
                         continue
                     source={
                         "source_face_a":str(fa.record_id),
@@ -97,15 +128,22 @@ def split_face_source_wall_separator_gate(
                         "source_wall_id_b":wall_b,
                         "native_edge_pdf_pts":[list(p) for p in geom_a],
                     }
-                    if wall_a==wall_b:
-                        shared.append(source)
+                    if exact_reverse:
+                        if wall_a==wall_b:
+                            shared.append(source)
+                        else:
+                            competing.append(source)
+                    elif wall_a==wall_b:
+                        partial_same_wall.append(source)
                     else:
-                        competing.append(source)
+                        partial_competing.append(source)
             pair={
                 "first_source_face_record_id":str(fa.record_id),
                 "second_source_face_record_id":str(fb.record_id),
                 "matching_authenticated_wall_segments":shared,
                 "same_geometry_competing_wall_owners":competing,
+                "partial_collinear_source_spans_observed_only":partial_same_wall,
+                "partial_span_competing_wall_owners_observed_only":partial_competing,
             }
             if malformed:
                 pair["first_gate"]="malformed_source_wall_subedges"
@@ -113,6 +151,10 @@ def split_face_source_wall_separator_gate(
                 pair["first_gate"]="competing_wall_owners_on_shared_source_edge"
             elif shared:
                 pair["first_gate"]="source_proven_wall_separator_do_not_merge"
+            elif partial_competing:
+                pair["first_gate"]="partial_source_span_competing_wall_owners_unresolved"
+            elif partial_same_wall:
+                pair["first_gate"]="partial_collinear_source_span_requires_w4_proof"
             else:
                 pair["first_gate"]="no_exact_shared_source_wall_separator"
             result["pairwise_source_wall_gates"].append(pair)
