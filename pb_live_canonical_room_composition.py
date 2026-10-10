@@ -460,43 +460,66 @@ def _canonical_composite_supersedence(
     composites = tuple(composite_records)
     # The original physical face universe must itself be unique. Otherwise
     # retiring an identity could erase multiple source faces with one claim.
-    source_id_counts = Counter(str(record.face_id) for record in originals)
-    known = set(source_id_counts)
-    originals_by_face = {str(record.face_id): record for record in originals}
-    claimed = Counter(
-        str(face_id)
+    # Eight independent fail-closed source-identity gates. Do not stringify
+    # malformed IDs (None, numbers or whitespace) into plausible face IDs.
+    def source_id(value):
+        return value if isinstance(value, str) and value and value == value.strip() else None
+
+    valid_originals = tuple(
+        (source_id(getattr(record, "face_id", None)),
+         source_id(getattr(record, "record_id", None)))
+        for record in originals
+    )
+    face_counts = Counter(face for face, _ in valid_originals if face is not None)
+    receipt_counts = Counter(receipt for _, receipt in valid_originals if receipt is not None)
+    originals_by_face = {
+        face: record
+        for record, (face, _) in zip(originals, valid_originals)
+        if face is not None
+    }
+    # A duplicate composite identity cannot be a deterministic projection.
+    composite_ids = Counter(
+        source_id(getattr(composite, "record_id", None))
         for composite in composites
-        for face_id in composite.constituent_face_ids
+    )
+    claimed = Counter(
+        face
+        for composite in composites
+        for value in (getattr(composite, "constituent_face_ids", ()) or ())
+        if (face := source_id(value)) is not None
     )
     accepted = []
     suppressed = set()
     for composite in composites:
-        ids = tuple(str(value) for value in composite.constituent_face_ids)
+        composite_id = source_id(getattr(composite, "record_id", None))
+        raw_ids = getattr(composite, "constituent_face_ids", ()) or ()
+        raw_receipts = getattr(
+            composite, "constituent_source_room_face_record_ids", ()
+        ) or ()
+        # Protect against malformed scalar strings and non-sequence claims.
         if (
-            len(ids) < 2
-            or len(ids) != len(set(ids))
-            or any(
-                face_id not in known
-                or source_id_counts[face_id] != 1
-                or claimed[face_id] != 1
-                for face_id in ids
-            )
+            composite_id is None
+            or composite_ids[composite_id] != 1
+            or not isinstance(raw_ids, (tuple, list))
+            or not isinstance(raw_receipts, (tuple, list))
         ):
             continue
-        # A physical face identity is insufficient by itself: the composite
-        # must cite each *exact* authenticated producer-owned source receipt.
-        # Otherwise an older/stale witness could retire an unrelated face.
-        actual_receipts = tuple(
-            str(value)
-            for value in (
-                getattr(composite, "constituent_source_room_face_record_ids", ()) or ()
+        ids = tuple(source_id(value) for value in raw_ids)
+        receipts = tuple(source_id(value) for value in raw_receipts)
+        if (
+            len(ids) < 2
+            or len(ids) != len(receipts)
+            or any(value is None for value in ids + receipts)
+            or len(ids) != len(set(ids))
+            or len(receipts) != len(set(receipts))
+            or any(
+                face_counts[face] != 1
+                or claimed[face] != 1
+                or receipt_counts[receipt] != 1
+                or originals_by_face[face].record_id != receipt
+                for face, receipt in zip(ids, receipts)
             )
-        )
-        expected_receipts = tuple(
-            str(originals_by_face[face_id].record_id)
-            for face_id in ids
-        )
-        if actual_receipts != expected_receipts:
+        ):
             continue
         accepted.append(composite)
         suppressed.update(ids)
