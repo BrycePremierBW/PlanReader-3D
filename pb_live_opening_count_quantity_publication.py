@@ -126,7 +126,9 @@ def publish_live_authenticated_opening_count_quantities(
             existence.status is not EvidenceResolutionStatus.CORROBORATED
             or opening is None
         ):
-            continue
+            # A claimed complete universe cannot silently discard a member
+            # merely because its physical existence is unresolved.
+            return ()
         if (
             opening.document_id != published.revision.document_id
             or opening.revision_id != published.revision.revision_id
@@ -154,7 +156,7 @@ def publish_live_authenticated_opening_count_quantities(
             decision_scope_id=scope_id,
         )
 
-    if not binding_selectors:
+    if not binding_selectors or len(binding_selectors) != len(representatives):
         return ()
 
     binding_authority = binding_producer.authority()
@@ -175,6 +177,14 @@ def publish_live_authenticated_opening_count_quantities(
             or record.schedule_row_count is None
         ):
             continue
+        if (
+            record.document_id != published.revision.document_id
+            or record.revision_id != published.revision.revision_id
+            or record.source_sha256 != published.revision.source_sha256
+            or record.snapshot_id != published.snapshot.snapshot_id
+            or record.opening_record_id != opening_id
+        ):
+            return ()
 
         normalized = normalize_opening_tag(record.schedule_row_type_mark)
         if normalized is None:
