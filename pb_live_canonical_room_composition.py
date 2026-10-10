@@ -33,6 +33,7 @@ from pb_source_visibility_authority import SourceVisibilityProducer
 from pb_source_room_label_authority import (
     SourceRoomLabelProducer,
     SourceRoomLabelRecord,
+    SourceRoomLabelWordEvidence,
     SourceRoomLabelSelector,
 )
 
@@ -420,8 +421,29 @@ def _verified_source_room_label_for_face(
         or label.source_room_face_record_id != source_receipt
     ):
         return None
-    if not str(label.record_id or "").strip() or not label.observation_ids or not label.word_evidence:
+    if (
+        not isinstance(label.record_id, str) or not label.record_id
+        or label.record_id != label.record_id.strip()
+        or not label.observation_ids or not label.word_evidence
+        or len(label.observation_ids) != len(label.word_evidence)
+        or len(set(label.observation_ids)) != len(label.observation_ids)
+    ):
         return None
+    for observation_id, word in zip(label.observation_ids, label.word_evidence):
+        if (
+            type(word) is not SourceRoomLabelWordEvidence
+            or not isinstance(observation_id, str) or not observation_id.strip()
+            or observation_id != observation_id.strip()
+            or word.observation_id != observation_id
+            or not isinstance(word.receipt_id, str) or not word.receipt_id.strip()
+            or not isinstance(word.authority_record_id, str)
+            or not word.authority_record_id.strip()
+            or not isinstance(word.trusted_text, str) or not word.trusted_text.strip()
+            or word.authority_kind not in {
+                "native_text_integrity", "raster_text_corroboration"
+            }
+        ):
+            return None
     return label
 
 
