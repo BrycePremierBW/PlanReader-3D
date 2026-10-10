@@ -35,11 +35,17 @@ def summarize_named_room_metric_first_gates(claim: Any) -> dict[str, Any]:
     )
     ledger: dict[str, list[dict[str, Any]]] = {}
     total: dict[str, int] = {}
+    malformed_receipts: dict[str, int] = {}
     ambiguous_gate_owners: dict[str, list[str]] = {}
     witnessed_room_ids: set[str] = set()
     for key, attr in kinds:
-        codes = tuple(getattr(claim, attr, ()) or ())
-        total[key] = len(codes)
+        raw_receipts = tuple(getattr(claim, attr, ()) or ())
+        total[key] = len(raw_receipts)
+        codes = tuple(
+            receipt for receipt in raw_receipts
+            if isinstance(receipt, (tuple, list)) and len(receipt) == 2
+        )
+        malformed_receipts[key] = total[key] - len(codes)
         owned_reasons: dict[str, set[str]] = defaultdict(set)
         for source_room_id, reason in codes:
             rid = str(source_room_id or "").strip()
@@ -100,6 +106,7 @@ def summarize_named_room_metric_first_gates(claim: Any) -> dict[str, Any]:
         "uniquely_attributable_named_room_count": len(owners),
         "ambiguous_named_physical_room_ids": conflicts,
         "all_source_first_failure_receipt_counts": total,
+        "malformed_source_first_failure_receipt_counts": malformed_receipts,
         "named_room_metric_first_failure_codes": ledger,
         "metric_quantity_published": False,
     }
