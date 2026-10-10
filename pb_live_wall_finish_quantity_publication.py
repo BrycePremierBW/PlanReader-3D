@@ -46,19 +46,23 @@ def publish_bound_wall_finish_quantity(
     if any(type(value) is not str or not value.strip() for value in source_fields):
         raise ValueError("resolved wall-finish quantity lacks physical/source identity")
 
-    groups = (
+    physical_groups = (
         record.physical_surface_ids, record.physical_face_ids,
-        record.physical_wall_ids, record.finish_binding_ids,
-        record.net_wall_record_ids,
+        record.physical_wall_ids,
     )
-    if any(
-        not isinstance(group, (tuple, list)) or not group
-        or any(type(value) is not str or not value.strip() for value in group)
-        for group in groups
+    receipt_groups = (record.finish_binding_ids, record.net_wall_record_ids)
+    for groups, error in (
+        (physical_groups, "resolved wall-finish quantity lacks physical/source identity"),
+        (receipt_groups, "resolved wall-finish quantity lacks source lineage receipts"),
     ):
-        raise ValueError("resolved wall-finish quantity lacks physical/source identity")
-    if any(len(set(group)) != len(group) for group in groups):
-        raise ValueError("resolved wall-finish quantity has duplicate identity receipts")
+        if any(
+            not isinstance(group, (tuple, list)) or not group
+            or any(type(value) is not str or not value.strip() for value in group)
+            for group in groups
+        ):
+            raise ValueError(error)
+        if any(len(set(group)) != len(group) for group in groups):
+            raise ValueError(error)
     if (
         type(record.finish_scope_record_id) is not str
         or not record.finish_scope_record_id.strip()
