@@ -149,8 +149,10 @@ def _customer_quantity_id(row: Mapping[str, Any]) -> str:
     if not isinstance(notes, str) or not notes.strip():
         return ""
     try:
-        parsed = json.loads(notes)
-    except json.JSONDecodeError:
+        parsed = _strict_customer_notes(notes)
+    except CustomerOutputVerificationError:
+        if _has_machine_quantity_receipt(row.get("source_reference")):
+            raise
         return ""
     if not isinstance(parsed, Mapping):
         return ""
