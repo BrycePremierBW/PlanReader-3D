@@ -618,3 +618,23 @@ def test_floor_quantity_rejects_duplicate_or_untyped_floor_evidence_ids() -> Non
             canonical_floors=(replace(_floor(), evidence_ids=receipts),),
         )
         assert publish_live_floor_area_quantities(claim) == ()
+
+
+def test_floor_area_rejects_boolean_and_nonfinite_quantities_or_confidence():
+    source = _source_area()
+    for bad in (
+        {"value": True},
+        {"value": float("nan")},
+        {"confidence": True},
+        {"confidence": float("nan")},
+        {"confidence": float("inf")},
+        {"confidence": -0.1},
+        {"confidence": 1.1},
+    ):
+        replay = replace(source, **bad)
+        assert publish_live_floor_area_quantities(_claim_with(replay)) == (), bad
+    for value in (True, False):
+        corrupted_floor = replace(_floor(), metric_area_m2=value)
+        claim = replace(_claim_with(source), canonical_floors=(corrupted_floor,))
+        assert publish_live_floor_area_quantities(claim) == ()
+    assert len(publish_live_floor_area_quantities(_claim_with(source))) == 1
