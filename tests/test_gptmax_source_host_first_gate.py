@@ -307,3 +307,40 @@ def test_matching_semantic_member_counts_cannot_hide_foreign_source_ids(mutate):
     mutate(source)
     with pytest.raises(ValueError, match="semantic|foreign|duplicate"):
         source_first_gate_census(source, expected_source_sha=SHA)
+
+@pytest.mark.parametrize("case", [
+    "semantic_page_unhashable",
+    "semantic_page_duplicate",
+    "semantic_representative_blank",
+    "semantic_representative_unhashable",
+    "semantic_physical_blank",
+    "semantic_physical_unhashable",
+    "observed_representative_duplicate",
+    "wall_scope_blank",
+])
+def test_eight_malformed_source_inventory_receipts_fail_closed(case):
+    """Eight distinct corrupt original-source receipts must raise, not certify host authority."""
+    original = report()
+    broken = deepcopy(original)
+    semantic = broken["semantic_inventory"]["record"]
+    if case == "semantic_page_unhashable":
+        semantic["page_ids"] = [{"page": "3"}]
+    elif case == "semantic_page_duplicate":
+        semantic["page_ids"] = ["3", "3"]
+    elif case == "semantic_representative_blank":
+        semantic["representative_observation_ids"][0] = "   "
+    elif case == "semantic_representative_unhashable":
+        semantic["representative_observation_ids"][0] = ["not-an-observation"]
+    elif case == "semantic_physical_blank":
+        semantic["physical_opening_record_ids"][0] = "   "
+    elif case == "semantic_physical_unhashable":
+        semantic["physical_opening_record_ids"][0] = {"not": "opening"}
+    elif case == "observed_representative_duplicate":
+        broken["opening_bindings"][1]["representative_observation_id"] = (
+            broken["opening_bindings"][0]["representative_observation_id"]
+        )
+    elif case == "wall_scope_blank":
+        broken["source_owned_wall_scope_results"][0]["decision_scope_id"] = "   "
+    with pytest.raises(ValueError):
+        source_first_gate_census(broken, expected_source_sha=SHA)
+    assert original == report()
