@@ -99,6 +99,12 @@ def publish_bound_wall_finish_quantity(
         if any(not isinstance(value, str) for value in group):
             raise ValueError("resolved wall-finish quantity has untyped identity receipt")
 
+    if (
+        not isinstance(record.finish_scope_record_id, str)
+        or not record.finish_scope_record_id.strip()
+    ):
+        raise ValueError("resolved wall-finish quantity has untyped finish scope receipt")
+
     evidence_ids = tuple(
         dict.fromkeys(
             (
