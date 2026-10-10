@@ -45,7 +45,16 @@ def nonpublishing_raster_source_w4_membership(
     skipped_nonusable = set()
     for r in records:
         identity = r.physical_identity
-        ids = tuple(str(p) for p in identity.source_primitive_ids if str(p))
+        raw_ids = tuple(identity.source_primitive_ids)
+        if (
+            any(not isinstance(parent, str) or not parent.strip() for parent in raw_ids)
+            or len(set(raw_ids)) != len(raw_ids)
+        ):
+            raise ValueError("invalid W4 source primitive parent inventory")
+        ids = raw_ids
+        if (not isinstance(r.wall_candidate_id, str)
+                or not r.wall_candidate_id.strip()):
+            raise ValueError("missing W4 source candidate identity")
         if not identity.usable:
             skipped_nonusable.update(ids)
             continue
@@ -55,7 +64,9 @@ def nonpublishing_raster_source_w4_membership(
         # arbitrary candidate-line geometry or an inferred physical host.
         # Record exact parent+edge links, retaining every shared owner.
         for fragment in getattr(r, "source_edge_fragments", ()):
-            edge_id = str(fragment.edge_id)
+            edge_id = fragment.edge_id
+            if not isinstance(edge_id, str) or not edge_id.strip():
+                raise ValueError("missing W2 source edge identity")
             for parent_id in tuple(fragment.source_primitive_ids):
                 if not isinstance(parent_id, str) or not parent_id:
                     continue
