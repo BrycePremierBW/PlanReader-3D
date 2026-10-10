@@ -2939,6 +2939,27 @@ def _raster_placement_components(groups: Sequence[dict[str, Any]]) -> tuple[dict
     return tuple(sorted(result, key=lambda component: component["native_bbox"]))
 
 
+def _raster_component_is_sheetwide(
+    component: dict[str, Any],
+    calibration: ViewportLayoutCalibration,
+) -> bool:
+    """Reject raster coverage spanning most of the native page as a drawing.
+
+    Page coverage can represent multiple independent plans printed on one
+    continuous raster. It must never become an individual drawing viewport.
+    """
+    bbox = component["native_bbox"]
+    width = max(0.0, float(bbox[2]) - float(bbox[0]))
+    height = max(0.0, float(bbox[3]) - float(bbox[1]))
+    page_width = float(calibration.page_width_pt)
+    page_height = float(calibration.page_height_pt)
+    return (
+        page_width > 0 and page_height > 0
+        and width / page_width >= 0.90
+        and height / page_height >= 0.90
+    )
+
+
 def assign_bbox_to_viewport(
     bbox: Sequence[float],
     viewports: Iterable[SegmentedViewport],
