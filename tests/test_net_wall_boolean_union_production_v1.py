@@ -629,6 +629,7 @@ def test_replayed_deduction_cannot_cross_opening_or_source_scope(change) -> None
     assert result.record.net_area_m2 is None
     assert not result.record.opening_deduction_record_ids
     assert result.record.physical_void_record_ids == ()
+    assert result.record.net_geometry_wkb_hex == ""
     assert result.record.union_geometry_id == ""
 
 
