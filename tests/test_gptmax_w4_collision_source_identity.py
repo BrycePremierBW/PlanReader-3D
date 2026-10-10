@@ -313,3 +313,17 @@ def test_production_guard_refuses_an_unrelated_value_error_with_collision_like_t
             graph={}, junctions=(), relationships=(),
             scope_id="wall-source:page-3",
         )
+
+@pytest.mark.parametrize("bad_parent", ("", " ", "\t"))
+def test_w4_collision_refuses_whitespace_source_ancestry(bad_parent):
+    a = wall("source-edge-a", "junction-a")
+    b = wall("source-edge-b", "junction-b", reverse=True)
+    source_edges = edges()
+    source_edges["source-edge-a"][LINEAGE_KEY]["source_primitive_ids"] = (bad_parent,)
+    original = deepcopy(source_edges)
+    with pytest.raises(W4SourceCandidateAddressCollision, match="positive source ancestry"):
+        _source_owned_collision_candidate_addresses(
+            (a, b), source_edges,
+            {"source-edge-a": a.candidate_id, "source-edge-b": b.candidate_id},
+        )
+    assert source_edges == original
