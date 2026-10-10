@@ -499,3 +499,79 @@ def test_count_universe_never_silently_drops_or_replays_physical_member(defect):
             source_visibility_producer=source,
             wall_opening_composition=composition,
         ) == ()
+
+
+def test_count_bridge_rejects_replayed_or_unbound_schedule_members_without_partial_count():
+    """The source-closed universe cannot publish from altered schedule receipts."""
+    from pb_live_opening_count_quantity_publication import (
+        publish_live_authenticated_opening_count_quantities,
+    )
+    from pb_live_wall_opening_authority_composition import compose_live_wall_opening_authority
+    from pb_source_visibility_authority import SourceVisibilityProducer
+    from pb_source_observation_authority import ObservationSelector
+    from pb_schedule_opening_instance_binding_authority import (
+        ScheduleOpeningInstanceBindingProducer,
+    )
+    from pb_migration_contracts import EvidenceResolutionStatus
+
+    source = SourceVisibilityProducer(
+        producer_method="count-schedule-receipt-test", producer_version="1",
+    )
+    published = source.ingest_native_pdf_bytes(
+        document_id="count-schedule-receipt-test",
+        source_bytes=_floor_plan_with_schedule_quantity(quantity=1),
+        source_locator="memory://count-schedule-receipt-test.pdf",
+    )
+    composition = compose_live_wall_opening_authority(
+        source_visibility_producer=source,
+        revision_id=published.revision.revision_id,
+        page_ids=("1",),
+    )
+    semantic = composition.semantic_enumeration_result
+    assert semantic.record is not None
+    opening_selector = ObservationSelector(
+        document_id=published.revision.document_id,
+        revision_id=published.revision.revision_id,
+        source_sha256=published.revision.source_sha256,
+        snapshot_id=published.snapshot.snapshot_id,
+        observation_id=semantic.record.representative_observation_ids[0],
+    )
+    producer = ScheduleOpeningInstanceBindingProducer.from_source_visibility_producer(source)
+    legitimate = producer.publish_scope(
+        opening_selector=opening_selector,
+        decision_scope_id=semantic.record.decision_scope_id,
+    )
+    assert legitimate.status is EvidenceResolutionStatus.CORROBORATED
+    assert legitimate.record is not None
+    for defect in (
+        {"tag_mark": "Z99"},
+        {"schedule_row_type_mark": "Z99"},
+        {"schedule_row_count_explicit": 1},
+        {"schedule_row_count": 0},
+        {"page_id": "foreign-plan-page"},
+        {"decision_scope_id": "foreign-scope"},
+        {"tag_observation_id": "   "},
+    ):
+        forged_record = copy(legitimate.record)
+        for field, value in defect.items():
+            object.__setattr__(forged_record, field, value)
+        forged_result = replace(legitimate, record=forged_record)
+        with patch.object(
+            ScheduleOpeningInstanceBindingProducer,
+            "publish_scope",
+            return_value=forged_result,
+        ):
+            assert publish_live_authenticated_opening_count_quantities(
+                source_visibility_producer=source,
+                wall_opening_composition=composition,
+            ) == (), defect
+    unresolved = replace(legitimate, status=EvidenceResolutionStatus.ABSTAINED)
+    with patch.object(
+        ScheduleOpeningInstanceBindingProducer,
+        "publish_scope",
+        return_value=unresolved,
+    ):
+        assert publish_live_authenticated_opening_count_quantities(
+            source_visibility_producer=source,
+            wall_opening_composition=composition,
+        ) == ()
