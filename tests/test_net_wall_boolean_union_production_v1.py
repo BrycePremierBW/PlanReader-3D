@@ -631,6 +631,7 @@ def test_replayed_deduction_cannot_cross_opening_or_source_scope(change) -> None
     assert result.record.physical_void_record_ids == ()
     assert result.record.net_geometry_wkb_hex == ""
     assert result.record.union_geometry_id == ""
+    assert result.record.union_geometry_id == ""
 
 
 def test_scenario_03_two_distinct_openings() -> None:
