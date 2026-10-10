@@ -54,7 +54,7 @@ def _exact_path(lines):
 
 def _source_ids(value):
     if (not isinstance(value, (list, tuple))
-            or any(not isinstance(s, str) or not s for s in value)
+            or any(not isinstance(s, str) or not s.strip() for s in value)
             or len(value) != len(set(value))):
         raise ValueError("invalid original source primitive identities")
     return tuple(value)
