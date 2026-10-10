@@ -68,3 +68,15 @@ def test_corrupt_notes_with_machine_source_receipt_cannot_be_manual():
     orphan["notes"] = '{"adapter":"commercial_takeoff","adapter":"manual"}'
     with pytest.raises(CustomerOutputVerificationError, match="duplicate provenance key"):
         verify_sealed_customer_output(sealed, [*rows, orphan])
+
+
+def test_duplicate_machine_notes_cannot_elect_quantity_id_by_last_key():
+    sealed, rows = sealed_and_rows()
+    injected = copy.deepcopy(rows[0])
+    injected.pop("quantity_id")
+    injected.pop("commercial_projection_provenance")
+    receipt = json.loads(injected["notes"])
+    notes = json.dumps(receipt)
+    injected["notes"] = notes.replace('"quantity": {', '"quantity": {"quantity_id": "qty-foreign", ', 1)
+    with pytest.raises(CustomerOutputVerificationError, match="duplicate provenance key"):
+        verify_sealed_customer_output(sealed, [injected, rows[1]])
