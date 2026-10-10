@@ -2852,6 +2852,311 @@ def segment_page_viewports(page: Any, *, page_number: int) -> list[SegmentedView
     return _stamp_segment_page_viewports_product(ordered)
 
 
+def _source_image_placement_groups(page: Any) -> tuple[dict[str, Any], ...]:
+    """Inspect producer image placements without synthesizing drawing frames.
+
+    Repeated XObjects are evidence of raster tiling, not of a drawing viewport.
+    Retain independent xref identity and physical placement coordinates.  This
+    function deliberately cannot create an authenticated SegmentedViewport.
+    """
+    get_images = getattr(page, "get_images", None)
+    get_rects = getattr(page, "get_image_rects", None)
+    if not callable(get_images) or not callable(get_rects):
+        return ()
+    try:
+        images = get_images(full=True)
+    except (RuntimeError, ValueError, TypeError):
+        return ()
+    groups = []
+    for image in images:
+        if not image:
+            continue
+        xref = image[0]
+        try:
+            placements = get_rects(xref)
+        except (RuntimeError, ValueError, TypeError):
+            continue
+        boxes = sorted({
+            tuple(float(v) for v in (r.x0, r.y0, r.x1, r.y1))
+            for r in placements
+            if float(r.x1) > float(r.x0) and float(r.y1) > float(r.y0)
+        })
+        if not boxes:
+            continue
+        groups.append({
+            "xref": int(xref),
+            "placements": len(boxes),
+            "native_bboxes": tuple(boxes),
+            "source_region_complete": False,
+        })
+    return tuple(sorted(groups, key=lambda row: row["xref"]))
+
+
+def _raster_placement_components(groups: Sequence[dict[str, Any]]) -> tuple[dict[str, Any], ...]:
+    """Group touching source raster placements, without declaring plan ownership."""
+    tiles = sorted(
+        (tuple(float(v) for v in box), int(group["xref"]))
+        for group in groups for box in group["native_bboxes"]
+    )
+    parent = list(range(len(tiles)))
+
+    def root(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for i, (a, _xref) in enumerate(tiles):
+        for j in range(i + 1, len(tiles)):
+            b = tiles[j][0]
+            if b[0] > a[2] + 0.25:
+                break
+            overlap_x = min(a[2], b[2]) - max(a[0], b[0])
+            overlap_y = min(a[3], b[3]) - max(a[1], b[1])
+            if overlap_x < -0.25 or overlap_y < -0.25:
+                continue
+            if overlap_x <= 0 and overlap_y <= 0:
+                continue  # corner contact is not connected coverage
+            ri, rj = root(i), root(j)
+            if ri != rj:
+                parent[rj] = ri
+
+    components: dict[int, list[int]] = {}
+    for i in range(len(tiles)):
+        components.setdefault(root(i), []).append(i)
+    result = []
+    for indices in components.values():
+        boxes = [tiles[i][0] for i in indices]
+        result.append({
+            "native_bbox": (
+                min(b[0] for b in boxes), min(b[1] for b in boxes),
+                max(b[2] for b in boxes), max(b[3] for b in boxes),
+            ),
+            "placement_count": len(indices),
+            "image_xrefs": tuple(sorted({tiles[i][1] for i in indices})),
+            "authenticated_viewport": False,
+        })
+    return tuple(sorted(result, key=lambda component: component["native_bbox"]))
+
+
+def _raster_component_is_sheetwide(
+    component: dict[str, Any],
+    calibration: ViewportLayoutCalibration,
+) -> bool:
+    """Reject raster coverage spanning most of the native page as a drawing.
+
+    Page coverage can represent multiple independent plans printed on one
+    continuous raster. It must never become an individual drawing viewport.
+    """
+    bbox = component["native_bbox"]
+    width = max(0.0, float(bbox[2]) - float(bbox[0]))
+    height = max(0.0, float(bbox[3]) - float(bbox[1]))
+    page_width = float(calibration.page_width_pt)
+    page_height = float(calibration.page_height_pt)
+    return (
+        page_width > 0 and page_height > 0
+        and width / page_width >= 0.90
+        and height / page_height >= 0.90
+    )
+
+
+def _raster_ink_gutter_evidence(
+    page: Any, *, max_render_dimension: int = 800,
+) -> dict[str, Any]:
+    """Find large empty corridors in a bounded rendering of source geometry.
+
+    Returned corridors are *candidate separation evidence*, never viewport
+    boundaries. Rendered ink includes text, title blocks and drawing symbols,
+    and a white corridor alone cannot prove which plan owns either side.
+    Coordinates use visual page orientation, not PDF native user space.
+    """
+    unavailable = {
+        "vertical_gutters_visual_pts": (),
+        "horizontal_gutters_visual_pts": (),
+        "raster_gutters_are_authoritative": False,
+    }
+    try:
+        width = float(page.rect.width)
+        height = float(page.rect.height)
+        if width <= 0 or height <= 0 or not math.isfinite(width + height):
+            return unavailable
+        scale = min(1.0, float(max_render_dimension) / max(width, height))
+        if scale <= 0 or max_render_dimension < 64:
+            return unavailable
+        pix = page.get_pixmap(
+            matrix=fitz.Matrix(scale, scale),
+            colorspace=fitz.csGRAY,
+            alpha=False,
+            annots=False,
+        )
+        if pix.n != 1 or pix.width < 10 or pix.height < 10:
+            return unavailable
+        buf = memoryview(pix.samples)
+        dark_cols = [0] * pix.width
+        dark_rows = [0] * pix.height
+        # 220 intentionally ignores antialiasing haze but counts actual ink.
+        for y in range(pix.height):
+            offset = y * pix.stride
+            dark_count = 0
+            for x in range(pix.width):
+                if buf[offset + x] < 220:
+                    dark_cols[x] += 1
+                    dark_count += 1
+            dark_rows[y] = dark_count
+        if not any(dark_cols) or not any(dark_rows):
+            return unavailable
+
+        def gutters(counts: Sequence[int], cross_span: int, page_span: float):
+            size = len(counts)
+            min_run = max(8, math.ceil(size * 0.025))
+            threshold = max(1, math.floor(cross_span * 0.002))
+            # Exclude page margins; require substantial ink on both sides.
+            cumulative = [0]
+            for count in counts:
+                cumulative.append(cumulative[-1] + count)
+            total = cumulative[-1]
+            if total <= 0:
+                return ()
+            result = []
+            start = None
+            for index in range(size + 1):
+                blank = (
+                    index < size and counts[index] <= threshold
+                    and math.ceil(size * 0.04) <= index < math.floor(size * 0.96)
+                )
+                if blank and start is None:
+                    start = index
+                if not blank and start is not None:
+                    end = index
+                    if (
+                        end - start >= min_run
+                        and cumulative[start] >= total * 0.15
+                        and total - cumulative[end] >= total * 0.15
+                    ):
+                        result.append((
+                            round(page_span * start / size, 3),
+                            round(page_span * end / size, 3),
+                        ))
+                    start = None
+            return tuple(result)
+
+        horizontal_gutters = gutters(dark_rows, pix.width, height)
+        # A short vertical separation between adjacent drawings can be
+        # interrupted by a title block elsewhere on the page. Scan individual
+        # ink bands separated by independently observed horizontal gutters,
+        # rather than insisting on a page-spanning empty vertical corridor.
+        spans = []
+        cursor = 0.0
+        for begin, end in horizontal_gutters:
+            if begin > cursor:
+                spans.append((cursor, begin))
+            cursor = end
+        if cursor < height:
+            spans.append((cursor, height))
+        local_gutters = []
+        for band_begin, band_end in spans:
+            y0 = max(0, min(pix.height, round(band_begin * pix.height / height)))
+            y1 = max(y0, min(pix.height, round(band_end * pix.height / height)))
+            if y1 - y0 < max(10, math.ceil(pix.height * 0.05)):
+                continue
+            local_cols = [0] * pix.width
+            for y in range(y0, y1):
+                row_offset = y * pix.stride
+                for x in range(pix.width):
+                    if buf[row_offset + x] < 220:
+                        local_cols[x] += 1
+            found = gutters(local_cols, y1 - y0, width)
+            if found:
+                local_gutters.append({
+                    "visual_band_y_pts": (
+                        round(band_begin, 3), round(band_end, 3),
+                    ),
+                    "vertical_gutters_visual_pts": found,
+                    "source_region_complete": False,
+                })
+        return {
+            "vertical_gutters_visual_pts": gutters(dark_cols, pix.height, width),
+            "horizontal_gutters_visual_pts": horizontal_gutters,
+            "local_vertical_gutters_by_band_visual_pts": tuple(local_gutters),
+            "render_dimensions": (pix.width, pix.height),
+            "raster_gutters_are_authoritative": False,
+        }
+    except (RuntimeError, ValueError, TypeError, OverflowError):
+        return unavailable
+
+
+def _raster_ink_title_cell_evidence(
+    page: Any,
+    anchors: Sequence[_TitleAnchor],
+    ink_evidence: dict[str, Any],
+) -> tuple[dict[str, Any], ...]:
+    """Associate rendered-ink separation candidates with native title boxes.
+
+    This is diagnostic coverage evidence only. A white gutter, even with a
+    single associated title, cannot independently authenticate a complete
+    architectural drawing viewport or its metric scale.
+    """
+    try:
+        width = float(page.rect.width)
+        height = float(page.rect.height)
+    except (AttributeError, ValueError, TypeError):
+        return ()
+    if width <= 0 or height <= 0:
+        return ()
+    horizontal = tuple(ink_evidence.get("horizontal_gutters_visual_pts") or ())
+    vertical = tuple(ink_evidence.get("vertical_gutters_visual_pts") or ())
+    local = tuple(ink_evidence.get("local_vertical_gutters_by_band_visual_pts") or ())
+
+    def spans(limit: float, gaps: Sequence[Sequence[float]]):
+        cursor = 0.0
+        out = []
+        for gap in gaps:
+            if len(gap) != 2:
+                return ()
+            start, end = float(gap[0]), float(gap[1])
+            if not (0 <= cursor <= start < end <= limit):
+                return ()
+            if start > cursor:
+                out.append((cursor, start))
+            cursor = end
+        if cursor < limit:
+            out.append((cursor, limit))
+        return tuple(out)
+
+    rows = []
+    title_boxes = tuple(
+        (anchor, _to_visual_bbox(page, anchor.bbox)) for anchor in anchors
+    )
+    for y0, y1 in spans(height, horizontal):
+        chosen = vertical
+        for band in local:
+            interval = tuple(band.get("visual_band_y_pts") or ())
+            if (
+                len(interval) == 2
+                and abs(float(interval[0]) - y0) <= 0.01
+                and abs(float(interval[1]) - y1) <= 0.01
+            ):
+                chosen = tuple(band.get("vertical_gutters_visual_pts") or ())
+                break
+        for x0, x1 in spans(width, chosen):
+            cell = (x0, y0, x1, y1)
+            owned = [
+                {"title": anchor.text, "type": anchor.view_type}
+                for anchor, bbox in title_boxes
+                if _bbox_contains(cell, bbox)
+            ]
+            if not owned:
+                continue
+            rows.append({
+                "visual_bbox": tuple(round(v, 3) for v in cell),
+                "contained_titles": tuple(owned),
+                "unique_title_candidate": len(owned) == 1,
+                "source_region_complete": False,
+                "authenticated_viewport": False,
+            })
+    return tuple(rows)
+
+
 def assign_bbox_to_viewport(
     bbox: Sequence[float],
     viewports: Iterable[SegmentedViewport],
