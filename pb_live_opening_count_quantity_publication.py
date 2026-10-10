@@ -72,7 +72,7 @@ def publish_live_authenticated_opening_count_quantities(
         published is None
         or semantic.status is not EvidenceResolutionStatus.CORROBORATED
         or semantic_record is None
-        or not bool(semantic_record.physical_opening_universe_complete)
+        or semantic_record.physical_opening_universe_complete is not True
         or published.revision.document_id != semantic_record.document_id
         or published.revision.revision_id != semantic_record.revision_id
         or published.revision.source_sha256 != semantic_record.source_sha256
@@ -86,9 +86,12 @@ def publish_live_authenticated_opening_count_quantities(
 
     # The producer's representative universe must not silently lose blank
     # members or duplicate source observations when later keyed by identity.
+    raw_representatives = semantic_record.representative_observation_ids
+    if not isinstance(raw_representatives, (tuple, list)):
+        return ()
     representatives = tuple(
-        str(value or "").strip()
-        for value in semantic_record.representative_observation_ids
+        value.strip() if isinstance(value, str) else ""
+        for value in raw_representatives
     )
     if (
         not representatives
@@ -109,7 +112,7 @@ def publish_live_authenticated_opening_count_quantities(
     # this bridge never narrows the universe to the convenient members.
     binding_selectors: dict[str, ScheduleOpeningInstanceBindingSelector] = {}
     binding_results = {}
-    for observation_id in semantic_record.representative_observation_ids:
+    for observation_id in representatives:
         opening_selector = ObservationSelector(
             document_id=published.revision.document_id,
             revision_id=published.revision.revision_id,
@@ -124,6 +127,15 @@ def publish_live_authenticated_opening_count_quantities(
             or opening is None
         ):
             continue
+        if (
+            opening.document_id != published.revision.document_id
+            or opening.revision_id != published.revision.revision_id
+            or opening.source_sha256 != published.revision.source_sha256
+            or opening.snapshot_id != published.snapshot.snapshot_id
+            or not isinstance(opening.record_id, str)
+            or not opening.record_id.strip()
+        ):
+            return ()
         selector = ScheduleOpeningInstanceBindingSelector(
             document_id=opening.document_id,
             revision_id=opening.revision_id,
@@ -167,8 +179,19 @@ def publish_live_authenticated_opening_count_quantities(
         normalized = normalize_opening_tag(record.schedule_row_type_mark)
         if normalized is None:
             continue
+        if (
+            not isinstance(record.schedule_page_id, str)
+            or not record.schedule_page_id.strip()
+            or not isinstance(record.schedule_row_observation_ids, (tuple, list))
+            or not record.schedule_row_observation_ids
+            or any(not isinstance(value, str) or not value.strip()
+                   for value in record.schedule_row_observation_ids)
+            or len(set(record.schedule_row_observation_ids))
+            != len(record.schedule_row_observation_ids)
+        ):
+            continue
         row_key = (
-            str(record.schedule_page_id),
+            record.schedule_page_id,
             tuple(sorted(record.schedule_row_observation_ids)),
         )
         if row_key not in published_rows:
