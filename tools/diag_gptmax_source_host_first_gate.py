@@ -76,11 +76,17 @@ def source_first_gate_census(report: dict, *, expected_source_sha: str | None = 
             or semantic_record.get("revision_id") != revision_id
             or semantic_record.get("snapshot_id") != snapshot_id
             or semantic_record.get("source_sha256") != sha
-            or set(semantic_record.get("page_ids") or ()) != set(pages)):
+            or not isinstance(semantic_record.get("page_ids"), (list, tuple))
+            or any(not isinstance(page, str) or not page.isdigit()
+                   for page in semantic_record["page_ids"])
+            or len(semantic_record["page_ids"]) != len(set(semantic_record["page_ids"]))
+            or set(semantic_record["page_ids"]) != set(pages)):
         raise ValueError("foreign source semantic opening inventory lineage")
     semantic_opening_ids = semantic_record.get("representative_observation_ids")
     if not isinstance(semantic_opening_ids, (tuple, list)):
         raise ValueError("semantic opening inventory missing representative IDs")
+    if any(not isinstance(item, str) or not item.strip() for item in semantic_opening_ids):
+        raise ValueError("semantic inventory contains invalid representative source IDs")
     if len(set(semantic_opening_ids)) != len(semantic_opening_ids):
         raise ValueError("semantic inventory contains duplicate representative source IDs")
     if len(semantic_opening_ids) != len(bindings):
@@ -90,12 +96,14 @@ def source_first_gate_census(report: dict, *, expected_source_sha: str | None = 
     observed_representatives = tuple(
         b.get("representative_observation_id") for b in bindings
     )
-    if (any(not isinstance(x, str) or not x for x in observed_representatives)
+    if (any(not isinstance(x, str) or not x.strip() for x in observed_representatives)
+            or len(set(observed_representatives)) != len(observed_representatives)
             or set(observed_representatives) != set(semantic_opening_ids)):
         raise ValueError("semantic source representative IDs disagree with host bindings")
     semantic_physical_ids = semantic_record.get("physical_opening_record_ids")
     if (not isinstance(semantic_physical_ids, (tuple, list))
             or len(semantic_physical_ids) != len(bindings)
+            or any(not isinstance(x, str) or not x.strip() for x in semantic_physical_ids)
             or len(set(semantic_physical_ids)) != len(semantic_physical_ids)
             or set(semantic_physical_ids) != {
                 b.get("opening_identity_id") for b in bindings
@@ -131,7 +139,7 @@ def source_first_gate_census(report: dict, *, expected_source_sha: str | None = 
     ):
         raise ValueError("foreign original revision, snapshot, or document wall scope")
     scope_ids = [s.get("decision_scope_id") for s in scopes]
-    if any(not isinstance(s, str) or not s for s in scope_ids) or len(set(scope_ids)) != len(scope_ids):
+    if any(not isinstance(s, str) or not s.strip() for s in scope_ids) or len(set(scope_ids)) != len(scope_ids):
         raise ValueError("repeated or missing producer-owned wall decision scope")
 
     collisions = []
