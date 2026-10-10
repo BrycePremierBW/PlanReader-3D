@@ -137,6 +137,7 @@ def publish_live_authenticated_opening_count_quantities(
             or not isinstance(opening.record_id, str)
             or not opening.record_id.strip()
             or opening.page_id not in wall_opening_composition.page_ids
+            or observation_id not in opening.source_observation_ids
         ):
             return ()
         selector = ScheduleOpeningInstanceBindingSelector(
@@ -187,6 +188,8 @@ def publish_live_authenticated_opening_count_quantities(
             or record.opening_record_id != opening_id
             or record.decision_scope_id != scope_id
             or record.page_id not in wall_opening_composition.page_ids
+            or not isinstance(record.tag_observation_id, str)
+            or not record.tag_observation_id.strip()
         ):
             return ()
 
