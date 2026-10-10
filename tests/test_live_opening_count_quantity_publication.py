@@ -392,3 +392,48 @@ def test_count_bridge_rejects_two_representatives_for_same_opening():
             source_visibility_producer=source,
             wall_opening_composition=duplicated,
         ) == ()
+
+@pytest.mark.parametrize("field,value", (
+    ("physical_opening_universe_complete", 1),
+    ("physical_opening_universe_complete", "true"),
+    ("representative_observation_ids", None),
+    ("representative_observation_ids", "observation-one"),
+    ("representative_observation_ids", (42,)),
+    ("representative_observation_ids", ("   ",)),
+    ("representative_observation_ids", ("same", "same")),
+    ("snapshot_id", "foreign-snapshot"),
+))
+def test_count_bridge_rejects_eight_malformed_source_inventory_cases(field, value):
+    """No schedule count may be published from an untrusted semantic inventory."""
+    from pb_live_opening_count_quantity_publication import (
+        publish_live_authenticated_opening_count_quantities,
+    )
+    from pb_live_wall_opening_authority_composition import compose_live_wall_opening_authority
+    from pb_source_visibility_authority import SourceVisibilityProducer
+
+    source = SourceVisibilityProducer(
+        producer_method="count-malformed-source-inventory-test",
+        producer_version="1",
+    )
+    published = source.ingest_native_pdf_bytes(
+        document_id="count-malformed-source-inventory-test",
+        source_bytes=_floor_plan_with_schedule_quantity(quantity=1),
+        source_locator="memory://count-malformed-source-inventory-test.pdf",
+    )
+    composition = compose_live_wall_opening_authority(
+        source_visibility_producer=source,
+        revision_id=published.revision.revision_id,
+        page_ids=("1",),
+    )
+    result = composition.semantic_enumeration_result
+    assert result.record is not None
+    altered = replace(
+        composition,
+        semantic_enumeration_result=replace(
+            result, record=replace(result.record, **{field: value}),
+        ),
+    )
+    assert publish_live_authenticated_opening_count_quantities(
+        source_visibility_producer=source,
+        wall_opening_composition=altered,
+    ) == ()
