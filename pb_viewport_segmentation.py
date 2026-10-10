@@ -3085,6 +3085,78 @@ def _raster_ink_gutter_evidence(
         return unavailable
 
 
+def _raster_ink_title_cell_evidence(
+    page: Any,
+    anchors: Sequence[_TitleAnchor],
+    ink_evidence: dict[str, Any],
+) -> tuple[dict[str, Any], ...]:
+    """Associate rendered-ink separation candidates with native title boxes.
+
+    This is diagnostic coverage evidence only. A white gutter, even with a
+    single associated title, cannot independently authenticate a complete
+    architectural drawing viewport or its metric scale.
+    """
+    try:
+        width = float(page.rect.width)
+        height = float(page.rect.height)
+    except (AttributeError, ValueError, TypeError):
+        return ()
+    if width <= 0 or height <= 0:
+        return ()
+    horizontal = tuple(ink_evidence.get("horizontal_gutters_visual_pts") or ())
+    vertical = tuple(ink_evidence.get("vertical_gutters_visual_pts") or ())
+    local = tuple(ink_evidence.get("local_vertical_gutters_by_band_visual_pts") or ())
+
+    def spans(limit: float, gaps: Sequence[Sequence[float]]):
+        cursor = 0.0
+        out = []
+        for gap in gaps:
+            if len(gap) != 2:
+                return ()
+            start, end = float(gap[0]), float(gap[1])
+            if not (0 <= cursor <= start < end <= limit):
+                return ()
+            if start > cursor:
+                out.append((cursor, start))
+            cursor = end
+        if cursor < limit:
+            out.append((cursor, limit))
+        return tuple(out)
+
+    rows = []
+    title_boxes = tuple(
+        (anchor, _to_visual_bbox(page, anchor.bbox)) for anchor in anchors
+    )
+    for y0, y1 in spans(height, horizontal):
+        chosen = vertical
+        for band in local:
+            interval = tuple(band.get("visual_band_y_pts") or ())
+            if (
+                len(interval) == 2
+                and abs(float(interval[0]) - y0) <= 0.01
+                and abs(float(interval[1]) - y1) <= 0.01
+            ):
+                chosen = tuple(band.get("vertical_gutters_visual_pts") or ())
+                break
+        for x0, x1 in spans(width, chosen):
+            cell = (x0, y0, x1, y1)
+            owned = [
+                {"title": anchor.text, "type": anchor.view_type}
+                for anchor, bbox in title_boxes
+                if _bbox_contains(cell, bbox)
+            ]
+            if not owned:
+                continue
+            rows.append({
+                "visual_bbox": tuple(round(v, 3) for v in cell),
+                "contained_titles": tuple(owned),
+                "unique_title_candidate": len(owned) == 1,
+                "source_region_complete": False,
+                "authenticated_viewport": False,
+            })
+    return tuple(rows)
+
+
 def assign_bbox_to_viewport(
     bbox: Sequence[float],
     viewports: Iterable[SegmentedViewport],
