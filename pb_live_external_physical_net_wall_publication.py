@@ -451,8 +451,13 @@ def compose_live_external_physical_net_wall_publication(
     expected_opening_ids = tuple(
         _clean(trace.opening_identity_id)
         for trace in wall_opening_composition.opening_bindings
-        if _clean(trace.opening_identity_id)
     )
+    if any(not opening_id for opening_id in expected_opening_ids):
+        return _blocked(
+            revision_id=revision_id,
+            status=EvidenceResolutionStatus.CONFLICT,
+            reason=LIVE_EXTERNAL_PHYSICAL_NET_WALL_UPSTREAM_INCOMPLETE,
+        )
     if len(set(expected_opening_ids)) != len(expected_opening_ids):
         return _blocked(
             revision_id=revision_id,
