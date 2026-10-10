@@ -576,3 +576,45 @@ def test_unmeasured_other_room_using_same_source_face_quarantines_firm() -> None
     assert publish_live_floor_area_quantities(
         replace(claim, canonical_floors=(unresolved, authentic))
     ) == ()
+
+
+def test_floor_quantity_rejects_missing_or_duplicate_source_room_owner_receipts() -> None:
+    source = _source_area()
+    for fields in (
+        {"input_entity_ids": ()},
+        {"input_entity_ids": ("source-room-1", "source-room-1")},
+        {"input_entity_ids": ("   ",)},
+        {"evidence_ids": ("ev-room", "ev-room")},
+        {"evidence_ids": ("ev-room", "")},
+    ):
+        untrusted = replace(source, **fields)
+        assert publish_live_floor_area_quantities(_claim_with(untrusted)) == (), fields
+    assert len(publish_live_floor_area_quantities(_claim_with(source))) == 1
+
+
+def test_floor_quantity_rejects_replayed_foreign_document_metadata() -> None:
+    source = _source_area()
+    foreign = replace(
+        source,
+        metadata={**dict(source.metadata), "document_id": "foreign-document"},
+    )
+    assert publish_live_floor_area_quantities(_claim_with(foreign)) == ()
+    authentic = replace(
+        source,
+        metadata={**dict(source.metadata), "document_id": _floor().document_id},
+    )
+    assert len(publish_live_floor_area_quantities(_claim_with(authentic))) == 1
+
+
+def test_floor_quantity_rejects_duplicate_or_untyped_floor_evidence_ids() -> None:
+    source = _source_area()
+    for receipts in (
+        ("ev-room", "ev-room", "ev-area"),
+        ("ev-room", "", "ev-area"),
+        ("ev-room", "   ", "ev-area"),
+    ):
+        claim = replace(
+            _claim_with(source),
+            canonical_floors=(replace(_floor(), evidence_ids=receipts),),
+        )
+        assert publish_live_floor_area_quantities(claim) == ()
