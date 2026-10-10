@@ -22,3 +22,17 @@ Before returning assembled W4 candidates, scan *all* candidate IDs. Leave every 
 
 ## Unchanged
 Source PDFs, W2 snapping and thresholds, W3 junction classification, W4 same/different physical equivalence rules, output publishers, dimensions/scale, all frozen V2 truth/evaluator files.
+# Continuation design, 2026-10-11
+
+Observed: duplicate physical-identity collection raises a generic `ValueError`
+and the production helper catches that error by prefix text across both
+assembly and collection calls. An unrelated exception with the same prefix can
+be hidden. One corruption regression also asserts text rather than the new
+typed source-address exception.
+
+Proposed: a dedicated duplicate-address exception from the existing physical
+identity collector; catch only the two producer-owned exception types. Assert
+the typed collision for corruption and independently test misleading generic
+errors from both call sites. Preserve normal return objects and original source
+receipts. This changes failure handling only, never physical equivalence,
+geometry, quantities, the 20k cap or frozen truth.

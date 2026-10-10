@@ -270,6 +270,10 @@ def resolve_physical_wall_identity(
     )
 
 
+class DuplicateW4CandidateAddress(ValueError):
+    """Two original W4 rows cannot own one keyed physical-identity address."""
+
+
 def collect_physical_wall_identities(
     walls: Sequence[WallCandidate],
     graph: Mapping[str, Any],
@@ -281,7 +285,9 @@ def collect_physical_wall_identities(
     """
     candidate_ids = [wall.candidate_id for wall in walls]
     if len(candidate_ids) != len(set(candidate_ids)):
-        raise ValueError("duplicate W4 candidate id before physical identity collection")
+        raise DuplicateW4CandidateAddress(
+            "duplicate W4 candidate id before physical identity collection"
+        )
     edges_by_id = {
         str(edge["id"]): edge
         for edge in (graph.get("edges") or [])

@@ -47,6 +47,7 @@ from pb_physical_scale_authority import (
     PhysicalScaleSelector,
 )
 from pb_physical_wall_identity import (
+    DuplicateW4CandidateAddress,
     PhysicalEquivalenceClass,
     PhysicalWallEquivalenceResolution,
     PhysicalWallIdentity,
@@ -2944,16 +2945,10 @@ def _assemble_source_owned_w4_identities_or_unavailable(
             graph, junctions, relationships, viewport_id=scope_id
         )
         identities = collect_physical_wall_identities(walls, graph)
-    except W4SourceCandidateAddressCollision:
+    except (W4SourceCandidateAddressCollision, DuplicateW4CandidateAddress):
         # No producer evidence can decide which source W4 row owns the address.
         # The caller emits a complete-scope ABSTAIN, not a guessed identity.
         return None
-    except ValueError as exc:
-        # This one error comes from the downstream physical identity
-        # collection keyed by W4 address, not from the W4 source assembler.
-        if str(exc).startswith("duplicate W4 candidate id"):
-            return None
-        raise
     return walls, rekeyed_junctions, identities
 
 

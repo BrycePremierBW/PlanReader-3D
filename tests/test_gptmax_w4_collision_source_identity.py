@@ -6,7 +6,10 @@ import pytest
 
 from pb_geometry_takeoff_model import MeasurementAuthorityType
 from pb_migration_contracts import EvidenceResolutionStatus
-from pb_physical_wall_identity import collect_physical_wall_identities
+from pb_physical_wall_identity import (
+    DuplicateW4CandidateAddress,
+    collect_physical_wall_identities,
+)
 from pb_wall_room_topology_contracts import JunctionType, WallCandidate
 from pb_wall_room_topology_primitive_lineage import LINEAGE_KEY
 from pb_wall_room_topology_wall_assembly import (
@@ -126,7 +129,7 @@ def test_unprovable_collision_never_rekeys_from_ambiguous_or_corrupt_source(bad)
 
 def test_collection_refuses_colliding_w4_id_before_last_writer_overwrite():
     a, b = wall("source-edge-a", "junction-a"), wall("source-edge-b", "junction-b")
-    with pytest.raises(ValueError, match="duplicate W4 candidate id"):
+    with pytest.raises(DuplicateW4CandidateAddress, match="duplicate W4 candidate id"):
         collect_physical_wall_identities((a, b), {"edges": list(edges().values())})
 
 
@@ -251,7 +254,7 @@ def test_production_w4_source_collision_returns_unavailable_not_unhandled(
 
     def collect(*args, **kwargs):
         if error_source == "collector":
-            raise ValueError(error_text)
+            raise DuplicateW4CandidateAddress(error_text)
         return {"positive-source-wall": "verified-identity"}
 
     monkeypatch.setattr(authority, "assemble_wall_topology", assemble)
@@ -313,6 +316,26 @@ def test_production_guard_refuses_an_unrelated_value_error_with_collision_like_t
             graph={}, junctions=(), relationships=(),
             scope_id="wall-source:page-3",
         )
+
+
+@pytest.mark.parametrize("origin", ["assembly", "collector"])
+def test_generic_duplicate_id_error_text_cannot_hide_unrelated_corruption(monkeypatch, origin):
+    import pb_physical_wall_candidate_authority as authority
+
+    def misleading_failure(*args, **kwargs):
+        raise ValueError("duplicate W4 candidate id in unrelated code")
+
+    def valid_assembly(*args, **kwargs):
+        return (), ()
+
+    monkeypatch.setattr(authority, "assemble_wall_topology",
+                        misleading_failure if origin == "assembly" else valid_assembly)
+    monkeypatch.setattr(authority, "collect_physical_wall_identities", misleading_failure)
+    with pytest.raises(ValueError, match="unrelated code"):
+        authority._assemble_source_owned_w4_identities_or_unavailable(
+            graph={}, junctions=(), relationships=(), scope_id="source-scope",
+        )
+
 
 @pytest.mark.parametrize("bad_parent", ("", " ", "\t"))
 def test_w4_collision_refuses_whitespace_source_ancestry(bad_parent):

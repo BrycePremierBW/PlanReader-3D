@@ -315,7 +315,7 @@ def _source_owned_collision_candidate_addresses(
                 lineage = edge.get(LINEAGE_KEY) or {}
                 raw = lineage.get("source_primitive_ids") if isinstance(lineage, dict) else None
                 if (not isinstance(raw, (list, tuple)) or not raw
-                        or any(not isinstance(v, str) or not v.strip() for v in raw)): 
+                        or any(not isinstance(v, str) or not v.strip() for v in raw)):
                     raise W4SourceCandidateAddressCollision("W4 collision lacks positive source ancestry")
                 try:
                     a = (float(edge["x1"]), float(edge["y1"]))
