@@ -145,10 +145,21 @@ def publish_live_floor_area_quantities(
             continue
         if len(physical_floor_claim_ids.get(_clean(floor.physical_floor_surface_id), ())) != 1:
             continue
+        # Booleans are Python integers, but never metric measurements.
+        # Quantities must arrive as genuinely typed, finite source numbers.
+        if (
+            type(quantity.value) not in (int, float)
+            or type(floor.metric_area_m2) not in (int, float)
+            or type(quantity.confidence) not in (int, float)
+        ):
+            continue
         try:
             qvalue = float(quantity.value)
             fvalue = float(floor.metric_area_m2)
+            confidence = float(quantity.confidence)
         except (TypeError, ValueError, OverflowError):
+            continue
+        if not math.isfinite(confidence) or confidence < 0.0 or confidence > 1.0:
             continue
         if (
             not math.isfinite(qvalue)
