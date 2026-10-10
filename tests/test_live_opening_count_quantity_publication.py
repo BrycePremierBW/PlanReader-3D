@@ -586,3 +586,57 @@ def test_count_bridge_rejects_replayed_or_unbound_schedule_members_without_parti
             source_visibility_producer=source,
             wall_opening_composition=composition,
         ) == ()
+
+
+def test_live_count_rejects_forged_final_customer_count_and_physical_receipts():
+    from pb_live_opening_count_quantity_publication import (
+        publish_live_authenticated_opening_count_quantities,
+    )
+    from pb_live_wall_opening_authority_composition import compose_live_wall_opening_authority
+    from pb_source_visibility_authority import SourceVisibilityProducer
+    from pb_generic_opening_count_authority import GenericOpeningCountProducer
+    from pb_migration_contracts import EvidenceResolutionStatus
+
+    source = SourceVisibilityProducer(
+        producer_method="count-commercial-handoff-replay", producer_version="1",
+    )
+    published = source.ingest_native_pdf_bytes(
+        document_id="count-commercial-handoff-replay",
+        source_bytes=_floor_plan_with_schedule_quantity(quantity=1),
+        source_locator="memory://count-commercial-handoff-replay.pdf",
+    )
+    composition = compose_live_wall_opening_authority(
+        source_visibility_producer=source,
+        revision_id=published.revision.revision_id,
+        page_ids=("1",),
+    )
+    real_publish = GenericOpeningCountProducer.publish
+    for target, field, forged_value in (
+        ("quantity", "value", 2.0),
+        ("quantity", "unit", "m2"),
+        ("quantity", "family", "floor_area"),
+        ("quantity", "input_entity_ids", ("foreign-opening",)),
+        ("record", "count", 2),
+        ("record", "physical_instance_record_ids", ("foreign-opening",)),
+        ("record", "decision_scope_id", "foreign-scope"),
+        ("record", "opening_mark", "Z99"),
+    ):
+        def corrupted_publish(self, selector):
+            real = real_publish(self, selector)
+            assert real.status is EvidenceResolutionStatus.CORROBORATED
+            assert real.record is not None
+            forged_record = copy(real.record)
+            if target == "record":
+                object.__setattr__(forged_record, field, forged_value)
+            else:
+                assert real.record.quantity_evidence is not None
+                forged_quantity = copy(real.record.quantity_evidence)
+                object.__setattr__(forged_quantity, field, forged_value)
+                object.__setattr__(forged_record, "quantity_evidence", forged_quantity)
+            return replace(real, record=forged_record)
+
+        with patch.object(GenericOpeningCountProducer, "publish", corrupted_publish):
+            assert publish_live_authenticated_opening_count_quantities(
+                source_visibility_producer=source,
+                wall_opening_composition=composition,
+            ) == (), (target, field)
