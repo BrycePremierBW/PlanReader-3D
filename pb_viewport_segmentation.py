@@ -2852,6 +2852,46 @@ def segment_page_viewports(page: Any, *, page_number: int) -> list[SegmentedView
     return _stamp_segment_page_viewports_product(ordered)
 
 
+def _source_image_placement_groups(page: Any) -> tuple[dict[str, Any], ...]:
+    """Inspect producer image placements without synthesizing drawing frames.
+
+    Repeated XObjects are evidence of raster tiling, not of a drawing viewport.
+    Retain independent xref identity and physical placement coordinates.  This
+    function deliberately cannot create an authenticated SegmentedViewport.
+    """
+    get_images = getattr(page, "get_images", None)
+    get_rects = getattr(page, "get_image_rects", None)
+    if not callable(get_images) or not callable(get_rects):
+        return ()
+    try:
+        images = get_images(full=True)
+    except (RuntimeError, ValueError, TypeError):
+        return ()
+    groups = []
+    for image in images:
+        if not image:
+            continue
+        xref = image[0]
+        try:
+            placements = get_rects(xref)
+        except (RuntimeError, ValueError, TypeError):
+            continue
+        boxes = sorted({
+            tuple(float(v) for v in (r.x0, r.y0, r.x1, r.y1))
+            for r in placements
+            if float(r.x1) > float(r.x0) and float(r.y1) > float(r.y0)
+        })
+        if not boxes:
+            continue
+        groups.append({
+            "xref": int(xref),
+            "placements": len(boxes),
+            "native_bboxes": tuple(boxes),
+            "source_region_complete": False,
+        })
+    return tuple(sorted(groups, key=lambda row: row["xref"]))
+
+
 def assign_bbox_to_viewport(
     bbox: Sequence[float],
     viewports: Iterable[SegmentedViewport],
