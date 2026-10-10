@@ -902,3 +902,30 @@ def test_gpt2_b02_duplicate_w4_candidate_id_does_not_authenticate_separator():
     )
     assert attempted.records == ()
     assert attempted.status is EvidenceResolutionStatus.ABSTAINED
+
+
+def test_gpt2_b02_duplicate_source_face_or_receipt_blocks_room_composite():
+    from dataclasses import replace
+
+    original=_room_scope()
+    wall=_wall_scope((_grid_atom("e_sep"),))
+    label=_label_scope()
+    positive=compose_grid_separated_room_faces(
+        wall_scope=wall,room_scope=original,label_scope=label
+    )
+    assert positive.status is EvidenceResolutionStatus.CORROBORATED
+    assert len(positive.records)==1
+
+    a,b=original.records
+    for corrupted in (
+        replace(original,records=(a,b,replace(a,record_id="another-source"))),
+        replace(original,records=(a,replace(b,record_id=a.record_id))),
+    ):
+        result=compose_grid_separated_room_faces(
+            wall_scope=wall,room_scope=corrupted,label_scope=label
+        )
+        assert result.status is EvidenceResolutionStatus.ABSTAINED
+        assert result.records == ()
+        assert result.unresolved_label_candidate_ids == ("split_label_1",)
+        # Original source record universe must remain auditable, never deleted.
+        assert len(corrupted.records) in (2,3)
