@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from copy import copy
 
 from pb_geometry_takeoff_model import AuthorityStatus, MeasurementAuthorityType
 from pb_live_floor_area_quantity_publication import (
@@ -587,7 +588,9 @@ def test_floor_quantity_rejects_missing_or_duplicate_source_room_owner_receipts(
         {"evidence_ids": ("ev-room", "ev-room")},
         {"evidence_ids": ("ev-room", "")},
     ):
-        untrusted = replace(source, **fields)
+        untrusted = copy(source)
+        for field, value in fields.items():
+            object.__setattr__(untrusted, field, value)
         assert publish_live_floor_area_quantities(_claim_with(untrusted)) == (), fields
     assert len(publish_live_floor_area_quantities(_claim_with(source))) == 1
 
@@ -631,7 +634,9 @@ def test_floor_area_rejects_boolean_and_nonfinite_quantities_or_confidence():
         {"confidence": -0.1},
         {"confidence": 1.1},
     ):
-        replay = replace(source, **bad)
+        replay = copy(source)
+        for field, value in bad.items():
+            object.__setattr__(replay, field, value)
         assert publish_live_floor_area_quantities(_claim_with(replay)) == (), bad
     for value in (True, False):
         corrupted_floor = replace(_floor(), metric_area_m2=value)
