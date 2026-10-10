@@ -185,7 +185,7 @@ def test_duplicate_finish_identity_or_receipt_never_publishes(field):
     original = getattr(record, field)
     assert original
     replay = replace(record, **{field: (*original, original[0])})
-    with pytest.raises(ValueError, match="physical/source identity"):
+    with pytest.raises(ValueError, match="(physical/source identity|source lineage receipts)"):
         publish_bound_wall_finish_quantity(replay)
 
 @pytest.mark.parametrize("field", (
@@ -199,3 +199,37 @@ def test_untyped_finish_identity_and_lineage_receipt_never_publishes(field):
     replay = replace(record, **{field: (*original, 42)})
     with pytest.raises(ValueError):
         publish_bound_wall_finish_quantity(replay)
+
+
+@pytest.mark.parametrize(
+    "bad_area",
+    (0.0, -0.5, float("nan"), float("inf"), -float("inf"), True, False, "12.5", None),
+)
+def test_source_replay_invalid_metric_area_never_reaches_customer_quantity(bad_area):
+    record, _surface = _resolved_record_and_surface()
+    with pytest.raises(ValueError, match="invalid metric area"):
+        publish_bound_wall_finish_quantity(replace(record, quantity_m2=bad_area))
+
+
+@pytest.mark.parametrize(
+    "field",
+    ("physical_surface_ids", "physical_face_ids", "physical_wall_ids",
+     "finish_binding_ids", "net_wall_record_ids"),
+)
+@pytest.mark.parametrize("bad_receipt", (None, 42, ("valid-id", []), ("valid-id", {"invalid": True})))
+def test_untyped_or_unhashable_finish_receipts_fail_with_value_error(field, bad_receipt):
+    record, _surface = _resolved_record_and_surface()
+    with pytest.raises(ValueError):
+        publish_bound_wall_finish_quantity(replace(record, **{field: bad_receipt}))
+
+
+def test_finish_binding_cannot_alias_net_wall_or_finish_scope_evidence():
+    record, _surface = _resolved_record_and_surface()
+    with pytest.raises(ValueError, match="aliased source receipts"):
+        publish_bound_wall_finish_quantity(
+            replace(record, net_wall_record_ids=(record.finish_binding_ids[0],))
+        )
+    with pytest.raises(ValueError, match="aliased source receipts"):
+        publish_bound_wall_finish_quantity(
+            replace(record, finish_scope_record_id=record.finish_binding_ids[0])
+        )
