@@ -74,6 +74,29 @@ jobs:
               summarize_named_room_metric_first_gates,
           )
           named_metric_ledger=summarize_named_room_metric_first_gates(claim)
+          # Exercise the identical production floor publication gate used by
+          # GPT1. Source room-area controls alone do not prove floor handoff.
+          from pb_live_floor_area_quantity_publication import (
+              publish_live_floor_area_quantities,
+          )
+          published_floors=publish_live_floor_area_quantities(claim)
+          floor_handoff=[
+              {
+                  "quantity_id":q.quantity_id,
+                  "upstream_room_area_quantity_id":dict(q.metadata or {}).get(
+                      "upstream_room_area_quantity_id"
+                  ),
+                  "value_m2":q.value,
+                  "unit":q.unit,
+              }
+              for q in published_floors
+          ]
+          assert len({row["quantity_id"] for row in floor_handoff})==len(floor_handoff)
+          assert all(
+              row["upstream_room_area_quantity_id"] and row["unit"]=="m2"
+              and float(row["value_m2"])>0
+              for row in floor_handoff
+          )
           firm={
               norm(dict(q.metadata or {}).get("room_label")):float(q.value)
               for q in claim.room_area_quantity_evidence
@@ -115,6 +138,8 @@ jobs:
               "labels":labels,
               "observed_geometry_targets":observed,
               "firm_room_areas":firm,
+              "production_floor_area_quantity_handoff":floor_handoff,
+              "production_floor_area_quantity_count":len(floor_handoff),
               **named_metric_ledger,
               "status":getattr(claim.status,"value",str(claim.status)),
               "reason_codes":list(claim.reason_codes),
