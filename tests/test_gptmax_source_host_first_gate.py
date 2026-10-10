@@ -308,6 +308,90 @@ def test_matching_semantic_member_counts_cannot_hide_foreign_source_ids(mutate):
     with pytest.raises(ValueError, match="semantic|foreign|duplicate"):
         source_first_gate_census(source, expected_source_sha=SHA)
 
+
+@pytest.mark.parametrize("field", [
+    "page_ids", "representative_observation_ids", "physical_opening_record_ids",
+    "residual_visible_observation_ids", "conflict_observation_ids",
+])
+@pytest.mark.parametrize("invalid", ["not-a-list", [{}], [None], [""], ["same", "same"]])
+def test_malformed_semantic_member_inventories_fail_closed_without_mutation(field, invalid):
+    source = report()
+    source["semantic_inventory"]["record"][field] = invalid
+    original = deepcopy(source)
+    with pytest.raises(ValueError, match="semantic"):
+        source_first_gate_census(source)
+    assert source == original
+
+
+@pytest.mark.parametrize("field,value", [
+    ("physical_existence_claims", 2.0), ("host_bindings", True),
+    ("host_frames", False), ("host_frames", 0.0),
+])
+def test_equal_numeric_summary_is_not_an_exact_source_cardinality(field, value):
+    source = report()
+    source["summary"][field] = value
+    with pytest.raises(ValueError, match="summary"):
+        source_first_gate_census(source)
+
+
+@pytest.mark.parametrize("flag", ["physical_opening_universe_complete", "structural_enumeration_complete"])
+@pytest.mark.parametrize("value", [None, 0, 1, "false", "true"])
+def test_completeness_cannot_be_inferred_from_coerced_semantic_flags(flag, value):
+    source = report()
+    source["semantic_inventory"]["record"][flag] = value
+    with pytest.raises(ValueError, match="completeness flag"):
+        source_first_gate_census(source)
+
+
+def framed_report():
+    source = report()
+    source["host_frames"] = [{
+        "opening_identity_id": "real-opening-2", "record_id": "real-source-frame",
+        "host_wall_id": "real-proven-original-host", "status": "corroborated",
+        "whole_wall_candidate_ids": ["shared-w4-id"],
+    }]
+    source["summary"]["host_frames"] = 1
+    return source
+
+
+def test_source_frame_association_preserves_host_receipts_without_publication():
+    source = framed_report()
+    original = deepcopy(source)
+    result = source_first_gate_census(source)
+    assert result["source_summary_verified"]["host_frames"] == 1
+    assert not result["host_publication_allowed"]
+    assert not result["metric_quantity_publication_allowed"]
+    assert source == original
+
+
+@pytest.mark.parametrize("change", ["foreign_opening", "unhosted_opening", "foreign_host",
+    "foreign_wall", "missing_members", "uncorroborated", "invalid_record", "duplicate"])
+def test_equal_frame_counts_cannot_hide_unproven_opening_or_host_association(change):
+    source = framed_report()
+    frame = source["host_frames"][0]
+    if change == "foreign_opening":
+        frame["opening_identity_id"] = "invented-opening"
+    elif change == "unhosted_opening":
+        frame["opening_identity_id"] = "real-opening-1"
+    elif change == "foreign_host":
+        frame["host_wall_id"] = "different-host"
+    elif change == "foreign_wall":
+        frame["whole_wall_candidate_ids"] = ["unseen-wall"]
+    elif change == "missing_members":
+        frame["whole_wall_candidate_ids"] = []
+    elif change == "uncorroborated":
+        frame["status"] = "abstained"
+    elif change == "invalid_record":
+        frame["record_id"] = True
+    else:
+        source["host_frames"].append(deepcopy(frame))
+        source["summary"]["host_frames"] = 2
+    original = deepcopy(source)
+    with pytest.raises(ValueError, match="frame"):
+        source_first_gate_census(source)
+    assert source == original
+
+
 @pytest.mark.parametrize("case", [
     "semantic_page_unhashable",
     "semantic_page_duplicate",

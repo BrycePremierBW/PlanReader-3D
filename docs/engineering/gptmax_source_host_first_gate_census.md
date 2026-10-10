@@ -86,3 +86,18 @@ negatives and unknown host abstention. The next production implementation
 belongs to source-primitve-to-W4 mapping, W4 identity (#2236), and W2 source
 geometry continuity (GPT MAX), each gated by exact original-source host/frame
 receipt retention. Do not copy source-project coordinates into prediction code.
+# Continuation design, 2026-10-11
+
+Observed: semantic lineage validation runs before scope validation, so a foreign
+snapshot can produce a generic semantic-lineage error and fail the existing
+snapshot regression. Summary cardinalities use Python numeric equality, which
+also accepts booleans/floats. Member collection validation reaches `set()` before
+rejecting malformed or nonstring values. Host-frame counts do not independently
+prove their association with a hosted opening.
+
+Proposed: explicit document/revision/snapshot/SHA lineage errors; exact integer
+cardinalities; typed unique string member inventories; exact frame-to-hosted
+opening association and source provenance checks. Preserve incomplete semantic
+universe facts as observed negatives and never allow a count/host/quantity.
+Malformed, substituted and foreign receipts must fail closed without mutation.
+No producer, source geometry, frozen truth or commercial publisher changes.

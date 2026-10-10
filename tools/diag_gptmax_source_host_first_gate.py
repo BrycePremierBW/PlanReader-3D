@@ -16,6 +16,14 @@ import re
 from pathlib import Path
 
 
+def _string_inventory(value, label: str) -> tuple[str, ...]:
+    if (not isinstance(value, (list, tuple))
+            or any(not isinstance(item, str) or not item.strip() for item in value)
+            or len(set(value)) != len(value)):
+        raise ValueError(f"invalid or duplicate {label} inventory")
+    return tuple(value)
+
+
 def source_first_gate_census(report: dict, *, expected_source_sha: str | None = None) -> dict:
     if not isinstance(report, dict):
         raise ValueError("original source report must be a JSON object")
@@ -24,7 +32,7 @@ def source_first_gate_census(report: dict, *, expected_source_sha: str | None = 
         raise ValueError("missing or invalid original source SHA-256")
     if expected_source_sha is not None and expected_source_sha != sha:
         raise ValueError("original source SHA-256 mismatch")
-    if report.get("primitive_safety_cap") != 20_000:
+    if type(report.get("primitive_safety_cap")) is not int or report["primitive_safety_cap"] != 20_000:
         raise ValueError("source safety cap is missing or altered")
     revision_id = report.get("revision_id")
     snapshot_id = report.get("snapshot_id")
@@ -39,7 +47,7 @@ def source_first_gate_census(report: dict, *, expected_source_sha: str | None = 
     document_id = coverage["document_id"]
     pages = report.get("selected_geometry_page_ids")
     if (not isinstance(pages, (list, tuple)) or not pages
-            or any(not isinstance(p, str) or not p.isdigit() for p in pages)
+            or any(not isinstance(p, str) or not p.isdigit() or int(p) < 1 for p in pages)
             or len(set(pages)) != len(pages)):
         raise ValueError("invalid original source page scope")
     decoded = coverage.get("decoded_pages")
@@ -66,29 +74,25 @@ def source_first_gate_census(report: dict, *, expected_source_sha: str | None = 
         "host_bindings": sum(bool(b.get("host_wall_id")) for b in bindings),
         "host_frames": sum(bool(f.get("record_id")) for f in frames),
     }
-    if any(summary.get(key) != count for key, count in expected.items()):
+    if any(type(summary.get(key)) is not int or summary[key] != count
+           for key, count in expected.items()):
         raise ValueError("source report summary contradicts individual receipts")
     semantic = report.get("semantic_inventory")
     semantic_record = semantic.get("record") if isinstance(semantic, dict) else None
     if not isinstance(semantic_record, dict):
         raise ValueError("source semantic opening universe receipt unavailable")
-    if (semantic_record.get("document_id") != document_id
-            or semantic_record.get("revision_id") != revision_id
-            or semantic_record.get("snapshot_id") != snapshot_id
-            or semantic_record.get("source_sha256") != sha
-            or not isinstance(semantic_record.get("page_ids"), (list, tuple))
-            or any(not isinstance(page, str) or not page.isdigit()
-                   for page in semantic_record["page_ids"])
-            or len(semantic_record["page_ids"]) != len(set(semantic_record["page_ids"]))
-            or set(semantic_record["page_ids"]) != set(pages)):
-        raise ValueError("foreign source semantic opening inventory document, revision, snapshot, SHA or page lineage")
-    semantic_opening_ids = semantic_record.get("representative_observation_ids")
-    if not isinstance(semantic_opening_ids, (tuple, list)):
-        raise ValueError("semantic opening inventory missing representative IDs")
-    if any(not isinstance(item, str) or not item.strip() for item in semantic_opening_ids):
-        raise ValueError("semantic inventory contains invalid representative source IDs")
-    if len(set(semantic_opening_ids)) != len(semantic_opening_ids):
-        raise ValueError("semantic inventory contains duplicate representative source IDs")
+    for field, expected_value in (
+        ("document_id", document_id), ("revision_id", revision_id),
+        ("snapshot_id", snapshot_id), ("source_sha256", sha),
+    ):
+        if semantic_record.get(field) != expected_value:
+            raise ValueError(f"foreign source semantic opening inventory {field}")
+    semantic_pages = _string_inventory(semantic_record.get("page_ids"), "semantic page scope")
+    if set(semantic_pages) != set(pages):
+        raise ValueError("foreign source semantic opening inventory page scope")
+    semantic_opening_ids = _string_inventory(
+        semantic_record.get("representative_observation_ids"), "semantic representative source IDs"
+    )
     if len(semantic_opening_ids) != len(bindings):
         raise ValueError("semantic inventory and original opening receipts disagree")
     # Matching cardinality cannot prove that the same physical source members
@@ -100,15 +104,23 @@ def source_first_gate_census(report: dict, *, expected_source_sha: str | None = 
             or len(set(observed_representatives)) != len(observed_representatives)
             or set(observed_representatives) != set(semantic_opening_ids)):
         raise ValueError("semantic source representative IDs disagree with host bindings")
-    semantic_physical_ids = semantic_record.get("physical_opening_record_ids")
-    if (not isinstance(semantic_physical_ids, (tuple, list))
-            or len(semantic_physical_ids) != len(bindings)
-            or any(not isinstance(x, str) or not x.strip() for x in semantic_physical_ids)
-            or len(set(semantic_physical_ids)) != len(semantic_physical_ids)
+    semantic_physical_ids = _string_inventory(
+        semantic_record.get("physical_opening_record_ids"), "semantic physical-opening identities"
+    )
+    if (len(semantic_physical_ids) != len(bindings)
             or set(semantic_physical_ids) != {
                 b.get("opening_identity_id") for b in bindings
             }):
         raise ValueError("semantic source physical-opening identities disagree with host bindings")
+    residual_ids = _string_inventory(
+        semantic_record.get("residual_visible_observation_ids"), "semantic residual source IDs"
+    )
+    conflict_ids = _string_inventory(
+        semantic_record.get("conflict_observation_ids"), "semantic conflict source IDs"
+    )
+    for flag in ("physical_opening_universe_complete", "structural_enumeration_complete"):
+        if type(semantic_record.get(flag)) is not bool:
+            raise ValueError(f"invalid semantic completeness flag {flag}")
     semantic_census = {
         "status": semantic.get("status"),
         "producer_reason_codes": list(semantic.get("reason_codes") or ()),
@@ -119,12 +131,8 @@ def source_first_gate_census(report: dict, *, expected_source_sha: str | None = 
             semantic_record.get("structural_enumeration_complete") is True
         ),
         "representative_source_opening_count": len(semantic_opening_ids),
-        "residual_source_observation_count": len(
-            semantic_record.get("residual_visible_observation_ids") or ()
-        ),
-        "conflict_source_observation_count": len(
-            semantic_record.get("conflict_observation_ids") or ()
-        ),
+        "residual_source_observation_count": len(residual_ids),
+        "conflict_source_observation_count": len(conflict_ids),
     }
     observed_pages = {str(s.get("page_id")) for s in scopes}
     if observed_pages != set(pages):
@@ -243,6 +251,38 @@ def source_first_gate_census(report: dict, *, expected_source_sha: str | None = 
             "all_specific_observed_gates": list(observed),
             "original_source_reason_codes": list(reasons),
         })
+    # A frame tally must retain the same physical-opening and host receipts.
+    # Equal cardinality cannot excuse a foreign/substituted frame identity.
+    bindings_by_opening = {b["opening_identity_id"]: b for b in bindings}
+    frame_openings, frame_record_ids = set(), set()
+    walls_by_page = defaultdict(set)
+    for scope in scopes:
+        walls_by_page[scope["page_id"]].update(
+            record["wall_candidate_id"] for record in scope["records"]
+        )
+    for frame in frames:
+        opening_id = frame.get("opening_identity_id")
+        if (not isinstance(opening_id, str) or not opening_id
+                or opening_id not in bindings_by_opening or opening_id in frame_openings):
+            raise ValueError("duplicate or foreign source frame opening identity")
+        frame_openings.add(opening_id)
+        binding = bindings_by_opening[opening_id]
+        frame_id = frame.get("record_id")
+        if frame_id is None:
+            if frame.get("host_wall_id") or frame.get("whole_wall_candidate_ids"):
+                raise ValueError("unresolved source frame cannot assert a host or wall members")
+            continue
+        if (not isinstance(frame_id, str) or not frame_id.strip()
+                or frame_id in frame_record_ids):
+            raise ValueError("duplicate or invalid source frame receipt identity")
+        frame_record_ids.add(frame_id)
+        if (frame.get("status") != "corroborated"
+                or not binding.get("host_wall_id")
+                or frame.get("host_wall_id") != binding["host_wall_id"]):
+            raise ValueError("source frame host contradicts opening host binding")
+        members = _string_inventory(frame.get("whole_wall_candidate_ids"), "source frame wall members")
+        if not members or not set(members).issubset(walls_by_page[binding["page_id"]]):
+            raise ValueError("source frame contains missing or foreign page wall members")
     return {
         "original_source_report_sha256": sha,
         "selected_geometry_page_ids": list(pages),
