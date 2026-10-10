@@ -61,6 +61,7 @@ jobs:
               {
                   "label":norm(room.room_label),
                   "canonical_room_id":room.canonical_room_id,
+                  "physical_room_id":room.physical_room_id,
                   "source_room_face_record_id":room.source_room_face_record_id,
                   "decision_scope_id":room.decision_scope_id,
                   "area_page_pts2":room.area_page_pts2,
@@ -116,6 +117,28 @@ jobs:
               assert matching[0]["geometry_complete"]
               assert matching[0]["source_room_face_record_id"]
               assert matching[0]["evidence_ids"]
+          # Exact GPT3 physical room -> canonical floor association is
+          # independent of room-area QuantityEvidence publication.
+          owned_spaces=[]
+          for label in ("FOOD PREP","COLD ROOM","OFFICE"):
+              room=next(row for row in labelled if row["label"]==label)
+              floors=[
+                  floor for floor in claim.canonical_floors
+                  if floor.room_entity_id==room["canonical_room_id"]
+              ]
+              assert len(floors)==1
+              floor=floors[0]
+              assert floor.source_room_face_record_id==room["source_room_face_record_id"]
+              assert floor.evidence_ids
+              assert room["physical_room_id"]==room["canonical_room_id"]
+              owned_spaces.append({
+                  "label":label,
+                  "physical_room_id":room["physical_room_id"],
+                  "canonical_room_id":room["canonical_room_id"],
+                  "canonical_floor_id":floor.canonical_floor_id,
+                  "source_room_face_record_id":floor.source_room_face_record_id,
+                  "source_evidence_count":len(floor.evidence_ids),
+              })
           for label in ("DRY STORE","WASH UP","M-AMB","F-AMB"):
               assert label not in labels
               assert label not in firm
@@ -138,6 +161,7 @@ jobs:
               "labels":labels,
               "observed_geometry_targets":observed,
               "firm_room_areas":firm,
+              "canonical_room_floor_source_handoff":owned_spaces,
               "production_floor_area_quantity_handoff":floor_handoff,
               "production_floor_area_quantity_count":len(floor_handoff),
               **named_metric_ledger,
