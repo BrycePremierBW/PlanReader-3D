@@ -645,11 +645,13 @@ def test_scenario_05_duplicate_observations_of_same_physical_opening() -> None:
         deductions=(("op-1", res1),),
     )
     res = producer.publish(sel)
-    assert res.status == EvidenceResolutionStatus.CORROBORATED
+    # Duplicate physical observations do not prove a complete universe.
+    assert res.status == EvidenceResolutionStatus.CONFLICT
     assert res.record is not None
-    assert res.record.void_union_area_m2 == pytest.approx(4.0)
-    assert res.record.net_area_m2 == pytest.approx(26.0)
-    assert len(res.record.physical_void_record_ids) == 1
+    assert res.record.net_area_m2 is None
+    assert res.record.physical_void_record_ids == ()
+    assert res.record.opening_deduction_record_ids == ()
+    assert res.record.union_geometry_id == ""
 
 
 def test_scenario_06_distinct_equal_size_openings() -> None:
