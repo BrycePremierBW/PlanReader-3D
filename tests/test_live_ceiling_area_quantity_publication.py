@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from copy import copy
 
 from pb_geometry_takeoff_model import AuthorityStatus, MeasurementAuthorityType
 import pb_live_ceiling_area_source_closed_export as ceiling_export
@@ -639,7 +640,8 @@ def test_ceiling_area_rejects_missing_duplicate_or_blank_original_source_receipt
         ("ev-dim-h", "", "ev-finish"),
         (),
     ):
-        bad_source = replace(shadow, evidence_ids=bad_receipts)
+        bad_source = copy(shadow)
+        object.__setattr__(bad_source, "evidence_ids", bad_receipts)
         assert publish_live_ceiling_area_quantities(_result(shadow=bad_source)) == ()
         bad_ceiling = replace(ceiling, evidence_ids=bad_receipts)
         assert publish_live_ceiling_area_quantities(_result(ceiling=bad_ceiling)) == ()
