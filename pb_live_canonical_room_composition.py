@@ -478,6 +478,12 @@ def _canonical_composite_supersedence(
         if face is not None
     }
     # A duplicate composite identity cannot be a deterministic projection.
+    # Composite physical face IDs may not alias source cells or one another.
+    composite_face_ids = Counter(
+        source_id(getattr(composite, "face_id", None))
+        for composite in composites
+        if getattr(composite, "face_id", None) is not None
+    )
     composite_ids = Counter(
         source_id(getattr(composite, "record_id", None))
         for composite in composites
@@ -500,6 +506,11 @@ def _canonical_composite_supersedence(
         if (
             composite_id is None
             or composite_ids[composite_id] != 1
+            or (getattr(composite, "face_id", None) is not None and (
+                source_id(composite.face_id) is None
+                or composite_face_ids[source_id(composite.face_id)] != 1
+                or source_id(composite.face_id) in face_counts
+            ))
             or not isinstance(raw_ids, (tuple, list))
             or not isinstance(raw_receipts, (tuple, list))
         ):
