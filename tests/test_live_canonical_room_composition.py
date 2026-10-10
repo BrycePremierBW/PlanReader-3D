@@ -935,3 +935,49 @@ def test_gpt2_composite_eight_source_identity_negative_gates():
     assert accepted[0].record_id == "authentic"
     assert len(accepted) == 1
     assert remaining == originals[:2]
+
+
+def test_gpt2_composite_physical_identity_cannot_alias_source_or_sibling():
+    from types import SimpleNamespace
+    from pb_live_canonical_room_composition import _canonical_composite_supersedence
+
+    originals = (
+        SimpleNamespace(face_id="a", record_id="ra"),
+        SimpleNamespace(face_id="b", record_id="rb"),
+    )
+
+    def candidate(composite_id, face_id):
+        return SimpleNamespace(
+            record_id=composite_id, face_id=face_id,
+            constituent_face_ids=("a", "b"),
+            constituent_source_room_face_record_ids=("ra", "rb"),
+        )
+
+    # Composite must not claim a physical identity still owned by an
+    # authenticated original source face.
+    for invalid in (candidate("c", "a"), candidate("c", "  "), candidate("c", 1)):
+        remaining, accepted = _canonical_composite_supersedence(originals, (invalid,))
+        assert remaining == originals
+        assert accepted == ()
+
+    # Repeated composite physical IDs cannot silently choose a winner,
+    # including when the second candidate has unrelated constituents.
+    other = (
+        SimpleNamespace(face_id="c", record_id="rc"),
+        SimpleNamespace(face_id="d", record_id="rd"),
+    )
+    sibling = SimpleNamespace(
+        record_id="other", face_id="new-face",
+        constituent_face_ids=("c", "d"),
+        constituent_source_room_face_record_ids=("rc", "rd"),
+    )
+    remaining, accepted = _canonical_composite_supersedence(
+        originals + other, (candidate("first", "new-face"), sibling)
+    )
+    assert remaining == originals + other
+    assert accepted == ()
+
+    valid = candidate("composite", "new-face")
+    remaining, accepted = _canonical_composite_supersedence(originals, (valid,))
+    assert remaining == ()
+    assert accepted == (valid,)
