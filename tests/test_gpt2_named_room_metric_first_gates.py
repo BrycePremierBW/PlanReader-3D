@@ -167,3 +167,41 @@ def test_partial_scale_gate_list_is_not_reported_as_proven_source():
     assert entry["source_reason_receipt_valid"] is False
     assert entry["first_gates"] == []
     assert report["metric_quantity_published"] is False
+
+
+def test_only_valid_exact_owned_source_first_gates_remove_missing_receipt():
+    report=summarize(claim(
+        (room("source-freezer", "FREEZER"), room("source-office", "OFFICE")),
+        same=(("source-freezer ", "fake_padded_room_id"),
+              ("source-freezer", None), ("source-office", "valid_missing_dimension")),
+        scale=(("source-freezer", ("", "invalid_scale_reason")),),
+    ))
+    assert report["named_rooms_without_first_failure_receipts"] == [{
+        "physical_room_id": "source-freezer", "label": "FREEZER",
+    }]
+    assert report["named_room_metric_first_failure_codes"]["same_view"] == [
+        {"physical_room_id": "source-freezer", "label": "FREEZER",
+         "first_gate": "", "source_reason_receipt_valid": False},
+        {"physical_room_id": "source-office", "label": "OFFICE",
+         "first_gate": "valid_missing_dimension"},
+    ] or report["named_room_metric_first_failure_codes"]["same_view"] == [
+        {"physical_room_id": "source-office", "label": "OFFICE",
+         "first_gate": "valid_missing_dimension"},
+        {"physical_room_id": "source-freezer", "label": "FREEZER",
+         "first_gate": "", "source_reason_receipt_valid": False},
+    ]
+    assert report["metric_quantity_published"] is False
+
+
+def test_padded_physical_owner_is_never_rebound_to_valid_identity():
+    result=summarize(claim(
+        (room("source-freezer", "FREEZER"), room(" source-freezer", "SALES")),
+        same=((" source-freezer", "wrong_owner"),
+              ("source-freezer", "real_source_failure")),
+    ))
+    assert result["uniquely_attributable_named_room_count"] == 1
+    assert result["named_room_metric_first_failure_codes"]["same_view"] == [{
+        "physical_room_id":"source-freezer","label":"FREEZER",
+        "first_gate":"real_source_failure",
+    }]
+    assert result["metric_quantity_published"] is False
