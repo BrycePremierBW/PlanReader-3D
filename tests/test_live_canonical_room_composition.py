@@ -1003,3 +1003,21 @@ def test_gpt2_malformed_composite_membership_does_not_break_independent_room():
     )
     assert accepted == (valid,)
     assert remaining == originals[:2]
+
+
+def test_gpt2_invalid_original_face_identity_is_not_stringified_on_retirement():
+    from types import SimpleNamespace
+    from pb_live_canonical_room_composition import _canonical_composite_supersedence
+    originals = (
+        SimpleNamespace(face_id=None, record_id="null"),
+        SimpleNamespace(face_id="a", record_id="ra"),
+        SimpleNamespace(face_id="b", record_id="rb"),
+    )
+    composite = SimpleNamespace(
+        record_id="ab", face_id="physical-ab",
+        constituent_face_ids=("a", "b"),
+        constituent_source_room_face_record_ids=("ra", "rb"),
+    )
+    remaining, accepted = _canonical_composite_supersedence(originals, (composite,))
+    assert accepted == (composite,)
+    assert remaining == originals[:1]
