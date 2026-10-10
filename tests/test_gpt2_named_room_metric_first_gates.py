@@ -142,3 +142,17 @@ def test_nontext_source_room_label_and_id_do_not_invent_named_room():
         "first_gate":"need_figured_measure",
     }]
     assert report["metric_quantity_published"] is False
+
+
+def test_nontext_failure_owner_cannot_alias_same_printed_source_id():
+    report=summarize(claim(
+        (room("43", "OFFICE"),),
+        same=((43, "fake_first_gate"), ("43", "real_first_gate")),
+    ))
+    assert report["all_source_first_failure_receipt_counts"]["same_view"] == 2
+    assert report["ambiguous_metric_first_failure_owner_ids"]["same_view"] == []
+    assert report["named_room_metric_first_failure_codes"]["same_view"] == [{
+        "physical_room_id":"43", "label":"OFFICE",
+        "first_gate":"real_first_gate",
+    }]
+    assert report["metric_quantity_published"] is False
