@@ -882,3 +882,56 @@ def test_canonical_composite_requires_exact_original_source_receipt_lineage():
     )
     assert remaining == ()
     assert accepted == (valid,)
+
+
+def test_gpt2_composite_eight_source_identity_negative_gates():
+    """Never retire physical source faces from malformed or aliased receipts."""
+    from types import SimpleNamespace
+    from pb_live_canonical_room_composition import _canonical_composite_supersedence
+
+    def face(face_id, record_id):
+        return SimpleNamespace(face_id=face_id, record_id=record_id)
+
+    def composite(ids=("a", "b"), receipts=("ra", "rb"), record_id="composite"):
+        return SimpleNamespace(
+            record_id=record_id,
+            constituent_face_ids=ids,
+            constituent_source_room_face_record_ids=receipts,
+        )
+
+    originals = (face("a", "ra"), face("b", "rb"), face("c", "rc"))
+    cases = (
+        # 1. Original producer face identity must be a nonblank string.
+        ((face(None, "ra"), originals[1]), (composite(),)),
+        # 2. Original source receipt may not be missing.
+        ((face("a", None), originals[1]), (composite(("a", "b"), ("None", "rb")),)),
+        # 3. Different original physical faces cannot share one source receipt.
+        ((face("a", "shared"), face("b", "shared")), (composite(("a", "b"), ("shared", "shared")),)),
+        # 4. The composite itself must have a proper source-owned identity.
+        (originals, (composite(record_id=None),)),
+        # 5. Composite constituent IDs cannot be blank or padded.
+        (originals, (composite(ids=("a", " b")),)),
+        # 6. Numeric face IDs may not stringify into genuine faces.
+        ((face("1", "ra"), face("b", "rb")), (composite(ids=(1, "b")),)),
+        # 7. A scalar text sequence is not a constituent list.
+        (originals, (composite(ids="ab"),)),
+        # 8. Two composites with the same producer ID cannot retire separate rooms.
+        (originals + (face("d", "rd"),), (
+            composite(("a", "b"), ("ra", "rb"), "duplicate"),
+            composite(("c", "d"), ("rc", "rd"), "duplicate"),
+        )),
+    )
+    for source, candidates in cases:
+        remaining, accepted = _canonical_composite_supersedence(source, candidates)
+        assert remaining == source
+        assert accepted == ()
+
+    # Fail-closed candidates must not block unrelated authentic compositions.
+    remaining, accepted = _canonical_composite_supersedence(
+        originals + (face("d", "rd"),),
+        (composite(("a", "b"), ("ra", "rb"), record_id=None),
+         composite(("c", "d"), ("rc", "rd"), "authentic")),
+    )
+    assert accepted[0].record_id == "authentic"
+    assert len(accepted) == 1
+    assert remaining == originals[:2]
