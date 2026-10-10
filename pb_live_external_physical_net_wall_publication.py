@@ -636,6 +636,19 @@ def compose_live_external_physical_net_wall_publication(
                 extra_reasons=tuple(result.reason_codes),
             )
 
+        # A geometrically plausible opening is not a source-authenticated wall
+        # deduction without its physical void and host-binding receipts.
+        if (
+            not _clean(record.record_id)
+            or not _clean(record.host_binding_record_id)
+            or not _clean(record.opening_universe_record_id)
+        ):
+            return _blocked(
+                revision_id=revision_id,
+                status=EvidenceResolutionStatus.CONFLICT,
+                reason=LIVE_EXTERNAL_PHYSICAL_NET_WALL_VOID_UNRESOLVED,
+            )
+
         wall_id = _clean(record.wall_local_frame_id)
         gross_record = gross_records.get(wall_id)
         if gross_record is None:
