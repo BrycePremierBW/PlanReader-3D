@@ -187,3 +187,15 @@ def test_duplicate_finish_identity_or_receipt_never_publishes(field):
     replay = replace(record, **{field: (*original, original[0])})
     with pytest.raises(ValueError, match="physical/source identity"):
         publish_bound_wall_finish_quantity(replay)
+
+@pytest.mark.parametrize("field", (
+    "physical_surface_ids", "physical_face_ids", "physical_wall_ids",
+    "finish_binding_ids", "net_wall_record_ids",
+))
+def test_untyped_finish_identity_and_lineage_receipt_never_publishes(field):
+    record, _surface = _resolved_record_and_surface()
+    original = getattr(record, field)
+    assert original
+    replay = replace(record, **{field: (*original, 42)})
+    with pytest.raises(ValueError):
+        publish_bound_wall_finish_quantity(replay)
