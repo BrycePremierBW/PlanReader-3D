@@ -330,3 +330,4 @@ def test_blank_source_opening_binding_never_disappears_from_coverage(missing_ide
     assert result.opening_universe_record_ids == ()
     assert result.physical_void_record_ids == ()
     assert result.gross_geometry_record_ids == ()
+    assert result.whole_wall_role_record_ids == ()
