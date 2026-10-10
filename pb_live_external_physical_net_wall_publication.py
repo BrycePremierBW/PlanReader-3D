@@ -666,8 +666,8 @@ def compose_live_external_physical_net_wall_publication(
             or z0 < 0.0
             or u1 <= u0
             or z1 <= z0
-            or u1 > float(gross_record.length_m) + 1e-9
-            or z1 > float(gross_record.height_m) + 1e-9
+            or u1 > float(gross_record.length_m)
+            or z1 > float(gross_record.height_m)
         ):
             return _blocked(
                 revision_id=revision_id,

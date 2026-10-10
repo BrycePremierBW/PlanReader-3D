@@ -301,3 +301,96 @@ def test_physical_publication_has_no_trade_policy_or_quantity_truth_inputs() -> 
         "quantity",
     }
     assert not (parameters & forbidden)
+
+def test_external_net_wall_rejects_sub_tolerance_right_or_top_void_overhang():
+    """An opening outside the source wall cannot become an accepted deduction."""
+    from dataclasses import replace
+    import pytest
+    from pb_physical_opening_void_authority import (
+        PhysicalOpeningVoidAuthority,
+        PhysicalOpeningVoidResult,
+        _AUTHORITY_SEAL as VOID_AUTHORITY_SEAL,
+    )
+    from pb_live_external_physical_net_wall_publication import (
+        LIVE_EXTERNAL_PHYSICAL_NET_WALL_GEOMETRY_INVALID,
+    )
+
+    wall_opening, physical_void, gross, roles, original, wall = _chain()
+    opening_id = original.opening_identity_id
+    selector = physical_void.void_selectors[opening_id]
+    for coordinate, boundary in (
+        ("u1", float(wall.length_m)),
+        ("z1", float(wall.height_m)),
+    ):
+        # Smaller than the former 1e-9 m tolerance, but physically outside.
+        forged = replace(original, **{coordinate: boundary + 5e-10})
+        source_result = PhysicalOpeningVoidResult(
+            status=EvidenceResolutionStatus.CORROBORATED,
+            reason_codes=("source_void_resolved",),
+            record=forged,
+        )
+        source_authority = PhysicalOpeningVoidAuthority(
+            {selector.key: source_result}, _seal=VOID_AUTHORITY_SEAL
+        )
+        altered = replace(
+            physical_void,
+            physical_opening_void_authorities=MappingProxyType(
+                {**physical_void.physical_opening_void_authorities,
+                 selector.page_id: source_authority}
+            ),
+        )
+        result = compose_live_external_physical_net_wall_publication(
+            wall_opening_composition=wall_opening,
+            physical_void_composition=altered,
+            gross_wall_composition=gross,
+            whole_wall_role_composition=roles,
+        )
+        assert result.status is EvidenceResolutionStatus.CONFLICT
+        assert LIVE_EXTERNAL_PHYSICAL_NET_WALL_GEOMETRY_INVALID in result.reason_codes
+        assert result.quantity_evidence is None
+        assert result.physical_void_record_ids == ()
+        assert result.opening_universe_record_ids == ()
+        assert result.gross_geometry_record_ids == ()
+        assert result.whole_wall_role_record_ids == ()
+        assert result.canonical_walls == ()
+
+def test_external_net_wall_rejects_sub_tolerance_left_or_bottom_void_overhang():
+    """A void fractionally outside u=0 or z=0 must not be deducted."""
+    from dataclasses import replace
+    from pb_physical_opening_void_authority import (
+        PhysicalOpeningVoidAuthority,
+        PhysicalOpeningVoidResult,
+        _AUTHORITY_SEAL as VOID_AUTHORITY_SEAL,
+    )
+    from pb_live_external_physical_net_wall_publication import (
+        LIVE_EXTERNAL_PHYSICAL_NET_WALL_GEOMETRY_INVALID,
+    )
+
+    wall_opening, physical_void, gross, roles, original, _wall = _chain()
+    selector = physical_void.void_selectors[original.opening_identity_id]
+    for coordinate in ("u0", "z0"):
+        forged = replace(original, **{coordinate: -5e-10})
+        source_authority = PhysicalOpeningVoidAuthority(
+            {selector.key: PhysicalOpeningVoidResult(
+                status=EvidenceResolutionStatus.CORROBORATED,
+                reason_codes=("source_void_resolved",),
+                record=forged,
+            )},
+            _seal=VOID_AUTHORITY_SEAL,
+        )
+        altered = replace(
+            physical_void,
+            physical_opening_void_authorities=MappingProxyType({
+                **physical_void.physical_opening_void_authorities,
+                selector.page_id: source_authority,
+            }),
+        )
+        result = compose_live_external_physical_net_wall_publication(
+            wall_opening_composition=wall_opening,
+            physical_void_composition=altered,
+            gross_wall_composition=gross,
+            whole_wall_role_composition=roles,
+        )
+        assert result.status is EvidenceResolutionStatus.CONFLICT
+        assert LIVE_EXTERNAL_PHYSICAL_NET_WALL_GEOMETRY_INVALID in result.reason_codes
+        assert result.quantity_evidence is None
