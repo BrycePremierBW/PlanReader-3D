@@ -100,6 +100,25 @@ def publish_live_authenticated_opening_count_quantities(
     ):
         return ()
 
+    # Semantic completeness must cover this exact original source page scope,
+    # with a one-to-one, nonempty inventory of physical opening identities.
+    # Do not derive a smaller complete universe from a subset of pages.
+    pages = semantic_record.page_ids
+    physical_ids = semantic_record.physical_opening_record_ids
+    if (
+        semantic_record.structural_enumeration_complete is not True
+        or not isinstance(pages, (tuple, list))
+        or not pages
+        or any(type(value) is not str or not value.strip() for value in pages)
+        or len(set(pages)) != len(pages)
+        or set(pages) != set(wall_opening_composition.page_ids)
+        or not isinstance(physical_ids, (tuple, list))
+        or len(physical_ids) != len(representatives)
+        or any(type(value) is not str or not value.strip() for value in physical_ids)
+        or len(set(physical_ids)) != len(physical_ids)
+    ):
+        return ()
+
     binding_producer = (
         ScheduleOpeningInstanceBindingProducer.from_source_visibility_producer(
             source_visibility_producer
@@ -158,7 +177,11 @@ def publish_live_authenticated_opening_count_quantities(
             decision_scope_id=scope_id,
         )
 
-    if not binding_selectors or len(binding_selectors) != len(representatives):
+    if (
+        not binding_selectors
+        or len(binding_selectors) != len(representatives)
+        or set(binding_selectors) != set(physical_ids)
+    ):
         return ()
     if any(
         not isinstance(opening_id, str) or not opening_id.strip()
