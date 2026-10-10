@@ -292,8 +292,14 @@ def _canonical_polygon_identity(
         if not distinct_consecutive or distinct_consecutive[-1] != vertex:
             distinct_consecutive.append(vertex)
     points = tuple(distinct_consecutive)
-    if len(points) < 3:
-        return ()
+    # An empty/collinear ring has no enclosed source-owned physical area.
+    # Refuse to generate a shared sentinel identity for degenerate rooms.
+    if len(set(points)) < 3 or math.fsum(
+        points[i][0] * points[(i + 1) % len(points)][1]
+        - points[(i + 1) % len(points)][0] * points[i][1]
+        for i in range(len(points))
+    ) == 0.0:
+        raise ValueError("degenerate source room polygon identity")
     variants: list[tuple[tuple[float, float], ...]] = []
     for start in range(len(points)):
         variants.append(
