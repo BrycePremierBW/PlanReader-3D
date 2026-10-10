@@ -189,3 +189,31 @@ def test_w2_source_edge_parent_not_in_w4_identity_is_quarantined_as_contradictio
     assert not report["local_host_contact_proven"]
     assert not report["host_publication_allowed"]
     assert not report["metric_quantity_publication_allowed"]
+
+@pytest.mark.parametrize("source_ids", [
+    ("valid-source", "valid-source"),
+    ("valid-source", ""),
+    ("valid-source", "   "),
+    ("valid-source", None),
+])
+def test_invalid_w4_source_parent_inventory_never_grants_ancestry(source_ids):
+    with pytest.raises(ValueError, match="invalid W4 source primitive parent inventory"):
+        nonpublishing_raster_source_w4_membership(
+            [record("w4-a", source_ids)],
+            {"valid-source": (-5., -1., 0., -1.)},
+            opening(), page_id="3",
+        )
+
+
+@pytest.mark.parametrize("edge_id", ("", "   ", None))
+def test_missing_w2_source_edge_identity_never_grants_ancestry(edge_id):
+    row = record(
+        "w4-a", ("valid-source",),
+        source_edges=((edge_id, ("valid-source",)),),
+    )
+    with pytest.raises(ValueError, match="missing W2 source edge identity"):
+        nonpublishing_raster_source_w4_membership(
+            [row],
+            {"valid-source": (-5., -1., 0., -1.)},
+            opening(), page_id="3",
+        )
