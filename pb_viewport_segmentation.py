@@ -2892,6 +2892,53 @@ def _source_image_placement_groups(page: Any) -> tuple[dict[str, Any], ...]:
     return tuple(sorted(groups, key=lambda row: row["xref"]))
 
 
+def _raster_placement_components(groups: Sequence[dict[str, Any]]) -> tuple[dict[str, Any], ...]:
+    """Group touching source raster placements, without declaring plan ownership."""
+    tiles = sorted(
+        (tuple(float(v) for v in box), int(group["xref"]))
+        for group in groups for box in group["native_bboxes"]
+    )
+    parent = list(range(len(tiles)))
+
+    def root(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for i, (a, _xref) in enumerate(tiles):
+        for j in range(i + 1, len(tiles)):
+            b = tiles[j][0]
+            if b[0] > a[2] + 0.25:
+                break
+            overlap_x = min(a[2], b[2]) - max(a[0], b[0])
+            overlap_y = min(a[3], b[3]) - max(a[1], b[1])
+            if overlap_x < -0.25 or overlap_y < -0.25:
+                continue
+            if overlap_x <= 0 and overlap_y <= 0:
+                continue  # corner contact is not connected coverage
+            ri, rj = root(i), root(j)
+            if ri != rj:
+                parent[rj] = ri
+
+    components: dict[int, list[int]] = {}
+    for i in range(len(tiles)):
+        components.setdefault(root(i), []).append(i)
+    result = []
+    for indices in components.values():
+        boxes = [tiles[i][0] for i in indices]
+        result.append({
+            "native_bbox": (
+                min(b[0] for b in boxes), min(b[1] for b in boxes),
+                max(b[2] for b in boxes), max(b[3] for b in boxes),
+            ),
+            "placement_count": len(indices),
+            "image_xrefs": tuple(sorted({tiles[i][1] for i in indices})),
+            "authenticated_viewport": False,
+        })
+    return tuple(sorted(result, key=lambda component: component["native_bbox"]))
+
+
 def assign_bbox_to_viewport(
     bbox: Sequence[float],
     viewports: Iterable[SegmentedViewport],
