@@ -400,15 +400,25 @@ def _verified_source_room_label_for_face(
         return None
     if label.status is not EvidenceResolutionStatus.CORROBORATED:
         return None
-    if any(
-        str(getattr(record, attr, "") or "") != str(getattr(label, attr, "") or "")
-        for attr in (
-            "document_id", "revision_id", "source_sha256", "snapshot_id",
-            "page_id", "decision_scope_id", "face_id",
-        )
+    # Missing, padded, or non-string scope values must not become a
+    # superficially matching pair via str(None) or whitespace coercion.
+    for attr in (
+        "document_id", "revision_id", "source_sha256", "snapshot_id",
+        "page_id", "decision_scope_id", "face_id",
     ):
-        return None
-    if str(getattr(record, "record_id", "") or "") != str(label.source_room_face_record_id or ""):
+        expected = getattr(record, attr, None)
+        actual = getattr(label, attr, None)
+        if (
+            not isinstance(expected, str) or not expected
+            or expected != expected.strip() or actual != expected
+        ):
+            return None
+    source_receipt = getattr(record, "record_id", None)
+    if (
+        not isinstance(source_receipt, str) or not source_receipt
+        or source_receipt != source_receipt.strip()
+        or label.source_room_face_record_id != source_receipt
+    ):
         return None
     if not str(label.record_id or "").strip() or not label.observation_ids or not label.word_evidence:
         return None
