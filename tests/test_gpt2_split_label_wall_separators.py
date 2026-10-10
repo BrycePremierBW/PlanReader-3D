@@ -114,3 +114,32 @@ def test_partial_source_wall_spans_reject_offset_direction_and_point_contacts():
         row=gate(candidate(),faces)["pairwise_source_wall_gates"][0]
         assert row["first_gate"]=="no_exact_shared_source_wall_separator"
         assert row["partial_collinear_source_spans_observed_only"]==[]
+
+
+def test_split_label_diagnostic_rejects_nontext_or_padded_original_face_id():
+    for invalid in (None, 73, "", " ", " face-left"):
+        row=gate(candidate((invalid,"face-right")),sample())
+        assert row["first_gate"]=="split_source_face_identity_invalid"
+        assert row["source_room_label_published"] is False
+        assert row["metric_quantity_published"] is False
+
+
+def test_split_label_diagnostic_rejects_missing_or_forged_lineage():
+    for attr,bad in (
+        ("source_sha256",None),
+        ("document_id",""),
+        ("revision_id"," "),
+        ("snapshot_id",None),
+        ("page_id",6),
+        ("decision_scope_id","view:7 "),
+    ):
+        split=candidate()
+        setattr(split,attr,bad)
+        faces=sample()
+        # Even if both sides agree on a malformed source scope, it is
+        # not an authenticated original room source identifier.
+        setattr(faces["face-left"],attr,bad)
+        setattr(faces["face-right"],attr,bad)
+        row=gate(split,faces)
+        assert row["first_gate"]=="split_source_face_lineage_mismatch"
+        assert row["merge_source_faces_authorized"] is False
