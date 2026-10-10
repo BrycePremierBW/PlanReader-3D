@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import inspect
+from dataclasses import replace
+
+import pytest
 from types import MappingProxyType
 
 from pb_gross_wall_geometry_authority import (
@@ -301,3 +304,84 @@ def test_physical_publication_has_no_trade_policy_or_quantity_truth_inputs() -> 
         "quantity",
     }
     assert not (parameters & forbidden)
+
+
+@pytest.mark.parametrize("identity", ("", "   "))
+def test_source_binding_identity_must_be_complete_for_net_wall(identity):
+    wall_opening, physical_void, gross, roles, _void, _wall = _chain()
+    altered = replace(wall_opening, opening_bindings=(
+        *wall_opening.opening_bindings,
+        replace(wall_opening.opening_bindings[0], opening_identity_id=identity),
+    ))
+    result = compose_live_external_physical_net_wall_publication(
+        wall_opening_composition=altered,
+        physical_void_composition=physical_void,
+        gross_wall_composition=gross,
+        whole_wall_role_composition=roles,
+    )
+    assert result.status is EvidenceResolutionStatus.CONFLICT
+    assert result.quantity_evidence is None
+    assert result.canonical_walls == ()
+
+
+@pytest.mark.parametrize("kind", ("duplicate", "blank"))
+def test_physical_void_trace_coverage_cannot_silently_drop_members(kind):
+    wall_opening, physical_void, gross, roles, _void, _wall = _chain()
+    extra = (physical_void.traces[0] if kind == "duplicate" else replace(
+        physical_void.traces[0], opening_identity_id=" "
+    ))
+    altered = replace(physical_void, traces=(*physical_void.traces, extra))
+    result = compose_live_external_physical_net_wall_publication(
+        wall_opening_composition=wall_opening,
+        physical_void_composition=altered,
+        gross_wall_composition=gross,
+        whole_wall_role_composition=roles,
+    )
+    assert result.status is EvidenceResolutionStatus.CONFLICT
+    assert result.quantity_evidence is None
+    assert result.canonical_walls == ()
+
+
+@pytest.mark.parametrize("field", (
+    "document_id", "revision_id", "source_sha256", "snapshot_id",
+    "decision_scope_id", "page_ids",
+))
+def test_foreign_opening_universe_cannot_prove_gross_wall_completion(field):
+    wall_opening, physical_void, gross, roles, _void, _wall = _chain()
+    page = gross.traces[0].page_id
+    original = wall_opening.opening_universe_results[page]
+    assert original.record is not None
+    value = ("foreign-page",) if field == "page_ids" else "foreign-source"
+    forged = replace(original, record=replace(original.record, **{field: value}))
+    altered = replace(wall_opening, opening_universe_results=MappingProxyType({
+        **wall_opening.opening_universe_results, page: forged,
+    }))
+    result = compose_live_external_physical_net_wall_publication(
+        wall_opening_composition=altered,
+        physical_void_composition=physical_void,
+        gross_wall_composition=gross,
+        whole_wall_role_composition=roles,
+    )
+    assert result.status is EvidenceResolutionStatus.CONFLICT
+    assert result.quantity_evidence is None
+
+
+@pytest.mark.parametrize("field", (
+    "source_decode_complete", "semantic_enumeration_complete",
+    "decision_scope_complete",
+))
+def test_source_universe_verdict_cannot_be_inferred_from_record(field):
+    wall_opening, physical_void, gross, roles, _void, _wall = _chain()
+    page = gross.traces[0].page_id
+    original = wall_opening.opening_universe_results[page]
+    altered = replace(wall_opening, opening_universe_results=MappingProxyType({
+        **wall_opening.opening_universe_results, page: replace(original, **{field: False}),
+    }))
+    result = compose_live_external_physical_net_wall_publication(
+        wall_opening_composition=altered,
+        physical_void_composition=physical_void,
+        gross_wall_composition=gross,
+        whole_wall_role_composition=roles,
+    )
+    assert result.status is EvidenceResolutionStatus.ABSTAINED
+    assert result.quantity_evidence is None
