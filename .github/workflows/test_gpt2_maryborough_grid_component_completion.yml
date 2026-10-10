@@ -38,11 +38,13 @@ jobs:
           git rev-parse HEAD > "$OUT/head_sha.txt"
           sha256sum "documents/sources/Arch_Combined_Maryborough_Service_Station.pdf" > "$OUT/source_sha256.txt"
           PYTHONPATH=. python -u - <<'PY' 2>&1 | tee "$OUT/result.json"
-          import json,time
+          import hashlib,json,time
           from pathlib import Path
           from pb_live_physical_net_wall_integration import collect_live_physical_net_wall_claim
 
           path=Path("documents/sources/Arch_Combined_Maryborough_Service_Station.pdf")
+          source_sha=hashlib.sha256(path.read_bytes()).hexdigest()
+          assert source_sha == "b1be53531412005f42937c89d0cfce66fbbe608315016bbb56731029ffc9e007"
           started=time.perf_counter()
           claim=collect_live_physical_net_wall_claim(
               path,
@@ -78,8 +80,19 @@ jobs:
               if not q.abstained and q.value is not None
           }
 
-          assert abs(firm["FOOD PREP"]-13.270425) < 1e-9
-          assert abs(firm["COLD ROOM"]-25.37875) < 1e-9
+          # Independent owner-provided source dimension controls; not used
+          # as producer inputs or frozen benchmark expected quantities.
+          for label,expected in (
+              ("FOOD PREP",13.270425),
+              ("COLD ROOM",25.37875),
+              ("OFFICE",9.05352),
+          ):
+              assert abs(firm[label]-expected) < 1e-9
+              matching=[row for row in labelled if row["label"]==label]
+              assert len(matching)==1
+              assert matching[0]["geometry_complete"]
+              assert matching[0]["source_room_face_record_id"]
+              assert matching[0]["evidence_ids"]
           for label in ("DRY STORE","WASH UP","M-AMB","F-AMB"):
               assert label not in labels
               assert label not in firm
@@ -95,6 +108,7 @@ jobs:
               )
           }
           print(json.dumps({
+              "original_source_sha256_verified":source_sha,
               "elapsed_seconds":elapsed,
               "canonical_room_count":len(claim.canonical_rooms),
               "canonical_floor_count":len(claim.canonical_floors),
