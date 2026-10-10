@@ -132,7 +132,7 @@ def test_two_room_source_publishes_stable_canonical_room_objects() -> None:
         ) == 1
 
 
-def test_valid_rooms_publish_but_partial_face_universe_stays_candidate() -> None:
+def test_partial_page_face_universe_cannot_mint_canonical_rooms() -> None:
     doc = fitz.open()
     try:
         page = doc.new_page(width=400, height=250)
@@ -180,11 +180,11 @@ def test_valid_rooms_publish_but_partial_face_universe_stays_candidate() -> None
         wall_opening_composition=wall_opening,
     )
 
-    assert result.status is EvidenceResolutionStatus.CANDIDATE
-    assert LIVE_CANONICAL_ROOM_PARTIAL in result.reason_codes
+    assert result.status is EvidenceResolutionStatus.ABSTAINED
+    assert LIVE_CANONICAL_ROOM_UNAVAILABLE in result.reason_codes
     assert LIVE_CANONICAL_ROOM_FACE_UNIVERSE_PARTIAL in result.reason_codes
-    assert result.source_pages == (1,)
-    assert len(result.rooms) == 2
+    assert result.source_pages == ()
+    assert result.rooms == ()
 
 
 def test_single_box_fails_closed_without_minting_room_object() -> None:
@@ -882,3 +882,106 @@ def test_canonical_composite_requires_exact_original_source_receipt_lineage():
     )
     assert remaining == ()
     assert accepted == (valid,)
+
+
+def test_incomplete_page_face_universe_routes_to_authenticated_viewport(monkeypatch) -> None:
+    """A known-incomplete page result must not suppress a complete floor-plan scope."""
+    from types import SimpleNamespace
+    import pb_live_canonical_room_composition as module
+
+    source, wall_opening = _source(page_partitions=(False,))
+    published = source.published_snapshot_for_revision(wall_opening.revision_id)
+    assert published is not None
+
+    viewport_selector = SimpleNamespace(
+        document_id=published.revision.document_id,
+        revision_id=published.revision.revision_id,
+        source_sha256=published.revision.source_sha256,
+        snapshot_id=published.snapshot.snapshot_id,
+        page_id="1",
+        decision_scope_id="wall-source:viewport:1:complete-floor-plan",
+    )
+    viewport_wall_scope = SimpleNamespace(
+        status=EvidenceResolutionStatus.CORROBORATED,
+        scope_complete=True,
+        records=(object(),),
+        reason_codes=("physical_wall_candidate_scope_resolved",),
+        viewport_id="floor-plan-vp",
+        viewport_bbox=(5.0, 5.0, 95.0, 95.0),
+    )
+    viewport_wall_authority = SimpleNamespace(
+        selectors_for_authenticated_viewports=lambda **_kwargs: (viewport_selector,),
+        resolve_scope=lambda _selector: viewport_wall_scope,
+    )
+    viewport_wall_producer = SimpleNamespace(authority=lambda: viewport_wall_authority)
+
+    # Page-wide authority appears locally usable but explicitly says its face
+    # universe is incomplete. Its record must never be projected downstream.
+    page_room_record = object()
+    page_room_authority = SimpleNamespace(
+        resolve_scope=lambda _selector: SimpleNamespace(
+            status=EvidenceResolutionStatus.CORROBORATED,
+            scope_complete=True,
+            records=(page_room_record,),
+            reason_codes=("source_room_face_universe_partial",),
+            face_universe_complete=False,
+        )
+    )
+
+    viewport_record = SimpleNamespace(
+        face_id="source-room-face-viewport-complete",
+        document_id=published.revision.document_id,
+        revision_id=published.revision.revision_id,
+        source_sha256=published.revision.source_sha256,
+        snapshot_id=published.snapshot.snapshot_id,
+        page_id="1",
+        decision_scope_id=viewport_selector.decision_scope_id,
+        polygon_pdf_pts=(
+            (10.0, 10.0),
+            (80.0, 10.0),
+            (80.0, 80.0),
+            (10.0, 80.0),
+        ),
+        bounding_wall_ids=("vw1", "vw2", "vw3", "vw4"),
+        area_page_pts2=4900.0,
+        record_id="source-room-face-record-viewport-complete",
+    )
+    viewport_room_authority = SimpleNamespace(
+        resolve_scope=lambda _selector: SimpleNamespace(
+            status=EvidenceResolutionStatus.CORROBORATED,
+            scope_complete=True,
+            records=(viewport_record,),
+            reason_codes=("source_room_face_scope_resolved",),
+            face_universe_complete=True,
+        )
+    )
+
+    monkeypatch.setattr(
+        module.PhysicalWallCandidateProducer,
+        "from_authenticated_viewports",
+        classmethod(lambda cls, *_args, **_kwargs: viewport_wall_producer),
+    )
+    monkeypatch.setattr(
+        module,
+        "build_source_room_face_authority",
+        lambda authority: (
+            viewport_room_authority
+            if authority is viewport_wall_authority
+            else page_room_authority
+        ),
+    )
+
+    result = module.compose_live_canonical_rooms(
+        source_visibility_producer=source,
+        wall_opening_composition=wall_opening,
+    )
+
+    assert result.status is EvidenceResolutionStatus.CORROBORATED
+    assert LIVE_CANONICAL_ROOM_VIEWPORT_FALLBACK_RESOLVED in result.reason_codes
+    assert result.source_pages == (1,)
+    assert len(result.rooms) == 1
+    room = result.rooms[0]
+    assert room.source_room_face_record_id == viewport_record.record_id
+    assert room.viewport_id == "floor-plan-vp"
+    assert room.decision_scope_id == viewport_selector.decision_scope_id
+
