@@ -84,15 +84,17 @@ def _fragment_geometry_observation(fragment, opening, parent_line) -> dict:
     near_along = (hi >= -DEFAULT_GAP_SNAP_TOLERANCE_PT
                   and lo <= opening.length + DEFAULT_GAP_SNAP_TOLERANCE_PT)
     near_cross = abs(offset) <= cross_limit
+    end_distances = [min(abs(lo), abs(hi)),
+                     min(abs(lo - opening.length), abs(hi - opening.length))]
+    if not all(math.isfinite(value) for value in end_distances):
+        result["geometry_disposition"] = "nonfinite_aperture_end_distance"
+        return result
     result.update({
         "aperture_axis_span_pt": [lo, hi],
         "aperture_normal_offset_pt": offset,
         "within_aperture_diagnostic_band": near_along and near_cross,
         "axis_interval_overlaps_aperture": hi >= 0. and lo <= opening.length,
-        "distance_from_fragment_axis_endpoints_to_aperture_ends_pt": [
-            min(abs(lo), abs(hi)),
-            min(abs(lo - opening.length), abs(hi - opening.length)),
-        ],
+        "distance_from_fragment_axis_endpoints_to_aperture_ends_pt": end_distances,
         "source_parent_contains_w2_fragment_geometry": fragment_contained_in_segment(
             (coords[:2], coords[2:]),
             dict(zip(("x1", "y1", "x2", "y2"), parent_line)),
@@ -409,7 +411,7 @@ def main() -> None:
         args.pdf.read_bytes(), page_id=args.page_id,
         expected_source_sha=args.expected_source_sha,
     )
-    args.output.write_text(json.dumps(report, sort_keys=True, indent=2)+"\n")
+    args.output.write_text(json.dumps(report, sort_keys=True, indent=2, allow_nan=False)+"\n")
     print(json.dumps({
         "source_sha256": report["source_sha256"],
         "page_id": args.page_id,

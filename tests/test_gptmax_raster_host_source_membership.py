@@ -493,3 +493,15 @@ def test_contradictory_source_snap_loss_never_becomes_an_opening_flank(corruptio
     with pytest.raises(ValueError, match="snap-loss"):
         nonpublishing_raster_source_w4_membership(
             [row], {"parent":(-4.,0.,0.,0.)},opening(),page_id="3")
+
+
+def test_finite_axis_interval_cannot_serialize_overflowed_aperture_end_distance():
+    report = nonpublishing_raster_source_w4_membership(
+        [geometric_record("w4", "parent", "edge", (-1.5e308,0.,-1.4e308,0.))],
+        {"parent":(-1.,0.,1.,0.)}, replace(opening(),length=1.7e308),page_id="3")
+    observation = report["diagnostic_local_raster_lines"][0][
+        "w2_source_fragment_geometry_by_w4_candidate"][0]
+    assert observation["geometry_disposition"] == "nonfinite_aperture_end_distance"
+    assert "distance_from_fragment_axis_endpoints_to_aperture_ends_pt" not in observation
+    assert not observation["physical_contact_proven"]
+    json.dumps(report, allow_nan=False)
