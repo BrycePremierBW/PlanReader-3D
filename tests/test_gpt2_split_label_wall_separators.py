@@ -75,3 +75,42 @@ def test_multiple_faces_pairwise_no_automatic_transitive_join():
     assert len(row["pairwise_source_wall_gates"])==3
     assert row["merge_source_faces_authorized"] is False
     assert row["metric_quantity_published"] is False
+
+
+def test_partial_exact_collinear_source_span_is_not_merged_or_absent():
+    faces=sample()
+    faces["face-right"]=face(
+        "face-right","W4-wall-1",((5.,8.),(5.,2.))
+    )
+    result=gate(candidate(),faces)
+    pair=result["pairwise_source_wall_gates"][0]
+    assert pair["first_gate"]=="partial_collinear_source_span_requires_w4_proof"
+    assert len(pair["partial_collinear_source_spans_observed_only"])==1
+    assert pair["matching_authenticated_wall_segments"]==[]
+    assert result["merge_source_faces_authorized"] is False
+    assert result["source_room_label_published"] is False
+    assert result["metric_quantity_published"] is False
+
+
+def test_partial_collinear_span_other_w4_identity_is_unresolved():
+    faces=sample()
+    faces["face-right"]=face(
+        "face-right","W4-another-identity",((5.,8.),(5.,2.))
+    )
+    pair=gate(candidate(),faces)["pairwise_source_wall_gates"][0]
+    assert pair["first_gate"]=="partial_source_span_competing_wall_owners_unresolved"
+    assert len(pair["partial_span_competing_wall_owners_observed_only"])==1
+
+
+def test_partial_source_wall_spans_reject_offset_direction_and_point_contacts():
+    for edge in (
+        ((5.0001,8.),(5.0001,2.)),  # drawn parallel, not exact source
+        ((5.,2.),(5.,8.)),          # same direction, not facing separator
+        ((5.,15.),(5.,10.)),        # shares endpoint only
+        ((6.,8.),(5.,2.)),          # not collinear
+    ):
+        faces=sample()
+        faces["face-right"]=face("face-right","W4-wall-1",edge)
+        row=gate(candidate(),faces)["pairwise_source_wall_gates"][0]
+        assert row["first_gate"]=="no_exact_shared_source_wall_separator"
+        assert row["partial_collinear_source_spans_observed_only"]==[]
