@@ -128,10 +128,18 @@ def _fully_grid_opposed_wall_evidence(
         if edge_id and evidence_id:
             grid_evidence_by_edge[edge_id].add(evidence_id)
 
+    # W4 addresses are not inherently unique physical identities. If a
+    # producer scope contains two candidates with the same wall ID, neither
+    # can authorize a grid separator until W4 source identity is resolved.
+    # This preserves independent wall evidence while preventing ambiguous
+    # source edge ancestry from silently connecting physical room cells.
+    wall_ids = Counter(str(record.wall_candidate_id) for record in wall_scope.records)
     fully: set[str] = set()
     evidence_by_wall: dict[str, tuple[str, ...]] = {}
     for record in wall_scope.records:
         wall_id = str(record.wall_candidate_id)
+        if not wall_id.strip() or wall_ids[wall_id] != 1:
+            continue
         edge_ids = _wall_edge_ids(record)
         if not edge_ids or not all(edge_id in grid_evidence_by_edge for edge_id in edge_ids):
             continue
