@@ -398,8 +398,20 @@ def _candidate_record(
     local_counts=None,
     grid_adjacency=None,
 ) -> CompositeSourceRoomFaceRecord | None:
+    # No dictionary overwrite of duplicate upstream source-face identities.
+    # A source receipt shared across two different physical face IDs also
+    # cannot authenticate a room union. Unrelated valid faces remain usable.
+    face_counts = Counter(str(record.face_id) for record in room_scope.records)
+    receipt_counts = Counter(str(record.record_id) for record in room_scope.records)
     room_by_face = {str(record.face_id): record for record in room_scope.records}
     seed_face_ids = tuple(str(value) for value in candidate.word_face_ids)
+    if any(
+        face_counts[face_id] != 1
+        or face_id not in room_by_face
+        or receipt_counts[str(room_by_face[face_id].record_id)] != 1
+        for face_id in seed_face_ids
+    ):
+        return None
     constituent_face_ids = _grid_connected_component(
         seed_face_ids,
         room_scope=room_scope,
@@ -407,6 +419,12 @@ def _candidate_record(
         adjacency=grid_adjacency,
     )
     if constituent_face_ids is None:
+        return None
+    if any(
+        face_counts[face_id] != 1
+        or receipt_counts[str(room_by_face[face_id].record_id)] != 1
+        for face_id in constituent_face_ids
+    ):
         return None
     if _component_has_conflicting_label(
         constituent_face_ids,
