@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass, field
+import math
 from typing import Collection, Mapping, Optional
 
 from pb_drawing_evidence_binding import DrawingViewType
@@ -275,6 +276,11 @@ def _canonical_polygon_identity(
         (round(float(point[0]), 6), round(float(point[1]), 6))
         for point in polygon
     )
+    # A NaN/Inf coordinate cannot identify a source-owned physical room.
+    # Do not hash JSON non-finite tokens into a persistent canonical ID.
+    if any(not (math.isfinite(x) and math.isfinite(y)) for x, y in points):
+        raise ValueError("non-finite source room polygon coordinate")
+
     # An explicitly closed PDF ring and its otherwise identical open ring
     # are one physical boundary, not two canonical room identities.
     if len(points) > 1 and points[0] == points[-1]:
