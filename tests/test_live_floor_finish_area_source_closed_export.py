@@ -440,3 +440,39 @@ def test_floor_finish_seal_cannot_use_missing_floor_occurrence_witness() -> None
         seal_live_floor_finish_area_run(
             claim, workspace_id=1, project_id="project-1",
         )
+
+
+@pytest.mark.parametrize("evidence", (
+    ("ev-area", "ev-occ", "ev-occ", "ev-def"),
+    ("ev-area", "ev-occ", "   ", "ev-def"),
+    ("ev-area", "", "ev-occ", "ev-def"),
+    (),
+))
+def test_floor_finish_source_seal_rejects_incomplete_or_duplicate_evidence(evidence):
+    claim = _claim()
+    altered_quantity = replace(
+        claim.floor_finish_quantity_evidence[0],
+        evidence_ids=evidence,
+    )
+    altered_claim = replace(claim, floor_finish_quantity_evidence=(altered_quantity,))
+    with pytest.raises(SourceClosedRunConflictError):
+        build_live_floor_finish_area_source_traces(
+            altered_claim, workspace_id=1, project_id="project-1",
+        )
+    assert len(build_live_floor_finish_area_source_traces(
+        claim, workspace_id=1, project_id="project-1",
+    )) == 1
+
+
+@pytest.mark.parametrize("points", (
+    ((0., 0.), (float("nan"), 0.), (2., 2.)),
+    ((0., 0.), (float("inf"), 0.), (2., 2.)),
+    ((1., 1.), (1., 2.), (1., 3.)),
+    ((1., 1.), (2., 1.)),
+))
+def test_floor_finish_source_seal_rejects_invalid_source_polygon(points):
+    altered_floor = replace(_floor(), polygon_pdf_pts=points)
+    with pytest.raises(SourceClosedRunConflictError, match="source polygon is invalid"):
+        build_live_floor_finish_area_source_traces(
+            _claim(altered_floor), workspace_id=1, project_id="project-1",
+        )
