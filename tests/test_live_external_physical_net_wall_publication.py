@@ -348,3 +348,4 @@ def test_external_wall_refuses_missing_opening_host_or_universe_receipts():
         assert result.physical_void_record_ids == ()
         assert result.opening_universe_record_ids == ()
         assert result.gross_geometry_record_ids == ()
+        assert result.whole_wall_role_record_ids == ()
