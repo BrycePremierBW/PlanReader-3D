@@ -18,7 +18,7 @@ def summarize_named_room_metric_first_gates(claim: Any) -> dict[str, Any]:
     """
     named = tuple(
         (
-            raw_id.strip() if isinstance(raw_id, str) else "",
+            raw_id if isinstance(raw_id, str) and raw_id and raw_id == raw_id.strip() else "",
             " ".join(raw_label.upper().split()),
         )
         for room in getattr(claim, "canonical_rooms", ()) or ()
@@ -54,9 +54,13 @@ def summarize_named_room_metric_first_gates(claim: Any) -> dict[str, Any]:
         malformed_receipts[key] = total[key] - len(codes)
         owned_reasons: dict[str, set[str]] = defaultdict(set)
         for source_room_id, reason in codes:
-            rid = source_room_id.strip() if isinstance(source_room_id, str) else ""
+            rid = (
+                source_room_id
+                if isinstance(source_room_id, str) and source_room_id
+                and source_room_id == source_room_id.strip()
+                else ""
+            )
             if rid in owners:
-                witnessed_room_ids.add(rid)
                 owned_reasons[rid].add(repr(reason))
         conflicted = {
             rid for rid, distinct in owned_reasons.items() if len(distinct) > 1
@@ -65,7 +69,12 @@ def summarize_named_room_metric_first_gates(claim: Any) -> dict[str, Any]:
         entries = []
         emitted: set[str] = set()
         for source_room_id, reason in codes:
-            room_id = source_room_id.strip() if isinstance(source_room_id, str) else ""
+            room_id = (
+                source_room_id
+                if isinstance(source_room_id, str) and source_room_id
+                and source_room_id == source_room_id.strip()
+                else ""
+            )
             if room_id not in owners or room_id in conflicted or room_id in emitted:
                 continue
             emitted.add(room_id)
@@ -93,6 +102,11 @@ def summarize_named_room_metric_first_gates(claim: Any) -> dict[str, Any]:
                     if valid_reason
                     else {"first_gate": "", "source_reason_receipt_valid": False}
                 )
+            if (
+                detail.get("source_reason_receipt_valid", True)
+                and (detail.get("first_gate") or detail.get("first_gates"))
+            ):
+                witnessed_room_ids.add(room_id)
             entries.append({
                 "physical_room_id": room_id,
                 "label": owners[room_id],
