@@ -33,12 +33,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
           cache: pip
       - run: python -m pip install -r requirements.txt -r requirements-ci-v1228.txt
+      - name: Independent original PR-base source receipts
+        run: |
+          git worktree add /tmp/raster-source-base "${{ github.event.pull_request.base.sha }}"
+          (
+            cd /tmp/raster-source-base
+            PYTHONPATH=. python -u tools/diag_opening_wall_face_preservation.py \
+              --pdf "documents/sources/1. Construction Plans - Lot 16 Power (REV E).pdf" \
+              --page-id 3 --output "$GITHUB_WORKSPACE/lot16-raster-source-base.json"
+          )
       - name: Original SHA-pinned raster source-W4 first membership without host binding
         run: |
           PYTHONPATH=. python -u tools/diag_gptmax_raster_host_source_membership.py \
@@ -69,9 +79,16 @@ jobs:
           print({"original_lot16_host_frame_unchanged":True,
                  "raster_source_first_failures":len(x["opening_rows"])})
           PY
+          PYTHONPATH=. python tools/gptmax_compare_source_face_retention.py \
+            --baseline lot16-raster-source-base.json \
+            --candidate lot16-raster-source-w4-membership.json \
+            --output lot16-raster-source-retention.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: gptmax-raster-w4-source-first-membership-lot16
-          path: lot16-raster-source-w4-membership.json
+          path: |
+            lot16-raster-source-w4-membership.json
+            lot16-raster-source-base.json
+            lot16-raster-source-retention.json
           retention-days: 30

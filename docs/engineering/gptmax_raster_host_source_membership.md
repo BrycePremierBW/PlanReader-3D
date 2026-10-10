@@ -69,3 +69,22 @@ promoting a real binding. Keep the 20,000 source primitive safety limit.
 
 Frozen V2 manifests, object universe, reference takeoff, scoring and
 tolerances are untouched. No numerical accuracy improvement is asserted.
+# Continuation design, 2026-10-11
+
+Observed: `nonpublishing_raster_source_w4_membership` projects the authenticated
+raw parent line but lists W2 edge IDs without their retained geometry. A long
+parent can own remote fragments, and collapsed fragments are not surviving W2
+edges. The helper also unions repeated W4 addresses before detecting conflicts.
+
+Inference: these omissions obscure the first failing ownership stage. Parent
+membership alone cannot decide local contact or physical equivalence.
+
+Proposed: validate the aperture coordinate frame and finite derived projections;
+quarantine repeated W4 addresses and contradictory shared W2 edge receipts;
+retain each actual edge's source geometry, local axis interval and separately
+observed aperture-end distances; enumerate source snap-loss fragments separately
+with no surviving-edge status. Keep all alternatives and all publication flags
+false. Test remote same-parent fragments, conflicting addresses, overflow,
+rotation/replay, and collapsed-only parent evidence. Original PDF runs must
+retain exact opening/host/frame receipts. Source observations and benchmark
+counts do not determine algorithms, constants, IDs or owner selection.
