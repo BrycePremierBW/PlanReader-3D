@@ -228,3 +228,18 @@ def test_rcp_view_type_enum_matches_producer_string_authority():
     assert row["source_view_type"]=="reflected_ceiling_plan"
     assert row["first_unclosed_gate"]=="producer_authenticated_occurrences_require_room_owner_before_quantity"
     assert row["new_metric_quantity_claim"] is False
+
+
+def test_source_scope_complete_must_be_strict_boolean_true():
+    from pb_migration_contracts import EvidenceResolutionStatus
+    for fake_complete in ("False", "true", 1, object()):
+        r=gate(vp(),scope(
+            complete=fake_complete,
+            status=EvidenceResolutionStatus.CORROBORATED,
+            records=(R(viewport_id="v9",record_id="source",code="FPB"),),
+        ))
+        assert r["first_unclosed_gate"]=="producer_source_occurrence_universe_incomplete"
+        assert r["producer_authenticated_record_ids"]==[]
+    good=gate(vp(),scope(complete=True, records=(
+        R(viewport_id="v9",record_id="source",code="FPB"),)))
+    assert good["producer_authenticated_record_ids"]==["source"]
