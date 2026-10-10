@@ -184,9 +184,11 @@ def test_duplicate_finish_identity_or_receipt_never_publishes(field):
     record, _surface = _resolved_record_and_surface()
     original = getattr(record, field)
     assert original
-    replay = replace(record, **{field: (*original, original[0])})
+    # Replayed frozen records can be corrupted after producer construction.
+    # Bypass dataclass post-init here to exercise the final publisher gate.
+    object.__setattr__(record, field, (*original, original[0]))
     with pytest.raises(ValueError, match="(physical/source identity|source lineage receipts)"):
-        publish_bound_wall_finish_quantity(replay)
+        publish_bound_wall_finish_quantity(record)
 
 @pytest.mark.parametrize("field", (
     "physical_surface_ids", "physical_face_ids", "physical_wall_ids",
@@ -196,9 +198,9 @@ def test_untyped_finish_identity_and_lineage_receipt_never_publishes(field):
     record, _surface = _resolved_record_and_surface()
     original = getattr(record, field)
     assert original
-    replay = replace(record, **{field: (*original, 42)})
+    object.__setattr__(record, field, (*original, 42))
     with pytest.raises(ValueError):
-        publish_bound_wall_finish_quantity(replay)
+        publish_bound_wall_finish_quantity(record)
 
 
 @pytest.mark.parametrize(
@@ -207,8 +209,9 @@ def test_untyped_finish_identity_and_lineage_receipt_never_publishes(field):
 )
 def test_source_replay_invalid_metric_area_never_reaches_customer_quantity(bad_area):
     record, _surface = _resolved_record_and_surface()
+    object.__setattr__(record, "quantity_m2", bad_area)
     with pytest.raises(ValueError, match="invalid metric area"):
-        publish_bound_wall_finish_quantity(replace(record, quantity_m2=bad_area))
+        publish_bound_wall_finish_quantity(record)
 
 
 @pytest.mark.parametrize(
@@ -219,8 +222,9 @@ def test_source_replay_invalid_metric_area_never_reaches_customer_quantity(bad_a
 @pytest.mark.parametrize("bad_receipt", (None, 42, ("valid-id", []), ("valid-id", {"invalid": True})))
 def test_untyped_or_unhashable_finish_receipts_fail_with_value_error(field, bad_receipt):
     record, _surface = _resolved_record_and_surface()
+    object.__setattr__(record, field, bad_receipt)
     with pytest.raises(ValueError):
-        publish_bound_wall_finish_quantity(replace(record, **{field: bad_receipt}))
+        publish_bound_wall_finish_quantity(record)
 
 
 def test_finish_binding_cannot_alias_net_wall_or_finish_scope_evidence():
