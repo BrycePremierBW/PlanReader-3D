@@ -312,8 +312,34 @@ def publish_live_authenticated_opening_count_quantities(
             or not quantity.input_entity_ids
         ):
             continue
+        # An authority-returned count must retain its original physical-member
+        # universe and exact published value; never project an altered,
+        # out-of-scope or identity-mismatched customer row.
+        member_ids = record.physical_instance_record_ids
+        if (
+            record.document_id != published.revision.document_id
+            or record.revision_id != published.revision.revision_id
+            or record.source_sha256 != published.revision.source_sha256
+            or record.snapshot_id != published.snapshot.snapshot_id
+            or record.decision_scope_id != scope_id
+            or record.opening_mark != mark
+            or type(record.count) is not int
+            or record.count <= 0
+            or not isinstance(member_ids, (tuple, list))
+            or len(member_ids) != record.count
+            or len(set(member_ids)) != len(member_ids)
+            or not set(member_ids).issubset(binding_selectors)
+            or quantity.family != "opening_count"
+            or quantity.unit != "ea"
+            or quantity.value != float(record.count)
+            or tuple(quantity.input_entity_ids) != tuple(member_ids)
+            or quantity.metadata.get("schedule_corroborated") is not True
+            or quantity.metadata.get("commercial_projection_allowed") is not True
+        ):
+            return ()
         if quantity.quantity_id in seen_quantity_ids:
-            continue
+            # Never quietly discard a duplicated customer quantity identity.
+            return ()
         seen_quantity_ids.add(quantity.quantity_id)
         quantities.append(quantity)
 
