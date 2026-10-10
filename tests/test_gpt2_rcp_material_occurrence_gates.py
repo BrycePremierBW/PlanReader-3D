@@ -146,9 +146,11 @@ def test_rcp_missing_or_mixed_viewport_provenance_does_not_count_as_authentic():
 
 def test_source_page_ownership_prevents_rcp_occurrence_cross_sheet_attribution():
     from pb_migration_contracts import EvidenceResolutionStatus
+    # A resolved RCP exercises the later exact source-page ownership
+    # gate. An unproven derived viewport correctly stops earlier.
     viewport=R(
         view_id="view_p9_5", view_type="reflected_ceiling_plan",
-        status="derived", bounding_box=(1,2,9,20), page_number=9,
+        status="resolved", bounding_box=(1,2,9,20), page_number=9,
     )
     wrong_sheet=R(record_id="record-p10",code="FPB",
                   viewport_id="view_p9_5",page_id="10")
