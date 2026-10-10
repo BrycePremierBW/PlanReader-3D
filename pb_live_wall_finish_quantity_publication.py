@@ -86,6 +86,18 @@ def publish_bound_wall_finish_quantity(
     ):
         raise ValueError("resolved wall-finish quantity lacks source lineage receipts")
 
+    # Physical source identities are commercial keys, never arbitrary objects
+    # converted with str(). Duplicates and malformed ID types must fail closed.
+    for group in (
+        record.physical_surface_ids,
+        record.physical_face_ids,
+        record.physical_wall_ids,
+        record.finish_binding_ids,
+        record.net_wall_record_ids,
+    ):
+        if any(not isinstance(value, str) for value in group):
+            raise ValueError("resolved wall-finish quantity has untyped identity receipt")
+
     evidence_ids = tuple(
         dict.fromkeys(
             (
