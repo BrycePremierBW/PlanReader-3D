@@ -136,6 +136,7 @@ def publish_live_authenticated_opening_count_quantities(
             or opening.snapshot_id != published.snapshot.snapshot_id
             or not isinstance(opening.record_id, str)
             or not opening.record_id.strip()
+            or opening.page_id not in wall_opening_composition.page_ids
         ):
             return ()
         selector = ScheduleOpeningInstanceBindingSelector(
@@ -174,7 +175,8 @@ def publish_live_authenticated_opening_count_quantities(
             result.status is not EvidenceResolutionStatus.CORROBORATED
             or record is None
             or not record.schedule_row_count_explicit
-            or record.schedule_row_count is None
+            or type(record.schedule_row_count) is not int
+            or record.schedule_row_count <= 0
         ):
             continue
         if (
