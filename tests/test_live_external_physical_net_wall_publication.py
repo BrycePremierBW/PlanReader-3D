@@ -350,6 +350,7 @@ def test_external_net_wall_rejects_sub_tolerance_right_or_top_void_overhang():
         assert result.quantity_evidence is None
         assert result.physical_void_record_ids == ()
         assert result.opening_universe_record_ids == ()
+        assert result.gross_geometry_record_ids == ()
         assert result.canonical_walls == ()
 
 def test_external_net_wall_rejects_sub_tolerance_left_or_bottom_void_overhang():
