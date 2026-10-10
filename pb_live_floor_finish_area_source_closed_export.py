@@ -252,6 +252,11 @@ def build_live_floor_finish_area_source_traces(
             )
 
         points = tuple(floor.polygon_pdf_pts or ())
+        if not floor.geometry_complete or len(points) < 3:
+            raise SourceClosedRunConflictError(
+                "floor-finish source polygon is invalid or incomplete: "
+                f"{quantity.quantity_id}"
+            )
         source_bbox = None
         if points:
             try:
