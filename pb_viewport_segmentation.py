@@ -2960,6 +2960,131 @@ def _raster_component_is_sheetwide(
     )
 
 
+def _raster_ink_gutter_evidence(
+    page: Any, *, max_render_dimension: int = 800,
+) -> dict[str, Any]:
+    """Find large empty corridors in a bounded rendering of source geometry.
+
+    Returned corridors are *candidate separation evidence*, never viewport
+    boundaries. Rendered ink includes text, title blocks and drawing symbols,
+    and a white corridor alone cannot prove which plan owns either side.
+    Coordinates use visual page orientation, not PDF native user space.
+    """
+    unavailable = {
+        "vertical_gutters_visual_pts": (),
+        "horizontal_gutters_visual_pts": (),
+        "raster_gutters_are_authoritative": False,
+    }
+    try:
+        width = float(page.rect.width)
+        height = float(page.rect.height)
+        if width <= 0 or height <= 0 or not math.isfinite(width + height):
+            return unavailable
+        scale = min(1.0, float(max_render_dimension) / max(width, height))
+        if scale <= 0 or max_render_dimension < 64:
+            return unavailable
+        pix = page.get_pixmap(
+            matrix=fitz.Matrix(scale, scale),
+            colorspace=fitz.csGRAY,
+            alpha=False,
+            annots=False,
+        )
+        if pix.n != 1 or pix.width < 10 or pix.height < 10:
+            return unavailable
+        buf = memoryview(pix.samples)
+        dark_cols = [0] * pix.width
+        dark_rows = [0] * pix.height
+        # 220 intentionally ignores antialiasing haze but counts actual ink.
+        for y in range(pix.height):
+            offset = y * pix.stride
+            dark_count = 0
+            for x in range(pix.width):
+                if buf[offset + x] < 220:
+                    dark_cols[x] += 1
+                    dark_count += 1
+            dark_rows[y] = dark_count
+        if not any(dark_cols) or not any(dark_rows):
+            return unavailable
+
+        def gutters(counts: Sequence[int], cross_span: int, page_span: float):
+            size = len(counts)
+            min_run = max(8, math.ceil(size * 0.025))
+            threshold = max(1, math.floor(cross_span * 0.002))
+            # Exclude page margins; require substantial ink on both sides.
+            cumulative = [0]
+            for count in counts:
+                cumulative.append(cumulative[-1] + count)
+            total = cumulative[-1]
+            if total <= 0:
+                return ()
+            result = []
+            start = None
+            for index in range(size + 1):
+                blank = (
+                    index < size and counts[index] <= threshold
+                    and math.ceil(size * 0.04) <= index < math.floor(size * 0.96)
+                )
+                if blank and start is None:
+                    start = index
+                if not blank and start is not None:
+                    end = index
+                    if (
+                        end - start >= min_run
+                        and cumulative[start] >= total * 0.15
+                        and total - cumulative[end] >= total * 0.15
+                    ):
+                        result.append((
+                            round(page_span * start / size, 3),
+                            round(page_span * end / size, 3),
+                        ))
+                    start = None
+            return tuple(result)
+
+        horizontal_gutters = gutters(dark_rows, pix.width, height)
+        # A short vertical separation between adjacent drawings can be
+        # interrupted by a title block elsewhere on the page. Scan individual
+        # ink bands separated by independently observed horizontal gutters,
+        # rather than insisting on a page-spanning empty vertical corridor.
+        spans = []
+        cursor = 0.0
+        for begin, end in horizontal_gutters:
+            if begin > cursor:
+                spans.append((cursor, begin))
+            cursor = end
+        if cursor < height:
+            spans.append((cursor, height))
+        local_gutters = []
+        for band_begin, band_end in spans:
+            y0 = max(0, min(pix.height, round(band_begin * pix.height / height)))
+            y1 = max(y0, min(pix.height, round(band_end * pix.height / height)))
+            if y1 - y0 < max(10, math.ceil(pix.height * 0.05)):
+                continue
+            local_cols = [0] * pix.width
+            for y in range(y0, y1):
+                row_offset = y * pix.stride
+                for x in range(pix.width):
+                    if buf[row_offset + x] < 220:
+                        local_cols[x] += 1
+            found = gutters(local_cols, y1 - y0, width)
+            if found:
+                local_gutters.append({
+                    "visual_band_y_pts": (
+                        round(band_begin, 3), round(band_end, 3),
+                    ),
+                    "vertical_gutters_visual_pts": found,
+                    "source_region_complete": False,
+                })
+        return {
+            "vertical_gutters_visual_pts": gutters(dark_cols, pix.height, width),
+            "horizontal_gutters_visual_pts": horizontal_gutters,
+            "local_vertical_gutters_by_band_visual_pts": tuple(local_gutters),
+            "render_dimensions": (pix.width, pix.height),
+            "raster_gutters_are_authoritative": False,
+        }
+    except (RuntimeError, ValueError, TypeError, OverflowError):
+        return unavailable
+
+
 def assign_bbox_to_viewport(
     bbox: Sequence[float],
     viewports: Iterable[SegmentedViewport],
