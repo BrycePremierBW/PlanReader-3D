@@ -437,3 +437,61 @@ def test_count_bridge_rejects_eight_malformed_source_inventory_cases(field, valu
         source_visibility_producer=source,
         wall_opening_composition=altered,
     ) == ()
+
+@pytest.mark.parametrize("defect", (
+    "unresolved_member", "foreign_document", "foreign_revision",
+    "foreign_sha", "foreign_snapshot", "blank_physical_id",
+))
+def test_count_universe_never_silently_drops_or_replays_physical_member(defect):
+    from pb_live_opening_count_quantity_publication import (
+        publish_live_authenticated_opening_count_quantities,
+    )
+    from pb_live_wall_opening_authority_composition import compose_live_wall_opening_authority
+    from pb_source_visibility_authority import SourceVisibilityProducer
+    from pb_source_observation_authority import ObservationSelector
+    from pb_migration_contracts import EvidenceResolutionStatus
+
+    source = SourceVisibilityProducer(
+        producer_method="count-member-integrity-test", producer_version="1",
+    )
+    published = source.ingest_native_pdf_bytes(
+        document_id="count-member-integrity-test",
+        source_bytes=_floor_plan_with_schedule_quantity(quantity=1),
+        source_locator="memory://count-member-integrity-test.pdf",
+    )
+    composition = compose_live_wall_opening_authority(
+        source_visibility_producer=source,
+        revision_id=published.revision.revision_id,
+        page_ids=("1",),
+    )
+    semantic = composition.semantic_enumeration_result
+    assert semantic.record is not None
+    original_selector = ObservationSelector(
+        document_id=published.revision.document_id,
+        revision_id=published.revision.revision_id,
+        source_sha256=published.revision.source_sha256,
+        snapshot_id=published.snapshot.snapshot_id,
+        observation_id=semantic.record.representative_observation_ids[0],
+    )
+    original = composition.physical_opening_authority.prove_existence(original_selector)
+    assert original.existence_record is not None
+    if defect == "unresolved_member":
+        replay = replace(original, status=EvidenceResolutionStatus.ABSTAINED)
+    else:
+        change = {
+            "foreign_document": {"document_id": "other-document"},
+            "foreign_revision": {"revision_id": "other-revision"},
+            "foreign_sha": {"source_sha256": "other-sha"},
+            "foreign_snapshot": {"snapshot_id": "other-snapshot"},
+            "blank_physical_id": {"record_id": "   "},
+        }[defect]
+        replay = replace(original, existence_record=replace(original.existence_record, **change))
+    with patch.object(
+        composition.physical_opening_authority,
+        "prove_existence",
+        return_value=replay,
+    ):
+        assert publish_live_authenticated_opening_count_quantities(
+            source_visibility_producer=source,
+            wall_opening_composition=composition,
+        ) == ()
