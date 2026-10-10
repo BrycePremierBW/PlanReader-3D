@@ -52,6 +52,7 @@ def publish_bound_wall_finish_quantity(
             )
         )
         or not record.physical_face_ids
+        or any(type(value) is not str for value in (record.document_id, record.revision_id, record.source_sha256, record.snapshot_id, record.page_id, record.viewport_id, record.decision_scope_id, record.trade_scope_id, record.finish_material))
         or not record.physical_wall_ids
         or any(
             len(set(group)) != len(group)
