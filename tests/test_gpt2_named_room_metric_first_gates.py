@@ -110,3 +110,18 @@ def test_none_and_whitespace_metric_gate_reasons_never_become_source_truth():
             "first_gate": "", "source_reason_receipt_valid": False,
         }]
         assert report["metric_quantity_published"] is False
+
+
+def test_malformed_source_gate_tuple_keeps_count_but_cannot_crash_ledger():
+    malformed=(None, "orphan", ("room-a",), ("room-a", "gate", "extra"))
+    row=summarize(claim(
+        (room("room-a", "FREEZER"),),
+        same=(*malformed, ("room-a", "actual_source_gate")),
+    ))
+    assert row["malformed_source_first_failure_receipt_counts"]["same_view"] == 4
+    assert row["all_source_first_failure_receipt_counts"]["same_view"] == 5
+    assert row["named_room_metric_first_failure_codes"]["same_view"] == [{
+        "physical_room_id":"room-a", "label":"FREEZER",
+        "first_gate":"actual_source_gate",
+    }]
+    assert row["metric_quantity_published"] is False
