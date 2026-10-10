@@ -154,6 +154,8 @@ def _candidate_first_gate(usable, fragments, chain):
         return "w4_source_identity_unavailable"
     if not fragments:
         return "actual_w2_source_edge_receipt_missing"
+    if any(not f["source_edge_parent_inventory_consistent"] for f in fragments):
+        return "w2_source_edge_parent_identity_mismatch"
     if any(f["edge_receipt_conflicted"] for f in fragments):
         return "w2_source_edge_receipt_ownership_conflict"
     contained=[f for f in fragments if f["source_parent_containment_observed"]]
@@ -246,6 +248,8 @@ def audit_raster_flank_ownership(records, source_lines, support, opening_record,
                     fragments.append({"source_edge_id":fragment.edge_id,
                         "w2_original_line_pt":list(raw),
                         "source_parent_containment_observed":contained,
+                        "source_edge_parent_inventory_consistent":set(fragment.source_primitive_ids).issubset(
+                            record.physical_identity.source_primitive_ids),
                         "edge_receipt_conflicted":fragment.edge_id in conflicting_ids,
                         "w2_flank_metrics":_flank_metrics(raw,opening,flank)})
                 points = record.wall_candidate.centerline_pts
@@ -265,6 +269,8 @@ def audit_raster_flank_ownership(records, source_lines, support, opening_record,
                     "source_edge_id":fragment.edge_id,
                     "original_collapsed_line_pt":list(_line(fragment.geometry)),
                     "producer_reason_code":fragment.reason_code,
+                    "source_parent_inventory_consistent":set(fragment.source_primitive_ids).issubset(
+                        record.physical_identity.source_primitive_ids),
                     "appears_in_surviving_edge_inventory":fragment.edge_id in by_edge,
                     "surviving_edge_or_host_evidence":False})
             primitives.append({"source_primitive_id":parent,

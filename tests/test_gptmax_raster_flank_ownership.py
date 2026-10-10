@@ -226,6 +226,8 @@ def test_foreign_w2_source_parents_are_reported_separately_from_authentic_member
     assert report["source_edge_parent_identity_contradictions"]==[{
         "source_edge_id":"left-edge","wall_candidate_id":"left",
         "unowned_source_parent_ids":["foreign-parent"]}]
+    owner=report["flanks"][0]["matching_original_source_primitives"][0]["w4_ancestry_candidates"][0]
+    assert owner["first_observed_candidate_failure"]=="w2_source_edge_parent_identity_mismatch"
     assert not report["host_publication_allowed"]
 
 
