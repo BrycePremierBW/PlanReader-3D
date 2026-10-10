@@ -301,3 +301,55 @@ def test_physical_publication_has_no_trade_policy_or_quantity_truth_inputs() -> 
         "quantity",
     }
     assert not (parameters & forbidden)
+
+def test_external_wall_rejects_void_from_different_source_document_or_snapshot():
+    """An opening cannot deduct area from an unrelated gross-wall source."""
+    from dataclasses import replace
+    from pb_physical_opening_void_authority import (
+        PhysicalOpeningVoidAuthority, PhysicalOpeningVoidResult,
+        _AUTHORITY_SEAL as VOID_AUTHORITY_SEAL,
+    )
+    from pb_live_external_physical_net_wall_publication import (
+        LIVE_EXTERNAL_PHYSICAL_NET_WALL_LINEAGE_MISMATCH,
+    )
+
+    wall_opening, physical_void, gross, roles, original, _wall = _chain()
+    selector = physical_void.void_selectors[original.opening_identity_id]
+    for field, value in (
+        ("document_id", "other-document"),
+        ("source_sha256", "f" * 64),
+        ("snapshot_id", "other-snapshot"),
+        ("revision_id", "foreign-revision"),
+        ("page_id", "foreign-page"),
+        ("decision_scope_id", "foreign-scope"),
+    ):
+        forged = replace(original, **{field: value})
+        authority = PhysicalOpeningVoidAuthority(
+            {selector.key: PhysicalOpeningVoidResult(
+                status=EvidenceResolutionStatus.CORROBORATED,
+                reason_codes=("source_void_resolved",),
+                record=forged,
+            )},
+            _seal=VOID_AUTHORITY_SEAL,
+        )
+        altered = replace(
+            physical_void,
+            physical_opening_void_authorities=MappingProxyType({
+                **physical_void.physical_opening_void_authorities,
+                selector.page_id: authority,
+            }),
+        )
+        result = compose_live_external_physical_net_wall_publication(
+            wall_opening_composition=wall_opening,
+            physical_void_composition=altered,
+            gross_wall_composition=gross,
+            whole_wall_role_composition=roles,
+        )
+        assert result.status is not EvidenceResolutionStatus.CORROBORATED
+        assert result.quantity_evidence is None
+        assert result.canonical_walls == ()
+        assert result.physical_void_record_ids == ()
+        assert result.opening_universe_record_ids == ()
+        assert result.external_wall_ids == ()
+        assert result.gross_geometry_record_ids == ()
+        assert result.whole_wall_role_record_ids == ()

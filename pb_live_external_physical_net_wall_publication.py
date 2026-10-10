@@ -649,6 +649,9 @@ def compose_live_external_physical_net_wall_publication(
             or _clean(record.decision_scope_id)
             != _clean(gross_record.decision_scope_id)
             or _clean(record.revision_id) != revision_id
+            or _clean(record.document_id) != _clean(gross_record.document_id)
+            or _clean(record.source_sha256) != _clean(gross_record.source_sha256)
+            or _clean(record.snapshot_id) != _clean(gross_record.snapshot_id)
         ):
             return _blocked(
                 revision_id=revision_id,
