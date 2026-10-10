@@ -345,9 +345,24 @@ def _unique_source_room_labels_by_face(
     Competing records for one physical face revoke the semantic label only,
     never the producer-authenticated physical room geometry.
     """
+    candidates = tuple(
+        label for label in labels if type(label) is SourceRoomLabelRecord
+    )
+    # One producer source-label receipt cannot authenticate two different
+    # physical room faces, regardless of iteration order.
+    source_receipt_faces: dict[str, set[str]] = {}
+    for label in candidates:
+        if isinstance(label.record_id, str) and label.record_id.strip():
+            source_receipt_faces.setdefault(label.record_id, set()).add(
+                str(label.face_id or "").strip()
+            )
     owned: dict[str, SourceRoomLabelRecord] = {}
-    conflicted: set[str] = set()
-    for label in labels:
+    conflicted: set[str] = {
+        face
+        for faces in source_receipt_faces.values() if len(faces) > 1
+        for face in faces
+    }
+    for label in candidates:
         if type(label) is not SourceRoomLabelRecord:
             continue
         face_id = str(label.face_id or "").strip()
