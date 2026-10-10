@@ -440,7 +440,7 @@ def test_count_bridge_rejects_eight_malformed_source_inventory_cases(field, valu
 
 @pytest.mark.parametrize("defect", (
     "unresolved_member", "foreign_document", "foreign_revision",
-    "foreign_sha", "foreign_snapshot", "blank_physical_id",
+    "foreign_sha", "foreign_snapshot", "foreign_page", "blank_physical_id",
 ))
 def test_count_universe_never_silently_drops_or_replays_physical_member(defect):
     from pb_live_opening_count_quantity_publication import (
@@ -483,6 +483,7 @@ def test_count_universe_never_silently_drops_or_replays_physical_member(defect):
             "foreign_revision": {"revision_id": "other-revision"},
             "foreign_sha": {"source_sha256": "other-sha"},
             "foreign_snapshot": {"snapshot_id": "other-snapshot"},
+            "foreign_page": {"page_id": "other-page"},
             "blank_physical_id": {"record_id": "   "},
         }[defect]
         replay = replace(original, existence_record=replace(original.existence_record, **change))
