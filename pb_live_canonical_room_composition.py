@@ -491,7 +491,9 @@ def _canonical_composite_supersedence(
     claimed = Counter(
         face
         for composite in composites
-        for value in (getattr(composite, "constituent_face_ids", ()) or ())
+        for values in (getattr(composite, "constituent_face_ids", None),)
+        if isinstance(values, (tuple, list))
+        for value in values
         if (face := source_id(value)) is not None
     )
     accepted = []
