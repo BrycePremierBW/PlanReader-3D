@@ -247,7 +247,10 @@ def original_raster_host_ancestry_census(
         "source_original_host_count": sum(
             bool(t.host_wall_id) for t in composition.opening_bindings
         ),
-        "source_original_frame_count": len(composition.host_frames),
+        "source_original_frame_count": sum(
+            bool(frame.record_id) for frame in composition.host_frames
+        ),
+        "source_original_frame_trace_count": len(composition.host_frames),
         "wall_scope_complete": True,
         "opening_rows": sorted(opening_rows, key=lambda x:x["opening_identity_id"]),
         "source_audit_abstained": False,

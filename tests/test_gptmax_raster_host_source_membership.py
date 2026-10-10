@@ -129,11 +129,10 @@ def test_source_parent_without_w2_edge_witness_is_not_silently_fabricated():
 def test_duplicate_ancestry_parent_not_counted_as_two_openings_or_host():
     rows=[record("same-physical-id", ["parent", "parent"])]
     data={"parent": (-1.,0.,1.,0.)}
-    result=nonpublishing_raster_source_w4_membership(rows,data,opening(),page_id="3")
-    assert result["diagnostic_local_raster_lines"][0][
-        "exact_positive_ancestry_w4_candidate_ids"
-    ] == ["same-physical-id"]
-    assert not result["opening_count_publication_allowed"]
+    original = deepcopy((rows, data))
+    with pytest.raises(ValueError, match="source primitive parent inventory"):
+        nonpublishing_raster_source_w4_membership(rows,data,opening(),page_id="3")
+    assert (rows, data) == original
 
 
 def test_diagnostic_cannot_accept_a_wrong_original_pdf_sha():
@@ -189,6 +188,33 @@ def test_w2_source_edge_parent_not_in_w4_identity_is_quarantined_as_contradictio
     assert not report["local_host_contact_proven"]
     assert not report["host_publication_allowed"]
     assert not report["metric_quantity_publication_allowed"]
+
+
+def test_original_frame_count_excludes_abstained_frame_traces(monkeypatch):
+    import hashlib
+    import tools.diag_gptmax_raster_host_source_membership as diagnostic
+
+    data=b"source-producer-fixture"
+    digest=hashlib.sha256(data).hexdigest()
+    revision=SimpleNamespace(document_id="doc",revision_id="rev",source_sha256=digest)
+    published=SimpleNamespace(revision=revision,snapshot=SimpleNamespace(snapshot_id="snap"))
+    class Producer:
+        def __init__(self,**kwargs): pass
+        def ingest_native_pdf_bytes(self,**kwargs): return published
+        def published_snapshot_for_revision(self,revision_id): return published
+    wall=SimpleNamespace(scope_complete=True,equivalence=object(),records=())
+    composition=SimpleNamespace(
+        physical_wall_candidate_authority=SimpleNamespace(resolve_scope=lambda selector:wall),
+        physical_opening_authority=object(),opening_bindings=(),
+        host_frames=(SimpleNamespace(record_id="source-proven-frame"),
+                     SimpleNamespace(record_id=None),SimpleNamespace(record_id=None)),
+    )
+    monkeypatch.setattr(diagnostic,"SourceVisibilityProducer",Producer)
+    monkeypatch.setattr(diagnostic,"compose_live_wall_opening_authority",lambda **kwargs:composition)
+    report=original_raster_host_ancestry_census(data,page_id="3",expected_source_sha=digest)
+    assert report["source_original_frame_count"]==1
+    assert report["source_original_frame_trace_count"]==3
+    assert report["host_publication_allowed"] is False
 
 @pytest.mark.parametrize("source_ids", [
     ("valid-source", "valid-source"),
