@@ -882,3 +882,73 @@ def test_canonical_composite_requires_exact_original_source_receipt_lineage():
     )
     assert remaining == ()
     assert accepted == (valid,)
+
+
+def test_canonical_composite_rejects_duplicate_producer_receipts_on_distinct_faces():
+    from types import SimpleNamespace
+    from pb_live_canonical_room_composition import _canonical_composite_supersedence
+
+    originals = (
+        SimpleNamespace(face_id="left", record_id="receipt_shared"),
+        SimpleNamespace(face_id="right", record_id="receipt_shared"),
+        SimpleNamespace(face_id="top", record_id="receipt_top"),
+        SimpleNamespace(face_id="bottom", record_id="receipt_bottom"),
+    )
+    ambiguous = SimpleNamespace(
+        record_id="invalid_composite",
+        constituent_face_ids=("left", "right"),
+        constituent_source_room_face_record_ids=("receipt_shared", "receipt_shared"),
+    )
+    remaining, accepted = _canonical_composite_supersedence(
+        originals, (ambiguous,)
+    )
+    assert remaining == originals
+    assert accepted == ()
+    # A separate unique producer-owned pair can still retire *its own* cells.
+    genuine = SimpleNamespace(
+        record_id="valid_composite",
+        constituent_face_ids=("top", "bottom"),
+        constituent_source_room_face_record_ids=("receipt_top", "receipt_bottom"),
+    )
+    remaining, accepted = _canonical_composite_supersedence(
+        originals, (genuine,)
+    )
+    assert accepted == (genuine,)
+    assert remaining == originals[:2]
+
+
+def test_canonical_composite_requires_nonblank_source_receipts():
+    from types import SimpleNamespace
+    from pb_live_canonical_room_composition import _canonical_composite_supersedence
+
+    for bad_id in ("", "   ", None):
+        originals = (
+            SimpleNamespace(face_id="left", record_id=bad_id),
+            SimpleNamespace(face_id="right", record_id="receipt_right"),
+        )
+        invalid = SimpleNamespace(
+            record_id="invalid_composite",
+            constituent_face_ids=("left", "right"),
+            constituent_source_room_face_record_ids=(
+                "None" if bad_id is None else str(bad_id), "receipt_right"
+            ),
+        )
+        remaining, accepted = _canonical_composite_supersedence(
+            originals, (invalid,)
+        )
+        assert remaining == originals
+        assert accepted == ()
+    # Missing attributes are not producer-owned source receipts either.
+    missing = (
+        SimpleNamespace(face_id="left"),
+        SimpleNamespace(face_id="right", record_id="receipt_right"),
+    )
+    invalid = SimpleNamespace(
+        constituent_face_ids=("left", "right"),
+        constituent_source_room_face_record_ids=("", "receipt_right"),
+    )
+    remaining, accepted = _canonical_composite_supersedence(
+        missing, (invalid,)
+    )
+    assert remaining == missing
+    assert accepted == ()

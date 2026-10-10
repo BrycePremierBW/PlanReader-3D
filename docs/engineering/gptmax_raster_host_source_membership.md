@@ -108,3 +108,37 @@ missing flank. Do not union the removed parent's lineage into W4 authority.
 Regression tests must cover offset raw lines sharing snapped nodes, reversed
 edge direction, input immutability and malformed/duplicate source addresses.
 Fresh original-source receipt retention remains mandatory.
+
+## Next receipt-completeness tasks, 2026-10-11
+
+**Observed:** `original_raster_host_ancestry_census` retains G17 support IDs but
+not their sealed face/end geometry. Its W2 observer records only removed-edge
+associations, omits graph source scope and surviving-edge inventories, and can
+coerce malformed lineage containers or boolean coordinates. The W4 ancestry
+reader normalizes duplicated edge-parent lists with `set()`. Authentication of
+the same page-visible line universe repeats for each opening. The real host
+resolver `_resolve_raster_source_band_host_from_records` requires exact G17
+solid flanks and ends, then exact source parents, local W4 chain contact and
+resolved physical equivalence; the current diagnostic cannot replace these.
+
+**Inference:** absence from a W4 identity alone cannot distinguish a removed
+W2 edge, a source parent retained elsewhere, a missing W4 edge owner or a
+sealed flank not supported by any authenticated raw line. Snapped-node aliases
+cannot be used as a new host relation.
+
+**Eight proposed tasks:** validate W2 graph/lineage schema without coercion;
+reject duplicated/malformed W4 edge and snap-loss parent inventories; retain
+exact input source scope in each actual W2 observation; retain all surviving
+and removed W2 source receipts and their actual W4 edge-owner alternatives;
+resolve and retain exact G17 support face/end receipts; retain finite signed
+support projections without manufacturing contact; distinguish removed-parent
+ancestry from independently retained ancestry; reuse authenticated raw line
+inventories only under the complete immutable document/revision/SHA/snapshot/
+page and source-observation key. Add adversarial, transformation, permutation
+and no-mutation regressions. Original-source runs must retain every existing
+opening/host/frame receipt. All additions remain read-only diagnostics.
+
+**Benchmark boundary:** original source IDs and failure observations identify
+what to inspect, never prediction rules or expected outcomes. No transfer of
+removed ancestry into a W4 identity, physical SAME/DISTINCT decision, host,
+opening count, quantity, safety-cap change or frozen truth edit is proposed.

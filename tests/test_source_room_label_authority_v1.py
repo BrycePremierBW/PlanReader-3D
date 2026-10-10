@@ -524,3 +524,38 @@ def test_source_room_bbox_prefilter_abstains_from_pruning_invalid_geometry():
     assert _point_may_belong_to_face_bbox((10.0 + 5e-7, 5.0), bbox)
     assert not _point_may_belong_to_face_bbox((10.0 + 2e-6, 5.0), bbox)
     assert not _point_may_belong_to_face_bbox((1000.0, 1000.0), bbox)
+
+
+def test_room_label_producer_builds_one_sealed_text_authority_per_source(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Page, word and fallback gates share immutable source text receipts."""
+    path = tmp_path / "source-label-text-authority-reuse.pdf"
+    _write_two_room_pdf(path)
+    source, room_faces = _setup(path)
+    original = SourceVisibilityProducer.text_integrity_authority
+    created = []
+
+    def counted(self):
+        authority = original(self)
+        created.append(authority)
+        return authority
+
+    monkeypatch.setattr(SourceVisibilityProducer, "text_integrity_authority", counted)
+    monkeypatch.setattr(SourceRoomLabelProducer, "_authorize_word", _fake_authorized)
+    producer = SourceRoomLabelProducer.from_authorities_for_tests(
+        source, room_faces, MockOCRBackend(), page_ids=("1",),
+    )
+    # Raster corroboration owns one separate sealed text resolver. The label
+    # producer must mint its own exactly once rather than once per word.
+    assert len(created) == 2
+    assert producer._raster._text_authority is created[0]
+    assert producer._text_integrity_authority is created[1]
+    assert {record.label for record in _records(producer)} == {
+        "FOOD PREP", "COLD ROOM",
+    }
+    # Repeated native selector checks cannot rebuild or alter the sealed
+    # authority's source universe.
+    assert producer._authorize_word is not None
+    assert len(created) == 2

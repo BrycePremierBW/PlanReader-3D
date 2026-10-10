@@ -7,17 +7,23 @@ a count/quantity, or modify frozen benchmark truth. Original PDF SHA required.
 from __future__ import annotations
 
 import argparse
-from collections import Counter, defaultdict
-from dataclasses import asdict
-from hashlib import sha256
 import json
 import math
+from collections import Counter, defaultdict
+from collections.abc import Mapping
+from dataclasses import asdict
+from hashlib import sha256
 from pathlib import Path
+from types import MappingProxyType
 from unittest.mock import patch
 
 import pb_physical_wall_candidate_authority as wall_producer
-from pb_live_physical_net_wall_integration import LIVE_PHYSICAL_NET_WALL_INTEGRATION_SCHEMA_VERSION
-from pb_live_wall_opening_authority_composition import compose_live_wall_opening_authority
+from pb_live_physical_net_wall_integration import (
+    LIVE_PHYSICAL_NET_WALL_INTEGRATION_SCHEMA_VERSION,
+)
+from pb_live_wall_opening_authority_composition import (
+    compose_live_wall_opening_authority,
+)
 from pb_migration_contracts import EvidenceResolutionStatus
 from pb_opening_host_binding_authority import (
     _COORD_TOL,
@@ -26,15 +32,68 @@ from pb_opening_host_binding_authority import (
     _opening_geometry,
     _source_line_axis_data,
 )
-from pb_wall_room_topology_stage_a import DEFAULT_GAP_SNAP_TOLERANCE_PT
-from pb_wall_room_topology_primitive_lineage import fragment_contained_in_segment
-from pb_wall_room_topology_junction_classifier import deduplicate_coincident_edges
 from pb_physical_wall_candidate_authority import (
     MAX_WALL_TOPOLOGY_SOURCE_SEGMENTS,
     PhysicalWallCandidateSelector,
 )
 from pb_source_observation_authority import ObservationSelector
 from pb_source_visibility_authority import SourceVisibilityProducer
+from pb_wall_room_topology_junction_classifier import deduplicate_coincident_edges
+from pb_wall_room_topology_primitive_lineage import fragment_contained_in_segment
+from pb_wall_room_topology_stage_a import DEFAULT_GAP_SNAP_TOLERANCE_PT
+
+
+def _source_parent_inventory(value, label: str) -> tuple[str, ...]:
+    if (not isinstance(value, (list, tuple))
+            or any(not isinstance(p, str) or not p.strip() for p in value)
+            or len(set(value)) != len(value)):
+        raise ValueError(f"invalid {label}")
+    return tuple(value)
+
+
+def _finite_coordinates(value, size: int, label: str) -> tuple[float, ...]:
+    if (not isinstance(value, (list, tuple)) or len(value) != size
+            or any(isinstance(v, bool) or not isinstance(v, (int, float)) for v in value)):
+        raise ValueError(f"invalid {label}")
+    try:
+        result = tuple(float(v) for v in value)
+    except (ValueError, OverflowError):
+        raise ValueError(f"invalid {label}") from None
+    if not all(math.isfinite(v) for v in result):
+        raise ValueError(f"nonfinite {label}")
+    return result
+
+
+def nonpublishing_w2_input_scope(segments, published, *, page_id: str) -> dict:
+    """Retain the actual graph inputs and the producer snapshot at graph time."""
+    scope = {"document_id": published.revision.document_id,
+             "revision_id": published.revision.revision_id,
+             "source_sha256": published.revision.source_sha256,
+             "snapshot_id": published.snapshot.snapshot_id, "page_id": page_id}
+    if any(not isinstance(v, str) or not v.strip() for v in scope.values()):
+        raise ValueError("invalid W2 input source scope")
+    inputs = []
+    for segment in segments:
+        if not isinstance(segment, Mapping):
+            raise TypeError("invalid W2 input source segment")
+        if any(segment.get(k) != scope[k] for k in ("document_id", "page_id")):
+            raise ValueError("W2 input source scope mismatch")
+        for key in ("id", "viewport_id", "source_observation_id"):
+            if not isinstance(segment.get(key), str) or not segment[key].strip():
+                raise ValueError("invalid W2 input source address")
+        inputs.append({"source_primitive_id": segment["id"],
+                       "source_observation_id": segment["source_observation_id"],
+                       "viewport_id": segment["viewport_id"],
+                       "source_geometry_pt": list(_finite_coordinates(
+                           tuple(segment.get(k) for k in ("x1", "y1", "x2", "y2")),
+                           4, "W2 input source geometry"))})
+    addresses = [row["source_primitive_id"] for row in inputs]
+    if len(set(addresses)) != len(addresses):
+        raise ValueError("duplicate W2 input source primitive address")
+    return {**scope, "input_source_receipts": sorted(inputs, key=lambda r: r["source_primitive_id"]),
+            "input_viewport_ids": sorted({r["viewport_id"] for r in inputs}),
+            "input_source_scope_observed": bool(inputs),
+            "source_ownership_proven": False, "host_publication_allowed": False}
 
 
 def _validate_aperture_basis(opening) -> None:
@@ -112,32 +171,38 @@ def nonpublishing_w2_deduplication_receipts(graph) -> dict:
     The original W2 edges and source parents remain separate. This does not
     attach an excluded parent to the surviving W4 identity or alter the graph.
     """
+    if (not isinstance(graph, Mapping)
+            or not isinstance(graph.get("nodes"), (list, tuple))
+            or not isinstance(graph.get("edges"), (list, tuple))):
+        raise TypeError("invalid W2 deduplication graph inventory")
     nodes = {}
     for node in graph["nodes"]:
-        nid = node["id"]
+        if not isinstance(node, Mapping):
+            raise TypeError("invalid W2 deduplication node inventory")
+        nid = node.get("id")
         if type(nid) is not int or nid in nodes:
             raise ValueError("invalid W2 deduplication node address")
-        position = (float(node["x"]), float(node["y"]))
-        if not all(math.isfinite(v) for v in position):
-            raise ValueError("nonfinite W2 deduplication node geometry")
+        position = _finite_coordinates((node.get("x"), node.get("y")), 2, "W2 deduplication node geometry")
         nodes[nid] = position
 
     edges = {}
     for edge in graph["edges"]:
+        if not isinstance(edge, Mapping):
+            raise TypeError("invalid W2 deduplication edge inventory")
         eid = edge.get("id")
         if not isinstance(eid, str) or not eid.strip() or eid in edges:
             raise ValueError("invalid W2 deduplication edge address")
-        pair = (edge["a"], edge["b"])
+        pair = (edge.get("a"), edge.get("b"))
         if (any(type(nid) is not int or nid not in nodes for nid in pair)
                 or pair[0] == pair[1]):
             raise ValueError("invalid W2 deduplication edge endpoints")
-        parents = tuple((edge.get("primitive_lineage") or {}).get("source_primitive_ids", ()))
-        if (any(not isinstance(p, str) or not p.strip() for p in parents)
-                or len(set(parents)) != len(parents)):
-            raise ValueError("invalid W2 deduplication source parent inventory")
-        geometry = tuple(float(edge[k]) for k in ("x1", "y1", "x2", "y2"))
-        if not all(math.isfinite(v) for v in geometry):
-            raise ValueError("nonfinite W2 deduplication edge geometry")
+        lineage = edge.get("primitive_lineage")
+        if lineage is None:
+            lineage = {}
+        if not isinstance(lineage, Mapping):
+            raise TypeError("invalid W2 deduplication source lineage")
+        parents = _source_parent_inventory(lineage.get("source_primitive_ids", ()), "W2 deduplication source parent inventory")
+        geometry = _finite_coordinates(tuple(edge.get(k) for k in ("x1", "y1", "x2", "y2")), 4, "W2 deduplication edge geometry")
         edges[eid] = {
             "source_edge_id": eid,
             "source_primitive_ids": list(parents),
@@ -169,11 +234,183 @@ def nonpublishing_w2_deduplication_receipts(graph) -> dict:
         "original_w2_edge_count": len(graph["edges"]),
         "retained_w3_edge_count": len(retained["edges"]),
         "removed_w2_edge_count": len(removed),
+        "all_w2_edge_receipts": [
+            {**edges[eid], "w3_disposition": "REMOVED_SNAPPED_NODE_DUPLICATE" if eid in removed
+             else "RETAINED", "source_parents_transferred_to_w4": False}
+            for eid in sorted(edges)
+        ],
         "removed_edge_receipts": sorted(rows, key=lambda row: row["removed_w2_edge"]["source_edge_id"]),
         "source_parents_transferred_to_w4": False,
         "physical_equivalence_proven": False,
         "host_publication_allowed": False,
     }
+
+
+def nonpublishing_w2_w4_edge_membership(census, records) -> dict:
+    """Retain every actual W4 sidecar alternative without assigning its owner."""
+    records = tuple(records)
+    if any(not isinstance(r.wall_candidate_id, str) or not r.wall_candidate_id.strip() for r in records):
+        raise ValueError("invalid W4 candidate address")
+    counts = Counter(r.wall_candidate_id for r in records)
+    fragments_by_edge = defaultdict(list)
+    for record in records:
+        for fragment in record.source_edge_fragments:
+            if not isinstance(fragment.edge_id, str) or not fragment.edge_id.strip():
+                raise ValueError("invalid W4 source edge address")
+            parents = _source_parent_inventory(fragment.source_primitive_ids, "W4 edge parent inventory")
+            identity_parents = _source_parent_inventory(
+                record.physical_identity.source_primitive_ids, "W4 source primitive parent inventory")
+            geometry = getattr(fragment, "geometry", None)
+            fragments_by_edge[fragment.edge_id].append({
+                "wall_candidate_id": record.wall_candidate_id,
+                "w4_identity_usable": bool(record.physical_identity.usable),
+                "candidate_address_quarantined": counts[record.wall_candidate_id] != 1,
+                "source_primitive_ids": list(parents),
+                "producer_w4_source_edge_geometry_pt": list(_finite_coordinates(
+                    geometry, 4, "W4 source edge geometry")) if geometry is not None else None,
+                "edge_parents_in_w4_identity": set(parents).issubset(identity_parents),
+                "physical_equivalence_proven": False, "host_publication_allowed": False,
+            })
+    conflicted_edges = {eid for eid, fragments in fragments_by_edge.items()
+        if len({json.dumps([sorted(f["source_primitive_ids"]), f["producer_w4_source_edge_geometry_pt"]])
+                for f in fragments}) > 1}
+    rows = []
+    for edge in census["all_w2_edge_receipts"]:
+        alternatives = []
+        for fragment in fragments_by_edge.get(edge["source_edge_id"], ()):
+            exact = (sorted(fragment["source_primitive_ids"]) == sorted(edge["source_primitive_ids"])
+                     and fragment["producer_w4_source_edge_geometry_pt"] == edge["producer_w2_edge_geometry_pt"])
+            alternatives.append({**fragment, "exact_w2_sidecar_receipt_match": exact,
+                                 "source_edge_address_conflicted": edge["source_edge_id"] in conflicted_edges,
+                                 "w4_membership_receipt_usable": exact
+                                 and edge["source_edge_id"] not in conflicted_edges
+                                 and fragment["w4_identity_usable"]
+                                 and fragment["edge_parents_in_w4_identity"]
+                                 and not fragment["candidate_address_quarantined"]
+                                 and edge["w3_disposition"] == "RETAINED"})
+        rows.append({**edge, "actual_w4_edge_membership_alternatives": sorted(
+            alternatives, key=lambda item: (item["wall_candidate_id"], json.dumps(item, sort_keys=True))),
+            "physical_equivalence_proven": False, "host_publication_allowed": False})
+    return {**census, "all_w2_edge_receipts": rows}
+
+
+def nonpublishing_w2_parent_stage_receipts(census) -> dict:
+    """A removed edge is not a lost parent if another edge retains that parent."""
+    by_parent = defaultdict(list)
+    for edge in census["all_w2_edge_receipts"]:
+        for parent in edge["source_primitive_ids"]:
+            by_parent[parent].append(edge)
+    rows = []
+    for parent, edges in sorted(by_parent.items()):
+        retained = sorted(e["source_edge_id"] for e in edges if e["w3_disposition"] == "RETAINED")
+        removed = sorted(e["source_edge_id"] for e in edges if e["w3_disposition"] != "RETAINED")
+        memberships = sorted((e["source_edge_id"], a["wall_candidate_id"])
+            for e in edges for a in e["actual_w4_edge_membership_alternatives"]
+            if a["w4_membership_receipt_usable"])
+        disposition = ("USABLE_W4_EDGE_MEMBERSHIP_OBSERVED" if memberships
+                       else "W3_PARENT_RETAINED_NO_USABLE_W4_EDGE_MEMBERSHIP" if retained
+                       else "W2_PARENT_ONLY_REMOVED_EDGES")
+        rows.append({"source_primitive_id": parent,
+                     "retained_w3_source_edge_ids": retained, "removed_w2_source_edge_ids": removed,
+                     "actual_usable_w4_edge_memberships": [
+                         {"source_edge_id": eid, "wall_candidate_id": cid} for eid, cid in memberships],
+                     "source_ancestry_disposition": disposition,
+                     "source_parent_removed_from_entire_w3_inventory": not retained,
+                     "source_parents_transferred_to_w4": False, "host_publication_allowed": False})
+    return {**census, "source_parent_stage_receipts": rows,
+            "w2_edges_with_unknown_parent_inventory": sorted(e["source_edge_id"]
+                for e in census["all_w2_edge_receipts"] if not e["source_primitive_ids"])}
+
+
+def nonpublishing_support_projection(raw, opening) -> dict:
+    """Signed coordinates for both faces and ends; no contact classification."""
+    _validate_aperture_basis(opening)
+    try:
+        coords = _finite_coordinates(raw, 4, "G17 source support geometry")
+    except ValueError:
+        return {"geometry_disposition": "invalid_source_support_geometry",
+                "physical_contact_proven": False, "host_publication_allowed": False}
+    result = {"original_source_support_geometry_pt": list(coords),
+              "physical_contact_proven": False, "host_publication_allowed": False}
+    length = math.dist(coords[:2], coords[2:])
+    if not math.isfinite(length) or length <= _COORD_TOL:
+        return {**result, "geometry_disposition": "invalid_source_support_segment_length"}
+    points = [(coords[i] - opening.origin[0], coords[i+1] - opening.origin[1]) for i in (0, 2)]
+    axis = [sum(v * a for v, a in zip(p, opening.axis)) for p in points]
+    normal = [sum(v * n for v, n in zip(p, opening.normal)) for p in points]
+    if not all(math.isfinite(v) for v in (*axis, *normal)):
+        return {**result, "geometry_disposition": "nonfinite_source_support_projection"}
+    return {**result, "geometry_disposition": "finite_signed_support_projection_observed",
+            "signed_aperture_axis_coordinates_pt": axis,
+            "signed_aperture_normal_coordinates_pt": normal}
+
+
+def nonpublishing_g17_support_receipts(authority, opening, geometry) -> list[dict]:
+    """Resolve each requested support through the existing sealed G17 reader."""
+    ids = _source_parent_inventory(opening.source_observation_ids, "G17 support observation inventory")
+    visibility = authority.source_visibility_authority()
+    rows = []
+    for oid in sorted(ids):
+        selector = ObservationSelector(document_id=opening.document_id,
+            revision_id=opening.revision_id, source_sha256=opening.source_sha256,
+            snapshot_id=opening.snapshot_id, observation_id=oid)
+        resolved = visibility.resolve_raster_opening_primitive(selector)
+        observation = resolved.observation
+        row = {"requested_source_observation_id": oid,
+               "resolution_status": resolved.status.value,
+               "original_resolution_reason_codes": list(resolved.reason_codes),
+               "source_receipt_authenticated": False, "physical_contact_proven": False,
+               "host_publication_allowed": False}
+        if resolved.status is not EvidenceResolutionStatus.CORROBORATED or observation is None:
+            rows.append(row)
+            continue
+        if (any(getattr(observation, k, None) != getattr(selector, k)
+                for k in ("document_id", "revision_id", "source_sha256", "snapshot_id", "observation_id"))
+                or observation.page_id != opening.page_id or observation.viewport_id is not None
+                or observation.observation_kind not in ("raster_wall_band_face", "raster_wall_band_end")):
+            rows.append({**row, "diagnostic_rejection_reason": "G17_support_source_scope_mismatch"})
+            continue
+        rows.append({**row, "source_receipt_authenticated": True,
+                     "document_id": observation.document_id, "revision_id": observation.revision_id,
+                     "source_sha256": observation.source_sha256, "snapshot_id": observation.snapshot_id,
+                     "page_id": observation.page_id, "viewport_id": observation.viewport_id,
+                     "source_observation_id": observation.observation_id,
+                     "observation_kind": observation.observation_kind,
+                     "source_primitive_ref": observation.source_primitive_ref,
+                     "derivation_parent_ids": list(observation.derivation_parent_ids),
+                     "observation_payload_sha256": observation.observation_payload_sha256,
+                     **nonpublishing_support_projection(observation.geometry, geometry)})
+    return rows
+
+
+class DiagnosticRasterLineCache:
+    """Run-local immutable reuse, scoped to this authority and exact selectors."""
+
+    def __init__(self):
+        self._entries = {}
+
+    def resolve(self, authority, opening, observation_ids, *, published):
+        ids = _source_parent_inventory(observation_ids, "raster line observation inventory")
+        scope = tuple(getattr(opening, k) for k in (
+            "document_id", "revision_id", "source_sha256", "snapshot_id", "page_id", "viewport_id"))
+        if (any(not isinstance(v, str) or not v.strip() for v in scope[:-1])
+                or (scope[-1] is not None and (not isinstance(scope[-1], str) or not scope[-1].strip()))):
+            raise ValueError("incomplete raster line source cache scope")
+        if scope[:4] != (published.revision.document_id, published.revision.revision_id,
+                         published.revision.source_sha256, published.snapshot.snapshot_id):
+            raise ValueError("raster line cache published source scope mismatch")
+        # Revalidate the producer-owned snapshot before any warm-cache reuse.
+        # Replaced records, parent receipts and corrupted source bytes cannot
+        # become positive diagnostic evidence through a stale cached mapping.
+        authenticated = authority.source_visibility_authority().authenticated_visible_observations(published)
+        manifest = tuple(sorted((oid, observation.observation_payload_sha256)
+                                for oid, observation in authenticated))
+        # Keep the authority object alive in the key, not a reusable numeric id.
+        key = (authority, scope, tuple(sorted(ids)), manifest)
+        if key not in self._entries:
+            lines = _authenticated_raster_source_lines(authority, opening, ids)
+            self._entries[key] = MappingProxyType({sid: tuple(coords) for sid, coords in lines.items()})
+        return self._entries[key]
 
 
 def nonpublishing_raster_source_w4_membership(
@@ -198,12 +435,10 @@ def nonpublishing_raster_source_w4_membership(
         for fragment in getattr(record, "source_edge_fragments", ()):
             if not isinstance(fragment.edge_id, str) or not fragment.edge_id.strip():
                 raise ValueError("missing W2 source edge identity (address)")
-            parents = tuple(fragment.source_primitive_ids)
-            if any(not isinstance(p, str) or not p.strip() for p in parents):
-                raise ValueError("invalid W2 source edge parent inventory")
+            parents = _source_parent_inventory(fragment.source_primitive_ids, "W2 source edge parent inventory")
             # Missing geometry remains unavailable, never an inferred line.
             geometry = getattr(fragment, "geometry", None)
-            signature = json.dumps([sorted(set(parents)), geometry], sort_keys=True)
+            signature = json.dumps([sorted(parents), geometry], sort_keys=True)
             edge_receipts[fragment.edge_id].add(signature)
     collided_candidates = {cid for cid, rows in candidate_rows.items() if len(rows) > 1}
     conflicted_edges = {eid for eid, receipts in edge_receipts.items() if len(receipts) > 1}
@@ -215,10 +450,7 @@ def nonpublishing_raster_source_w4_membership(
     skipped_nonusable = set()
     for r in records:
         identity = r.physical_identity
-        ids = tuple(identity.source_primitive_ids)
-        if (any(not isinstance(p, str) or not p.strip() for p in ids)
-                or len(set(ids)) != len(ids)):
-            raise ValueError("invalid W4 source primitive parent inventory")
+        ids = _source_parent_inventory(identity.source_primitive_ids, "W4 source primitive parent inventory")
         if r.wall_candidate_id in collided_candidates:
             continue
         if not identity.usable:
@@ -230,7 +462,10 @@ def nonpublishing_raster_source_w4_membership(
             if (not isinstance(fragment.edge_id, str) or not fragment.edge_id.strip()
                     or fragment.edge_id in edge_receipts):
                 raise ValueError("source snap-loss receipt has a missing or surviving W2 edge identity")
-            for parent_id in tuple(fragment.source_primitive_ids):
+            parents = _source_parent_inventory(fragment.source_primitive_ids, "source snap-loss parent inventory")
+            if not parents:
+                raise ValueError("source snap-loss parent inventory unavailable")
+            for parent_id in parents:
                 if (not isinstance(parent_id, str) or not parent_id.strip()
                         or parent_id not in ids):
                     raise ValueError("source snap-loss receipt contradicts W4 parent inventory")
@@ -377,8 +612,14 @@ def original_raster_host_ancestry_census(
     build_graph = wall_producer.build_wall_graph_for_viewport
 
     def observe_actual_w2_graph(segments, **kwargs):
+        observed = producer.published_snapshot_for_revision(source.revision.revision_id)
+        if observed is None:
+            raise ValueError("W2 graph-time producer snapshot missing")
+        scope = nonpublishing_w2_input_scope(segments, observed, page_id=page_id)
         graph = build_graph(segments, **kwargs)
-        w2_deduplication_censuses.append(nonpublishing_w2_deduplication_receipts(graph))
+        census = nonpublishing_w2_deduplication_receipts(graph)
+        census["source_scope_at_graph_time"] = scope
+        w2_deduplication_censuses.append(census)
         return graph
 
     with patch.object(wall_producer, "build_wall_graph_for_viewport", observe_actual_w2_graph):
@@ -414,6 +655,10 @@ def original_raster_host_ancestry_census(
             "benchmark_accuracy": None,
         }
     authority = composition.physical_opening_authority
+    w2_deduplication_censuses = [nonpublishing_w2_parent_stage_receipts(
+        nonpublishing_w2_w4_edge_membership(census, wall.records))
+        for census in w2_deduplication_censuses]
+    line_cache = DiagnosticRasterLineCache()
     opening_rows = []
     for trace in composition.opening_bindings:
         if trace.host_wall_id or trace.page_id != page_id:
@@ -433,9 +678,7 @@ def original_raster_host_ancestry_census(
         geometry = _opening_geometry(authority, opening)
         if geometry is None:
             continue
-        lines = _authenticated_raster_source_lines(
-            authority, opening, wall.source_observation_ids
-        )
+        lines = line_cache.resolve(authority, opening, wall.source_observation_ids, published=published)
         row = nonpublishing_raster_source_w4_membership(
             wall.records, lines, geometry, page_id=page_id,
         )
@@ -444,6 +687,8 @@ def original_raster_host_ancestry_census(
             "representative_source_observation_id": trace.representative_observation_id,
             "original_binding_reason_codes": list(trace.reason_codes),
             "original_g17_support_observation_ids": list(opening.source_observation_ids),
+            "original_g17_support_receipts": nonpublishing_g17_support_receipts(authority, opening, geometry),
+            "original_aperture_coordinate_basis": asdict(geometry),
             "source_w4_ancestry_audit": row,
         })
     return {

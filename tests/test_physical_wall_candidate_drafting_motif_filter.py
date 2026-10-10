@@ -361,3 +361,60 @@ def test_singleton_motif_geometry_is_computed_once(monkeypatch) -> None:
     )
 
     assert calls == {"length": len(lines), "angle": len(lines)}
+
+
+def test_repeated_motif_preserves_only_explicit_source_proven_primitives() -> None:
+    motif = [
+        _line(
+            f"protected-{idx}",
+            float(idx * 3),
+            0.0,
+            float(idx * 3 + 3),
+            3.0,
+            path_index=idx,
+            stroke=(0.5, 0.5, 0.5),
+            width=0.24,
+        )
+        for idx in range(8)
+    ]
+
+    filtered = _filter_repeated_non_physical_drafting_primitives(
+        motif,
+        page_width=1000.0,
+        page_height=1000.0,
+        preserved_source_primitive_ids=frozenset(
+            {"protected-2", "protected-5"}
+        ),
+    )
+
+    assert tuple(segment["id"] for segment in filtered) == (
+        "protected-2",
+        "protected-5",
+    )
+
+
+def test_unprotected_members_of_same_repeated_family_remain_filtered() -> None:
+    motif = [
+        _line(
+            f"mixed-{idx}",
+            float(idx * 3),
+            0.0,
+            float(idx * 3 + 3),
+            3.0,
+            path_index=idx,
+            stroke=(0.5, 0.5, 0.5),
+            width=0.24,
+        )
+        for idx in range(8)
+    ]
+
+    filtered = _filter_repeated_non_physical_drafting_primitives(
+        motif,
+        page_width=1000.0,
+        page_height=1000.0,
+        preserved_source_primitive_ids=frozenset({"mixed-0"}),
+    )
+
+    assert tuple(segment["id"] for segment in filtered) == ("mixed-0",)
+
+

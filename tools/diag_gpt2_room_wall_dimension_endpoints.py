@@ -10,24 +10,38 @@ import math
 from typing import Any
 
 def _point_on_native_source_subedge(point: Any, edge: Any, *, tolerance: float) -> bool:
+    """Exact contact candidate, never dimension/area authority.
+
+    Unit-vector projection avoids an intermediate edge-length-squared product,
+    which can underflow for short PDF primitives or overflow for extreme
+    coordinates. Malformed, degenerate, and nonfinite cases fail closed.
+    """
     try:
-        (x,y) = tuple(float(v) for v in point)
-        (ax,ay),(bx,by) = tuple(tuple(float(v) for v in p) for p in edge)
-    except (TypeError,ValueError):
+        x, y = tuple(float(value) for value in point)
+        (ax, ay), (bx, by) = tuple(
+            tuple(float(value) for value in pair) for pair in edge
+        )
+    except (TypeError, ValueError, OverflowError):
         return False
-    values=(x,y,ax,ay,bx,by)
-    if not all(math.isfinite(v) for v in values):
+    if not all(math.isfinite(value) for value in (x, y, ax, ay, bx, by)):
         return False
-    dx,dy=bx-ax,by-ay
-    length=math.hypot(dx,dy)
-    if length<=0:
+    dx, dy = bx - ax, by - ay
+    length = math.hypot(dx, dy)
+    if (
+        not math.isfinite(tolerance)
+        or tolerance <= 0.0
+        or not math.isfinite(length)
+        or length <= tolerance
+    ):
         return False
-    projection=((x-ax)*dx+(y-ay)*dy)/(length*length)
-    if projection < -tolerance/length or projection > 1+tolerance/length:
+
+    ux, uy = dx / length, dy / length
+    along = (x - ax) * ux + (y - ay) * uy
+    if not math.isfinite(along) or along < -tolerance or along > length + tolerance:
         return False
-    projection=max(0.0,min(1.0,projection))
-    nearest=(ax+projection*dx,ay+projection*dy)
-    return math.hypot(x-nearest[0],y-nearest[1]) <= tolerance
+    along = min(length, max(0.0, along))
+    nearest_x, nearest_y = ax + along * ux, ay + along * uy
+    return math.hypot(x - nearest_x, y - nearest_y) <= tolerance
 
 def inspect_source_face_dimension_endpoints(
     face: Any,

@@ -1,17 +1,26 @@
 """Original raster source parent membership is NOT a physical host proof."""
+import json
 from copy import deepcopy
 from dataclasses import replace
-import json
 from types import SimpleNamespace
 
 import pytest
 
-from pb_opening_host_binding_authority import _OpeningGeometry
-from pb_live_wall_opening_authority_composition import LiveOpeningHostTrace, LiveOpeningHostFrameTrace
+from pb_live_wall_opening_authority_composition import (
+    LiveOpeningHostFrameTrace,
+    LiveOpeningHostTrace,
+)
 from pb_migration_contracts import EvidenceResolutionStatus
+from pb_opening_host_binding_authority import _OpeningGeometry
 from tools.diag_gptmax_raster_host_source_membership import (
+    DiagnosticRasterLineCache,
+    nonpublishing_g17_support_receipts,
     nonpublishing_raster_source_w4_membership,
+    nonpublishing_support_projection,
     nonpublishing_w2_deduplication_receipts,
+    nonpublishing_w2_input_scope,
+    nonpublishing_w2_parent_stage_receipts,
+    nonpublishing_w2_w4_edge_membership,
     original_raster_host_ancestry_census,
 )
 
@@ -108,6 +117,50 @@ def test_malformed_w2_duplicate_receipts_fail_closed_without_mutation(corruption
     with pytest.raises(ValueError, match=message):
         nonpublishing_w2_deduplication_receipts(graph)
     assert graph == original
+
+
+@pytest.mark.parametrize("lineage", [[], "source", True, 42,
+    {"source_primitive_ids": "source-b"}, {"source_primitive_ids": {"source-b": True}},
+    {"source_primitive_ids": None}])
+def test_w2_receipt_lineage_containers_never_become_fabricated_source_ids(lineage):
+    graph = snapped_duplicate_graph()
+    graph["edges"][1]["primitive_lineage"] = lineage
+    original = deepcopy(graph)
+    with pytest.raises((TypeError, ValueError), match="W2 deduplication.*(lineage|parent inventory)"):
+        nonpublishing_w2_deduplication_receipts(graph)
+    assert graph == original
+
+
+@pytest.mark.parametrize("where,value", [
+    ("node", True), ("node", "0.75"), ("edge", False), ("edge", "1.5"),
+])
+def test_w2_receipt_coordinates_do_not_coerce_bools_or_strings(where, value):
+    graph = snapped_duplicate_graph()
+    if where == "node":
+        graph["nodes"][0]["x"] = value
+    else:
+        graph["edges"][1]["x1"] = value
+    original = deepcopy(graph)
+    with pytest.raises(ValueError, match="W2 deduplication.*geometry"):
+        nonpublishing_w2_deduplication_receipts(graph)
+    assert graph == original
+
+
+@pytest.mark.parametrize("parents", [("parent", "parent"), "parent", {"parent": 1}, None])
+def test_w4_edge_parent_containers_do_not_gain_ancestry_by_normalization(parents):
+    row = record("w4-a", ("parent",), source_edges=(("edge", ("parent",)),))
+    row.source_edge_fragments[0].source_primitive_ids = parents
+    with pytest.raises(ValueError, match="W2 source edge parent inventory"):
+        nonpublishing_raster_source_w4_membership([row], {"parent": (-5., 0., 0., 0.)}, opening(), page_id="3")
+
+
+@pytest.mark.parametrize("parents", [("parent", "parent"), "parent", (), None])
+def test_snap_loss_parent_inventory_cannot_be_empty_duplicated_or_coerced(parents):
+    row = record("w4-a", ("parent",))
+    row.source_snap_collapsed_fragments = (SimpleNamespace(
+        edge_id="collapsed", source_primitive_ids=parents, geometry=(-1., 0., 0., 0.)),)
+    with pytest.raises(ValueError, match="snap-loss.*parent inventory"):
+        nonpublishing_raster_source_w4_membership([row], {"parent": (-5., 0., 0., 0.)}, opening(), page_id="3")
 
 
 def record(id, source_ids, *, usable=True, source_edges=()):
@@ -426,6 +479,7 @@ def test_fragment_locality_is_preserved_by_quarter_rotation_and_translation():
 
 def test_original_source_audit_counts_frame_receipts_and_retains_abstained_attempts(monkeypatch):
     import hashlib
+
     import tools.diag_gptmax_raster_host_source_membership as diagnostic
 
     data = b"source-bytes-for-composition-boundary-regression"
@@ -447,7 +501,7 @@ def test_original_source_audit_counts_frame_receipts_and_retains_abstained_attem
 
     composition = SimpleNamespace(
         physical_wall_candidate_authority=SimpleNamespace(
-            resolve_scope=lambda selector: SimpleNamespace(scope_complete=True, equivalence=object())
+            resolve_scope=lambda selector: SimpleNamespace(scope_complete=True, equivalence=object(), records=())
         ),
         physical_opening_authority=object(),
         opening_bindings=[
@@ -486,6 +540,7 @@ def test_original_source_audit_counts_frame_receipts_and_retains_abstained_attem
 
 def test_original_frame_count_excludes_abstained_frame_traces(monkeypatch):
     import hashlib
+
     import tools.diag_gptmax_raster_host_source_membership as diagnostic
 
     data=b"source-producer-fixture"
@@ -583,3 +638,372 @@ def test_finite_axis_interval_cannot_serialize_overflowed_aperture_end_distance(
     assert "distance_from_fragment_axis_endpoints_to_aperture_ends_pt" not in observation
     assert not observation["physical_contact_proven"]
     json.dumps(report, allow_nan=False)
+
+
+def input_scope_fixture():
+    published = SimpleNamespace(
+        revision=SimpleNamespace(document_id="doc", revision_id="rev", source_sha256="sha"),
+        snapshot=SimpleNamespace(snapshot_id="graph-snapshot"))
+    segments = [{"id": "source-a", "document_id": "doc", "page_id": "3",
+                 "viewport_id": "wall-source:page-3", "source_observation_id": "observed-a",
+                 "x1": 0., "y1": 0., "x2": 0., "y2": 10.}]
+    return published, segments
+
+
+def test_graph_time_scope_retains_actual_input_receipts_without_mutation():
+    published, segments = input_scope_fixture()
+    before = deepcopy(segments)
+    report = nonpublishing_w2_input_scope(segments, published, page_id="3")
+    assert segments == before
+    assert report["snapshot_id"] == "graph-snapshot"
+    assert report["input_source_receipts"] == [{
+        "source_primitive_id": "source-a", "source_observation_id": "observed-a",
+        "viewport_id": "wall-source:page-3", "source_geometry_pt": [0., 0., 0., 10.]}]
+    assert not report["source_ownership_proven"]
+    assert not report["host_publication_allowed"]
+    report["input_source_receipts"][0]["source_geometry_pt"][0] = 99.
+    assert segments == before
+
+
+@pytest.mark.parametrize("field,value", [("document_id", "foreign"), ("page_id", "4"),
+    ("viewport_id", None), ("source_observation_id", True), ("id", "")])
+def test_foreign_or_missing_graph_input_scope_is_not_reconstructed(field, value):
+    published, segments = input_scope_fixture()
+    segments[0][field] = value
+    with pytest.raises(ValueError, match="W2 input source"):
+        nonpublishing_w2_input_scope(segments, published, page_id="3")
+
+
+def test_empty_graph_inputs_remain_explicitly_unknown_and_duplicate_ids_fail():
+    published, segments = input_scope_fixture()
+    empty = nonpublishing_w2_input_scope([], published, page_id="3")
+    assert not empty["input_source_scope_observed"]
+    assert empty["input_viewport_ids"] == []
+    with pytest.raises(ValueError, match="duplicate W2 input"):
+        nonpublishing_w2_input_scope(segments + segments, published, page_id="3")
+
+
+def test_all_w2_edges_retain_separate_w4_membership_alternatives():
+    graph = snapped_duplicate_graph()
+    census = nonpublishing_w2_deduplication_receipts(graph)
+    records = [geometric_record("owner-a", "source-a", "kept", (0., 0., 0., 10.)),
+               geometric_record("owner-b", "source-a", "kept", (0., 0., 0., 10.)),
+               geometric_record("unusable", "source-a", "kept", (0., 0., 0., 10.))]
+    records[2].physical_identity.usable = False
+    before = deepcopy(census)
+    report = nonpublishing_w2_w4_edge_membership(census, records)
+    assert census == before
+    edges = {r["source_edge_id"]: r for r in report["all_w2_edge_receipts"]}
+    owners = edges["kept"]["actual_w4_edge_membership_alternatives"]
+    assert [r["wall_candidate_id"] for r in owners] == ["owner-a", "owner-b", "unusable"]
+    assert [r["w4_membership_receipt_usable"] for r in owners] == [True, True, False]
+    assert edges["removed"]["w3_disposition"] == "REMOVED_SNAPPED_NODE_DUPLICATE"
+    assert edges["removed"]["actual_w4_edge_membership_alternatives"] == []
+    assert edges["removed"]["source_primitive_ids"] == ["source-b"]
+    assert not edges["kept"]["physical_equivalence_proven"]
+    assert not edges["kept"]["host_publication_allowed"]
+    assert report == nonpublishing_w2_w4_edge_membership(census, list(reversed(records)))
+
+
+@pytest.mark.parametrize("case", ["duplicate-candidate", "foreign-parent", "foreign-geometry", "removed-edge"])
+def test_conflicting_w4_edge_receipts_never_become_usable_membership(case):
+    census = nonpublishing_w2_deduplication_receipts(snapped_duplicate_graph())
+    owner = geometric_record("owner", "source-a", "kept", (0., 0., 0., 10.))
+    records = [owner]
+    edge_id = "kept"
+    if case == "duplicate-candidate":
+        records.append(deepcopy(owner))
+    elif case == "foreign-parent":
+        owner.source_edge_fragments[0].source_primitive_ids = ("foreign",)
+    elif case == "foreign-geometry":
+        owner.source_edge_fragments[0].geometry = (1., 0., 1., 10.)
+    else:
+        edge_id = "removed"
+        owner.source_edge_fragments[0].edge_id = edge_id
+        owner.source_edge_fragments[0].source_primitive_ids = ("source-b",)
+        owner.source_edge_fragments[0].geometry = (1.5, 0., 1.5, 10.)
+        owner.physical_identity.source_primitive_ids = ("source-b",)
+    edges = nonpublishing_w2_w4_edge_membership(census, records)["all_w2_edge_receipts"]
+    alternatives = next(r for r in edges if r["source_edge_id"] == edge_id)["actual_w4_edge_membership_alternatives"]
+    assert alternatives
+    assert not any(r["w4_membership_receipt_usable"] for r in alternatives)
+    assert not any(r["host_publication_allowed"] for r in alternatives)
+
+
+def support_opening():
+    return SimpleNamespace(document_id="doc", revision_id="rev", source_sha256="sha",
+                           snapshot_id="snap", page_id="3", viewport_id=None,
+                           source_observation_ids=("face", "end"))
+
+
+def support_observation(oid, **changes):
+    fields = {"document_id": "doc", "revision_id": "rev", "source_sha256": "sha",
+        "snapshot_id": "snap", "page_id": "3", "viewport_id": None, "observation_id": oid,
+        "observation_kind": "raster_wall_band_face" if oid == "face" else "raster_wall_band_end",
+        "source_primitive_ref": f"visible:primitive-{oid}", "derivation_parent_ids": (f"parent-{oid}",),
+        "observation_payload_sha256": f"sealed-payload-{oid}",
+        "geometry": (-4., -1., 0., -1.) if oid == "face" else (0., -1., 0., 1.)}
+    fields.update(changes)
+    return SimpleNamespace(**fields)
+
+
+def support_authority(observations, *, unavailable=()):
+    selectors = []
+    def resolve(selector):
+        selectors.append(selector)
+        return SimpleNamespace(status=EvidenceResolutionStatus.ABSTAINED if selector.observation_id in unavailable
+                               else EvidenceResolutionStatus.CORROBORATED,
+                               observation=observations.get(selector.observation_id), reason_codes=("original-reason",))
+    authority = SimpleNamespace(source_visibility_authority=lambda: SimpleNamespace(resolve_raster_opening_primitive=resolve))
+    return authority, selectors
+
+
+def test_g17_receipts_use_exact_original_selector_and_retain_sealed_face_end_geometry():
+    observations = {oid: support_observation(oid) for oid in ("face", "end")}
+    authority, selectors = support_authority(observations)
+    before = deepcopy(observations)
+    report = nonpublishing_g17_support_receipts(authority, support_opening(), opening())
+    assert observations == before
+    assert [s.observation_id for s in selectors] == ["end", "face"]
+    for selector in selectors:
+        assert (selector.document_id, selector.revision_id, selector.source_sha256, selector.snapshot_id) == ("doc", "rev", "sha", "snap")
+    assert all(r["source_receipt_authenticated"] for r in report)
+    assert report[0]["derivation_parent_ids"] == ["parent-end"]
+    assert report[0]["observation_payload_sha256"] == "sealed-payload-end"
+    assert report[0]["original_source_support_geometry_pt"] == [0., -1., 0., 1.]
+    assert report[0]["original_resolution_reason_codes"] == ["original-reason"]
+    assert not any(r["physical_contact_proven"] or r["host_publication_allowed"] for r in report)
+
+
+@pytest.mark.parametrize("field,value", [("document_id", "foreign"), ("revision_id", "foreign"),
+    ("source_sha256", "foreign"), ("snapshot_id", "foreign"), ("observation_id", "foreign"),
+    ("page_id", "4"), ("viewport_id", "scope"), ("observation_kind", "raster_pdf_visible_segment")])
+def test_g17_foreign_receipt_is_retained_as_negative_without_geometry(field, value):
+    authority, _ = support_authority({"face": support_observation("face", **{field: value})})
+    report = nonpublishing_g17_support_receipts(authority, support_opening(), opening())
+    face = next(r for r in report if r["requested_source_observation_id"] == "face")
+    assert not face["source_receipt_authenticated"]
+    assert face["diagnostic_rejection_reason"] == "G17_support_source_scope_mismatch"
+    assert "original_source_support_geometry_pt" not in face
+    assert not face["host_publication_allowed"]
+
+
+def test_unavailable_g17_support_is_not_dropped_or_reconstructed():
+    authority, _ = support_authority({"face": support_observation("face")}, unavailable=("end",))
+    report = nonpublishing_g17_support_receipts(authority, support_opening(), opening())
+    assert len(report) == 2
+    end = next(r for r in report if r["requested_source_observation_id"] == "end")
+    assert end["resolution_status"] == "abstained"
+    assert end["original_resolution_reason_codes"] == ["original-reason"]
+    assert not end["source_receipt_authenticated"]
+    assert "original_source_support_geometry_pt" not in end
+
+
+@pytest.mark.parametrize("line,along,normal", [
+    ((-4., -1., 0., -1.), [-4., 0.], [-1., -1.]),
+    ((0., -1., 0., 1.), [0., 0.], [-1., 1.]),
+    ((10., 1., 10., -1.), [10., 10.], [1., -1.])])
+def test_signed_support_projections_retain_end_direction_without_contact(line, along, normal):
+    result = nonpublishing_support_projection(line, opening())
+    assert result["signed_aperture_axis_coordinates_pt"] == along
+    assert result["signed_aperture_normal_coordinates_pt"] == normal
+    assert not result["physical_contact_proven"]
+    assert not result["host_publication_allowed"]
+    rotated = (100.-line[1], 200.+line[0], 100.-line[3], 200.+line[2])
+    transformed = nonpublishing_support_projection(rotated,
+        replace(opening(), origin=(100., 200.), axis=(0., 1.), normal=(-1., 0.)))
+    assert transformed["signed_aperture_axis_coordinates_pt"] == along
+    assert transformed["signed_aperture_normal_coordinates_pt"] == normal
+
+
+@pytest.mark.parametrize("line,geometry,reason", [
+    ((True, 0., 1., 0.), opening(), "invalid_source_support_geometry"),
+    (("0", 0., 1., 0.), opening(), "invalid_source_support_geometry"),
+    ((float("nan"), 0., 1., 0.), opening(), "invalid_source_support_geometry"),
+    ((0., 0., 0., 0.), opening(), "invalid_source_support_segment_length"),
+    ((-1.7e308, 0., 1.7e308, 0.), opening(), "invalid_source_support_segment_length"),
+    ((1.7e308, 0., 1.7e308, 1.), replace(opening(), origin=(-1.7e308, 0.)), "nonfinite_source_support_projection")])
+def test_bad_support_projection_retains_negative_reason_and_no_nonfinite_json(line, geometry, reason):
+    result = nonpublishing_support_projection(line, geometry)
+    assert result["geometry_disposition"] == reason
+    assert "signed_aperture_axis_coordinates_pt" not in result
+    assert not result["physical_contact_proven"]
+    json.dumps(result, allow_nan=False)
+
+
+def test_removed_edge_does_not_mean_parent_lost_when_another_edge_retains_it():
+    graph = snapped_duplicate_graph()
+    graph["nodes"].append({"id": 2, "x": 1.5, "y": 20., "degree": 1})
+    graph["edges"].append({"id": "independently-retained", "a": 1, "b": 2,
+        "x1": 1.5, "y1": 10., "x2": 1.5, "y2": 20.,
+        "primitive_lineage": {"source_primitive_ids": ["source-b"]}})
+    census = nonpublishing_w2_w4_edge_membership(nonpublishing_w2_deduplication_receipts(graph), [])
+    report = nonpublishing_w2_parent_stage_receipts(census)
+    parent = next(r for r in report["source_parent_stage_receipts"] if r["source_primitive_id"] == "source-b")
+    assert parent["removed_w2_source_edge_ids"] == ["removed"]
+    assert parent["retained_w3_source_edge_ids"] == ["independently-retained"]
+    assert not parent["source_parent_removed_from_entire_w3_inventory"]
+    assert parent["source_ancestry_disposition"] == "W3_PARENT_RETAINED_NO_USABLE_W4_EDGE_MEMBERSHIP"
+    assert not parent["source_parents_transferred_to_w4"]
+    assert not parent["host_publication_allowed"]
+
+
+def test_removed_only_parent_and_unknown_lineage_are_explicit_negative_stages():
+    graph = snapped_duplicate_graph()
+    graph["edges"][0]["primitive_lineage"] = None
+    census = nonpublishing_w2_w4_edge_membership(nonpublishing_w2_deduplication_receipts(graph), [])
+    report = nonpublishing_w2_parent_stage_receipts(census)
+    assert report["w2_edges_with_unknown_parent_inventory"] == ["kept"]
+    assert len(report["source_parent_stage_receipts"]) == 1
+    parent = report["source_parent_stage_receipts"][0]
+    assert parent["source_ancestry_disposition"] == "W2_PARENT_ONLY_REMOVED_EDGES"
+    assert parent["source_parent_removed_from_entire_w3_inventory"]
+    assert parent["actual_usable_w4_edge_memberships"] == []
+
+
+def test_multiple_w4_parent_memberships_remain_alternatives_after_source_splitting():
+    census = nonpublishing_w2_deduplication_receipts(snapped_duplicate_graph())
+    records = [geometric_record(cid, "source-a", "kept", (0., 0., 0., 10.)) for cid in ("a", "b")]
+    report = nonpublishing_w2_parent_stage_receipts(nonpublishing_w2_w4_edge_membership(census, records))
+    parent = report["source_parent_stage_receipts"][0]
+    assert parent["source_ancestry_disposition"] == "USABLE_W4_EDGE_MEMBERSHIP_OBSERVED"
+    assert parent["actual_usable_w4_edge_memberships"] == [
+        {"source_edge_id": "kept", "wall_candidate_id": "a"},
+        {"source_edge_id": "kept", "wall_candidate_id": "b"}]
+    assert not parent["host_publication_allowed"]
+
+
+def test_conflicting_shared_w4_edge_address_quarantines_every_alternative():
+    census = nonpublishing_w2_deduplication_receipts(snapped_duplicate_graph())
+    records = [geometric_record("a", "source-a", "kept", (0., 0., 0., 10.)),
+               geometric_record("b", "source-a", "kept", (1., 0., 1., 10.))]
+    row = nonpublishing_w2_w4_edge_membership(census, records)["all_w2_edge_receipts"][0]
+    assert all(r["source_edge_address_conflicted"] for r in row["actual_w4_edge_membership_alternatives"])
+    assert not any(r["w4_membership_receipt_usable"] for r in row["actual_w4_edge_membership_alternatives"])
+
+
+def test_raster_cache_authenticates_once_for_identical_scope_and_is_immutable(monkeypatch):
+    import tools.diag_gptmax_raster_host_source_membership as diagnostic
+    calls = []
+    source = {"parent": [0., 0., 10., 0.]}
+    def authenticate(authority, existence, ids):
+        calls.append((authority, existence, ids))
+        return source
+    monkeypatch.setattr(diagnostic, "_authenticated_raster_source_lines", authenticate)
+    cache = DiagnosticRasterLineCache()
+    authority = CacheAuthority()
+    first = cache.resolve(authority, support_opening(), ("b", "a"), published=cache_published(support_opening()))
+    second = cache.resolve(authority, support_opening(), ("a", "b"), published=cache_published(support_opening()))
+    assert first is second
+    assert len(calls) == 1
+    source["parent"][0] = 99.
+    assert first["parent"] == (0., 0., 10., 0.)
+    with pytest.raises(TypeError):
+        first["parent"] = (9., 0., 10., 0.)
+    with pytest.raises(TypeError):
+        first["parent"][0] = 9.
+
+
+@pytest.mark.parametrize("field", ["document_id", "revision_id", "source_sha256", "snapshot_id", "page_id", "viewport_id", "source_observation_ids", "authority"])
+def test_raster_cache_never_reuses_foreign_scope_or_changed_line_inventory(monkeypatch, field):
+    import tools.diag_gptmax_raster_host_source_membership as diagnostic
+    calls = []
+    def authenticate(authority, existence, ids):
+        calls.append((authority, existence, ids))
+        return {f"parent-{len(calls)}": (0., 0., 10., 0.)}
+    monkeypatch.setattr(diagnostic, "_authenticated_raster_source_lines", authenticate)
+    cache = DiagnosticRasterLineCache()
+    authority = CacheAuthority()
+    existence = support_opening()
+    first = cache.resolve(authority, existence, ("a",), published=cache_published(existence))
+    changed = deepcopy(existence)
+    ids = ("a",)
+    if field == "authority":
+        authority = CacheAuthority()
+    elif field == "source_observation_ids":
+        ids = ("a", "b")
+    else:
+        setattr(changed, field, "foreign")
+    second = cache.resolve(authority, changed, ids, published=cache_published(changed))
+    assert len(calls) == 2
+    assert first != second
+
+
+@pytest.mark.parametrize("field", ["document_id", "revision_id", "source_sha256", "snapshot_id", "page_id"])
+def test_incomplete_raster_cache_scope_cannot_create_or_reuse_entry(monkeypatch, field):
+    import tools.diag_gptmax_raster_host_source_membership as diagnostic
+    monkeypatch.setattr(diagnostic, "_authenticated_raster_source_lines", lambda *args: pytest.fail("must not authenticate an incomplete scope"))
+    existence = support_opening()
+    setattr(existence, field, None)
+    with pytest.raises(ValueError, match="incomplete raster line source cache scope"):
+        DiagnosticRasterLineCache().resolve(CacheAuthority(), existence, ("a",), published=cache_published(existence))
+
+
+@pytest.mark.parametrize("corruption", [None, [], {"nodes": True, "edges": []},
+    {"nodes": [], "edges": "edge"}, {"nodes": [None], "edges": []},
+    {"nodes": [], "edges": [None]}])
+def test_non_graph_containers_never_enter_production_deduplication(corruption):
+    with pytest.raises(TypeError, match="W2 deduplication.*inventory"):
+        nonpublishing_w2_deduplication_receipts(corruption)
+
+
+class CacheAuthority:
+    def __init__(self):
+        self.damaged = False
+        self.payload = "sealed-source-payload"
+        self.validations = 0
+
+    def source_visibility_authority(self):
+        return self
+
+    def authenticated_visible_observations(self, published):
+        self.validations += 1
+        if self.damaged:
+            raise RuntimeError("producer_integrity_failure")
+        return (("a", SimpleNamespace(observation_payload_sha256=self.payload)),)
+
+
+def cache_published(existence):
+    return SimpleNamespace(revision=SimpleNamespace(document_id=existence.document_id,
+        revision_id=existence.revision_id, source_sha256=existence.source_sha256),
+        snapshot=SimpleNamespace(snapshot_id=existence.snapshot_id))
+
+
+def test_warm_raster_cache_reauthenticates_source_and_never_replays_damaged_snapshot(monkeypatch):
+    import tools.diag_gptmax_raster_host_source_membership as diagnostic
+    monkeypatch.setattr(diagnostic, "_authenticated_raster_source_lines", lambda *args: {"p": (0., 0., 10., 0.)})
+    authority = CacheAuthority()
+    existence = support_opening()
+    cache = DiagnosticRasterLineCache()
+    cache.resolve(authority, existence, ("a",), published=cache_published(existence))
+    authority.damaged = True
+    with pytest.raises(RuntimeError, match="producer_integrity_failure"):
+        cache.resolve(authority, existence, ("a",), published=cache_published(existence))
+    assert authority.validations == 2
+
+
+def test_raster_cache_key_includes_reauthenticated_source_manifest(monkeypatch):
+    import tools.diag_gptmax_raster_host_source_membership as diagnostic
+    calls = []
+    def lines(*args):
+        calls.append(args)
+        return {"p": (float(len(calls)), 0., 10., 0.)}
+    monkeypatch.setattr(diagnostic, "_authenticated_raster_source_lines", lines)
+    cache = DiagnosticRasterLineCache()
+    authority = CacheAuthority()
+    existence = support_opening()
+    first = cache.resolve(authority, existence, ("a",), published=cache_published(existence))
+    authority.payload = "different-reauthenticated-source-payload"
+    second = cache.resolve(authority, existence, ("a",), published=cache_published(existence))
+    assert len(calls) == 2
+    assert first != second
+
+
+def test_raster_cache_rejects_foreign_published_snapshot_before_lookup(monkeypatch):
+    import tools.diag_gptmax_raster_host_source_membership as diagnostic
+    monkeypatch.setattr(diagnostic, "_authenticated_raster_source_lines", lambda *args: pytest.fail("must not authenticate foreign source"))
+    existence = support_opening()
+    published = cache_published(existence)
+    published.snapshot.snapshot_id = "foreign"
+    with pytest.raises(ValueError, match="published source scope mismatch"):
+        DiagnosticRasterLineCache().resolve(CacheAuthority(), existence, ("a",), published=published)
