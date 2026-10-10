@@ -4,7 +4,7 @@ from tools.diag_gpt2_rcp_material_occurrence_gates import (
     scoped_rcp_material_occurrence_gate as gate,
 )
 
-def vp(kind="reflected_ceiling_plan",status="derived",box=(1,2,9,20)):
+def vp(kind="reflected_ceiling_plan",status="resolved",box=(1,2,9,20)):
     return R(view_id="v9",view_type=kind,status=status,bounding_box=box)
 
 def scope(*,complete=False,records=(),reasons=("source_material_viewport_unauthenticated",),status=None):
@@ -104,13 +104,15 @@ def test_rcp_viewport_must_have_finite_positive_native_bbox():
 
 def test_rcp_proposed_source_records_never_authenticate_original_view():
     from pb_migration_contracts import EvidenceResolutionStatus
+    # Synthetic resolved scopes for isolated cross-view lineage testing;
+    # the actual page9 original remains unsupported in production.
     original=R(
         view_id="view_p9_2",view_type="reflected_ceiling_plan",
-        status="derived",bounding_box=(0.0,0.0,120.0,90.0),
+        status="resolved",bounding_box=(0.0,0.0,120.0,90.0),
     )
     proposed=R(
         view_id="view_p9_5",view_type="reflected_ceiling_plan",
-        status="derived",bounding_box=(150.0,0.0,300.0,90.0),
+        status="resolved",bounding_box=(150.0,0.0,300.0,90.0),
     )
     proposed_record=R(
         viewport_id="view_p9_5",record_id="proposed-source-occurrence",
@@ -189,3 +191,30 @@ def test_duplicate_material_occurrence_record_ids_cannot_double_count_source():
     assert right["producer_authenticated_record_ids"]==[
         "source-duplicate", "different",
     ]
+
+
+def test_derived_rcp_requires_actual_producer_partition_authority():
+    from pb_migration_contracts import EvidenceResolutionStatus
+    source=scope(
+        complete=True,
+        status=EvidenceResolutionStatus.CORROBORATED,
+        records=(R(viewport_id="v9", record_id="receipt", code="FPB"),),
+    )
+    unproven=vp(status="derived")
+    assert gate(unproven,source)["first_unclosed_gate"]=="source_rcp_viewport_unresolved"
+    assert gate(unproven,source)["producer_authenticated_record_ids"]==[]
+    # A complete source-owned title grid is an actual producer gate,
+    # not a free-form status flag or an unverified title alone.
+    authenticated=R(
+        view_id="v9", view_type="reflected_ceiling_plan",
+        status="derived", bounding_box=(1,2,9,20),
+        boundary_source="title_partition",
+        provenance={"partition_mode":"columnar_title_grid","grid_validated":True},
+    )
+    proven=gate(authenticated,source)
+    assert proven["first_unclosed_gate"]=="producer_authenticated_occurrences_require_room_owner_before_quantity"
+    assert proven["producer_authenticated_record_ids"]==["receipt"]
+    unauthenticated=R(**{**vars(authenticated),
+                        "provenance":{"partition_mode":"columnar_title_grid",
+                                      "grid_validated":False}})
+    assert gate(unauthenticated,source)["producer_authenticated_record_ids"]==[]
