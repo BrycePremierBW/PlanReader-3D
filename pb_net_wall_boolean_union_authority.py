@@ -496,8 +496,25 @@ class NetWallBooleanUnionProducer:
                 ),
             )
 
+        # Do not let malformed replayed completeness records silently lose
+        # duplicate or blank source members through set conversion.
+        raw_member_ids = tuple(universe_record.accounted_member_ids)
+        if (
+            any(not str(member_id or "").strip() for member_id in raw_member_ids)
+            or len(set(raw_member_ids)) != len(raw_member_ids)
+        ):
+            return self._store(
+                selector,
+                _blocked_with_gross(
+                    EvidenceResolutionStatus.CONFLICT,
+                    gross_record,
+                    universe_record.record_id,
+                    NET_WALL_OPENING_UNIVERSE_INCOMPLETE,
+                ),
+            )
+
         # Collect candidate opening identities within the scope
-        candidate_opening_ids = set(universe_record.accounted_member_ids)
+        candidate_opening_ids = set(raw_member_ids)
         if hasattr(self._void, "_results"):
             for key in self._void._results:
                 if key[:6] == (
