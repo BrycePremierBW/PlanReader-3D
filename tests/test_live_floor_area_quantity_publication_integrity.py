@@ -643,3 +643,43 @@ def test_floor_area_rejects_boolean_and_nonfinite_quantities_or_confidence():
         claim = replace(_claim_with(source), canonical_floors=(corrupted_floor,))
         assert publish_live_floor_area_quantities(claim) == ()
     assert len(publish_live_floor_area_quantities(_claim_with(source))) == 1
+
+
+def test_sealed_floor_area_rejects_missing_nonfinite_or_degenerate_source_polygon():
+    from pb_live_floor_area_source_closed_export import build_live_floor_area_source_traces
+    from pb_source_closed_run_export import SourceClosedRunConflictError
+    import pytest
+
+    source = _source_area()
+    for polygon in (
+        (),
+        ((1.0, 1.0), (1.0, 2.0), (1.0, 3.0)),
+        ((0.0, 0.0), (float("nan"), 1.0), (2.0, 2.0)),
+        ((0.0, 0.0), (float("inf"), 1.0), (2.0, 2.0)),
+    ):
+        corrupted = replace(_floor(), polygon_pdf_pts=polygon)
+        claim = replace(_claim_with(source), canonical_floors=(corrupted,))
+        with pytest.raises(SourceClosedRunConflictError):
+            build_live_floor_area_source_traces(
+                claim, workspace_id=1, project_id="original-source",
+            )
+
+    original_claim = _claim_with(source)
+    traces = build_live_floor_area_source_traces(
+        original_claim, workspace_id=1, project_id="original-source",
+    )
+    assert len(traces) == 1
+
+
+def test_sealed_floor_area_rejects_duplicate_original_floor_face_evidence():
+    from pb_live_floor_area_source_closed_export import build_live_floor_area_source_traces
+    from pb_source_closed_run_export import SourceClosedRunConflictError
+    import pytest
+
+    source = _source_area()
+    bad_floor = replace(_floor(), evidence_ids=("ev-room", "ev-area", "ev-room"))
+    with pytest.raises(SourceClosedRunConflictError):
+        build_live_floor_area_source_traces(
+            replace(_claim_with(source), canonical_floors=(bad_floor,)),
+            workspace_id=1, project_id="original-source",
+        )
