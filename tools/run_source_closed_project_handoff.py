@@ -542,6 +542,20 @@ def generate_project_handoff(
         _write_json(output_dir / "production_summary.json", summary)
         raise RuntimeError("source PDF SHA changed during production handoff")
 
+    # Validate *all* families before writing a single sealed file: checking
+    # after _write_run would leave a plausible but unauthenticated artifact.
+    # This production command accepts exactly one PDF; sibling source digests
+    # in its sealed envelope have no authenticated owner here.
+    for family, run in family_runs:
+        if set(run.source_sha256s) != {source_sha256}:
+            summary["status"] = "source_envelope_conflict"
+            summary["claim_reason_codes"] = [
+                *summary["claim_reason_codes"],
+                f"sealed_source_envelope_conflict:{family}",
+            ]
+            _write_json(output_dir / "production_summary.json", summary)
+            raise RuntimeError(f"{family} sealed run has conflicting source SHA envelope")
+
     expected_by_family = {
         "floor_area": floor_quantities,
         "floor_finish_area": floor_finish_quantities,
@@ -568,20 +582,6 @@ def generate_project_handoff(
             raise RuntimeError(
                 f"{family} sealed quantities differ from authenticated publisher receipts"
             )
-
-    # Validate *all* families before writing a single sealed file: checking
-    # after _write_run would leave a plausible but unauthenticated artifact.
-    # This production command accepts exactly one PDF; sibling source digests
-    # in its sealed envelope have no authenticated owner here.
-    for family, run in family_runs:
-        if set(run.source_sha256s) != {source_sha256}:
-            summary["status"] = "source_envelope_conflict"
-            summary["claim_reason_codes"] = [
-                *summary["claim_reason_codes"],
-                f"sealed_source_envelope_conflict:{family}",
-            ]
-            _write_json(output_dir / "production_summary.json", summary)
-            raise RuntimeError(f"{family} sealed run has conflicting source SHA envelope")
 
     for family, run in family_runs:
         run_path = _write_run(output_dir, family, run)
