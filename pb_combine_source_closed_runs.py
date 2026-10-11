@@ -56,6 +56,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
 
+    # Source-closed family receipts are immutable inputs, not disposable CLI
+    # scratch files. Resolve aliases/symlinks before composition so a caller
+    # cannot silently replace one authenticated producer run with its aggregate.
+    output_identity = args.output.resolve()
+    if any(output_identity == source.resolve() for source in args.inputs):
+        raise ValueError("combined output must not overwrite a sealed source input")
+
     combined = combine_sealed_run_files(
         args.inputs,
         project_id=args.project_id,
