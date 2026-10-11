@@ -378,6 +378,7 @@ jobs:
               compose_grid_separated_room_faces,
               _fully_grid_opposed_wall_evidence,
               _grid_local_adjacency,
+              _atomic_source_wall_edge_counts,
           )
           from tools.diag_gpt2_grid_component_first_failure import (
               inspect_split_grid_component_first_failure,
@@ -414,6 +415,7 @@ jobs:
               fully_grid,evidence_by_wall=_fully_grid_opposed_wall_evidence(wall_scope)
               assert not colliding_w4_ids.intersection(fully_grid)
               adjacency=_grid_local_adjacency(room_scope,fully_grid)
+              atomic_wall_subedges=_atomic_source_wall_edge_counts(room_scope,fully_grid)
               composite=compose_grid_separated_room_faces(
                   wall_scope=wall_scope,
                   room_scope=room_scope,
@@ -431,9 +433,18 @@ jobs:
                       room_scope=room_scope, label_scope=label_scope,
                       grid_walls=fully_grid,grid_evidence=evidence_by_wall,
                       grid_adjacency=adjacency,
+                      local_counts=atomic_wall_subedges,
                   )
                   for candidate in label_scope.split_face_candidates
               ]
+              assert all(
+                  not row.get("physical_union_source_first_failure_diagnostic_only")
+                  or (
+                      not row["physical_union_source_first_failure_diagnostic_only"]["new_room_geometry_published"]
+                      and not row["physical_union_source_first_failure_diagnostic_only"]["new_metric_area_published"]
+                  )
+                  for row in split_component_gates
+              )
               assert all(
                   not row["source_room_composite_published_by_diagnostic"]
                   and not row["source_room_metric_area_published"]
