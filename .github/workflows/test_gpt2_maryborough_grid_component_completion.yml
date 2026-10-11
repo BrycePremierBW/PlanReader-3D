@@ -98,10 +98,33 @@ jobs:
               and float(row["value_m2"])>0
               for row in floor_handoff
           )
+          # A dict-comprehension silently discards competing producer room
+          # quantities with the same label. Keep every authenticated receipt
+          # before checking each independently documented source control.
+          firm_receipts={}
+          for q in claim.room_area_quantity_evidence:
+              if q.abstained or q.value is None:
+                  continue
+              label=norm(dict(q.metadata or {}).get("room_label"))
+              firm_receipts.setdefault(label,[]).append(q)
+          for label,receipts in firm_receipts.items():
+              assert label
+              assert len({q.quantity_id for q in receipts})==len(receipts), (
+                  "source room quantity ID replay: "+label
+              )
+              assert all(
+                  q.family=="room_area" and q.unit in ("m2","m²")
+                  and q.evidence_ids and len(q.input_entity_ids)==1
+                  and dict(q.metadata or {}).get("source_sha256")==source_sha
+                  for q in receipts
+              )
           firm={
-              norm(dict(q.metadata or {}).get("room_label")):float(q.value)
-              for q in claim.room_area_quantity_evidence
-              if not q.abstained and q.value is not None
+              label:float(receipts[0].value)
+              for label,receipts in firm_receipts.items() if len(receipts)==1
+          }
+          firm_receipt_ids={
+              label:[q.quantity_id for q in receipts]
+              for label,receipts in firm_receipts.items()
           }
 
           # Independent owner-provided source dimension controls; not used
@@ -111,6 +134,7 @@ jobs:
               ("COLD ROOM",25.37875),
               ("OFFICE",9.05352),
           ):
+              assert len(firm_receipts.get(label,()))==1
               assert abs(firm[label]-expected) < 1e-9
               matching=[row for row in labelled if row["label"]==label]
               assert len(matching)==1
@@ -161,6 +185,7 @@ jobs:
               "labels":labels,
               "observed_geometry_targets":observed,
               "firm_room_areas":firm,
+              "source_room_area_quantity_receipt_ids":firm_receipt_ids,
               "canonical_room_floor_source_handoff":owned_spaces,
               "production_floor_area_quantity_handoff":floor_handoff,
               "production_floor_area_quantity_count":len(floor_handoff),
