@@ -57,6 +57,8 @@ def project_live_ceiling_customer_rows(
     """Project every final sealable canonical ceiling quantity to one AI-review row."""
     if type(claim) is not LivePhysicalNetWallClaim:
         raise TypeError("claim must be LivePhysicalNetWallClaim")
+    if type(workspace_id) is not int or workspace_id <= 0:
+        raise ValueError("workspace_id must be an authenticated positive integer")
 
     quantities = tuple(
         quantity
@@ -74,7 +76,7 @@ def project_live_ceiling_customer_rows(
 
     traces = build_live_ceiling_lining_source_traces(
         claim,
-        workspace_id=int(workspace_id),
+        workspace_id=workspace_id,
         project_id=project_id,
     )
     ceilings = {
