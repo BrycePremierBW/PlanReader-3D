@@ -297,6 +297,7 @@ jobs:
           from tools.diag_gpt2_room_wall_dimension_endpoints import (
               inspect_source_face_dimension_endpoints,
               source_native_dimension_text_room_locality,
+              native_dimension_text_boundary_distance,
           )
           from collections import Counter
           contact_rows=[]
@@ -322,6 +323,23 @@ jobs:
                       source_native_dimension_text_room_locality(source_face,observation)
                       for observation in dimension_bundle.observations
                   ]
+                  boundary_distance_rows=[
+                      native_dimension_text_boundary_distance(source_face,observation)
+                      for observation in dimension_bundle.observations
+                  ]
+                  assert all(
+                      not row["source_room_dimension_owned"]
+                      and not row["metric_area_published"]
+                      for row in boundary_distance_rows
+                  )
+                  sorted_exterior_candidates=[
+                      row for row in boundary_distance_rows
+                      if row["nearest_native_room_boundary_distance_pdf_pts"] is not None
+                  ]
+                  sorted_exterior_candidates.sort(key=lambda row:(
+                      row["nearest_native_room_boundary_distance_pdf_pts"],
+                      str(row["observation_id"]),
+                  ))
                   room_local_observation_ids={
                       row["observation_id"] for row in locality_rows
                       if row["native_room_text_spatial_candidate_only"]
@@ -336,6 +354,7 @@ jobs:
                       for row in local_witness_rows
                   )
                   contact_rows.append({
+                      "nearest_exterior_native_dimension_text_candidates_diagnostic_only":sorted_exterior_candidates[:5],
                       "native_text_locality_first_gates":dict(sorted(Counter(
                           row["first_spatial_gate"] for row in locality_rows
                       ).items())),
@@ -362,6 +381,9 @@ jobs:
               "native_dimension_binding_count":len(dimension_bundle.bindings),
               "rooms":[{
                   "room_label":entry["room_label"],
+                  "nearest_exterior_native_dimension_text_candidates_diagnostic_only":entry[
+                      "nearest_exterior_native_dimension_text_candidates_diagnostic_only"
+                  ],
                   "native_dimension_text_locality_first_gates":entry[
                       "native_text_locality_first_gates"
                   ],
