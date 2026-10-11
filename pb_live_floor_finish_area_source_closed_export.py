@@ -86,6 +86,11 @@ def build_live_floor_finish_area_source_traces(
             raise SourceClosedRunConflictError(
                 f"floor-finish quantity references unknown canonical floor: {floor_id}"
             )
+        if _clean(quantity.authority) != _clean(floor.metric_area_authority):
+            raise SourceClosedRunConflictError(
+                "floor-finish metric authority disagrees with canonical floor: "
+                f"{quantity.quantity_id}"
+            )
         if not floor.physical_floor_surface_identity_resolved:
             raise SourceClosedRunConflictError(
                 f"physical floor identity is unresolved: {floor_id}"
