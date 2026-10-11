@@ -61,6 +61,20 @@ def _json_copy(value: Any) -> Any:
     return json.loads(canonical_contract_json(value))
 
 
+# These states describe observations or blocked evidence, not admissible
+# source-supported commercial quantities. The positive statuses used by
+# different production families remain unchanged.
+_NONPUBLISHABLE_QUANTITY_STATES = frozenset({
+    "raw", "candidate", "partial", "blocked", "abstained", "unresolved",
+    "unsupported", "pending", "shadow",
+})
+
+
+def quantity_status_not_publishable(status: Any) -> bool:
+    token = _norm(status)
+    return token in _NONPUBLISHABLE_QUANTITY_STATES or "conflict" in token
+
+
 def _unit_is_valid(unit: str) -> bool:
     return _clean(unit).lower().replace(" ", "") in _VALID_COMMERCIAL_UNITS
 
@@ -239,6 +253,10 @@ def _validate_quantity_trace(
             "QuantityEvidence carries publication blockers: " + ", ".join(quantity.blocking_reasons)
         )
     status = _norm(quantity.status)
+    if quantity_status_not_publishable(quantity.status):
+        raise MissingCommercialAuthorityError(
+            "nonpublishable QuantityEvidence status cannot enter commercial projection"
+        )
     reasons = {_norm(reason) for reason in quantity.reason_codes}
     if "conflict" in status or any("conflict" in reason for reason in reasons):
         raise CommercialTakeoffConflictError("conflicting QuantityEvidence cannot enter commercial projection")
