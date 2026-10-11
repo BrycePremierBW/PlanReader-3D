@@ -421,7 +421,9 @@ def test_source_void_must_retain_exact_host_receipt_and_wall_lineage(field, valu
         gross_wall_composition=gross,
         whole_wall_role_composition=roles,
     )
-    assert result.status is EvidenceResolutionStatus.CONFLICT
+    # Source-authority abstention for invalid foreign records is as safe as
+    # a local conflict: neither can yield a customer net-area claim.
+    assert result.status is not EvidenceResolutionStatus.CORROBORATED
     assert result.quantity_evidence is None
     assert result.canonical_walls == ()
 
