@@ -530,3 +530,31 @@ def test_gpt2_upstream_exact_indexed_w4_owner_must_have_original_edge():
     assert _unique_containing_wall_owner(
         subedge,edge_owner={},wall_edges=good
     )=="W4-original"
+
+
+def test_gpt2_containing_wall_owner_rejects_malformed_w4_fallback_keys():
+    from pb_source_room_face_authority import _unique_containing_wall_owner, _edge
+    parent=_edge((0.,0.),(10.,0.))
+    child=_edge((2.,0.),(8.,0.))
+    malformed={
+        None:(parent,),
+        73:(parent,),
+        " owner":(parent,),
+        "":(parent,),
+        "W4-proven":(parent,),
+    }
+    assert _unique_containing_wall_owner(
+        child,edge_owner={},wall_edges=malformed
+    )=="W4-proven"
+    assert _unique_containing_wall_owner(
+        child,edge_owner={},wall_edges={
+            None:(parent,),73:(parent,),"":(parent,),
+        }
+    ) is None
+    # Two truly distinct authenticated source wall owners remain a
+    # conflict rather than an arbitrary lexicographic first winner.
+    assert _unique_containing_wall_owner(
+        child,edge_owner={},wall_edges={
+            "W4-one":(parent,),"W4-two":(parent,),
+        }
+    ) is None
