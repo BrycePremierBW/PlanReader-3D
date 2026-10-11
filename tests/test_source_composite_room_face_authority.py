@@ -1271,3 +1271,24 @@ def test_gpt2_dry_store_competing_room_label_receipts_are_source_face_owned():
     }]
     assert row["source_room_composite_published_by_diagnostic"] is False
     assert row["source_room_metric_area_published"] is False
+
+
+def test_gpt2_union_diagnostic_unhashable_source_receipt_stays_unavailable():
+    from dataclasses import replace
+    from tools.diag_gpt2_grid_component_first_failure import (
+        _physical_union_first_unclosed_gate,
+    )
+    room=_room_scope()
+    left,right=room.records
+    for bad_receipt in ([],{"unsafe":"value"},73,None," record_right"):
+        bad=replace(room,records=(left,replace(right,record_id=bad_receipt)))
+        report=_physical_union_first_unclosed_gate(
+            ("face_left","face_right"),room_scope=bad,
+            fully_grid_wall_ids={"w_sep"},grid_evidence={"w_sep":("authentic-grid",)},
+            local_counts=None,
+        )
+        assert report["physical_union_first_unclosed_gate"]==(
+            "source_component_face_receipt_conflict"
+        )
+        assert not report["new_room_geometry_published"]
+        assert not report["new_metric_area_published"]
