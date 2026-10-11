@@ -61,3 +61,29 @@ def test_original_integer_page_and_explicit_firm_source_stay_supported():
     assert _build(area=area).value == area.value
     string_page = replace(area, metadata={**dict(area.metadata), "page_no": "1"})
     assert _build(area=string_page).value == area.value
+
+
+
+@pytest.mark.parametrize("untrusted_method", [
+    "model_derived", "ai_detected", "schedule_assumption",
+    "quantity_replayed", "inferred_from_room_name",
+])
+def test_claimed_firm_untrusted_measurement_does_not_feed_shadow_ceiling(untrusted_method):
+    result = _build(area=replay(authority=untrusted_method))
+    assert result.abstained is True
+    assert "upstream_area_measurement_authority_untrusted" in result.blocking_reasons
+
+
+def test_source_quantity_semantic_owner_must_match_physical_room_scope():
+    result = _build(area=replay(semantic_key="room_area:unrelated-physical-room"))
+    assert result.abstained is True
+    assert "upstream_area_semantic_owner_mismatch" in result.blocking_reasons
+
+
+@pytest.mark.parametrize("supported", ["documented_dimension", "pdf_scaled", "user_approved"])
+def test_admissible_metric_room_area_authorities_remain_provisional_not_commercial(supported):
+    result = _build(area=replay(authority=supported))
+    assert result.abstained is False
+    assert result.value == 42.375
+    assert result.metadata["shadow_only"] is True
+    assert result.metadata["commercial_projection_allowed"] is False
