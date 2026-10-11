@@ -456,6 +456,17 @@ def _candidate_record(
     local_counts=None,
     grid_adjacency=None,
 ) -> CompositeSourceRoomFaceRecord | None:
+    # A missing, padded or numeric native split-label producer identity must
+    # never mint a physical room, even if source cell geometry is otherwise
+    # plausible. This guard runs before the expensive grid/union stages.
+    candidate_id = getattr(candidate, "record_id", None)
+    candidate_label = getattr(candidate, "label", None)
+    if (
+        not isinstance(candidate_id, str) or not candidate_id
+        or candidate_id != candidate_id.strip()
+        or not isinstance(candidate_label, str) or not candidate_label.strip()
+    ):
+        return None
     # No dictionary overwrite of duplicate upstream source-face identities.
     # A source receipt shared across two different physical face IDs also
     # cannot authenticate a room union. Unrelated valid faces remain usable.
