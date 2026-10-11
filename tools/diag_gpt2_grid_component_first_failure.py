@@ -27,6 +27,9 @@ def inspect_split_grid_component_first_failure(
     wall_scope: PhysicalWallCandidateScopeResult,
     room_scope: SourceRoomFaceScopeResult,
     label_scope: SourceRoomLabelScopeResult,
+    grid_walls: set[str] | None = None,
+    grid_evidence: Any = None,
+    grid_adjacency: Any = None,
 ) -> dict[str, Any]:
     """Diagnose first missing production authority; do not promote candidates."""
     raw_seeds = getattr(candidate, "word_face_ids", ()) or ()
@@ -95,13 +98,22 @@ def inspect_split_grid_component_first_failure(
         output["first_unclosed_gate"] = "split_label_source_face_receipt_mismatch"
         return output
 
-    fully_grid, grid_evidence = _fully_grid_opposed_wall_evidence(wall_scope)
+    # A scoped source run already has these producer-owned grid indexes.
+    # Reuse them across candidates instead of rescanning every W4 and
+    # source face separately for each native room label.
+    if grid_walls is None or grid_evidence is None:
+        fully_grid, grid_evidence = _fully_grid_opposed_wall_evidence(wall_scope)
+    else:
+        fully_grid = grid_walls
     output["fully_grid_opposed_w4_wall_count"] = len(fully_grid)
     if not fully_grid:
         output["first_unclosed_gate"] = "no_producer_authenticated_grid_opposed_w4"
         return output
 
-    adjacency = _grid_local_adjacency(room_scope, fully_grid)
+    adjacency = (
+        grid_adjacency if grid_adjacency is not None
+        else _grid_local_adjacency(room_scope, fully_grid)
+    )
     connected = _grid_connected_component(
         seeds, room_scope=room_scope, fully_grid_wall_ids=fully_grid,
         adjacency=adjacency,
