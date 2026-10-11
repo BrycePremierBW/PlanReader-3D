@@ -63,6 +63,10 @@ def _lineage_reasons(
         if _clean(candidate).lower() != _clean(authoritative).lower():
             reasons.append(f"{key}_mismatch")
 
+    for marker in ("is_stale", "is_superseded"):
+        if marker in metadata and metadata[marker] is not False:
+            reasons.append(f"quantity_{marker}")
+
     workspace = metadata.get("workspace_id")
     if workspace is not None:
         if type(workspace) is int and workspace > 0:
