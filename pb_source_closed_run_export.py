@@ -403,9 +403,11 @@ def _build_sealed_run(
 
     normalized: list[SealedSourceClosedQuantity] = []
     quantity_ids: set[str] = set()
+    # Index by each producer-owned physical ID, not by an exact identity tuple.
+    # One quantity can claim A+B while another claims B+C; exact-set checks
+    # would miss the overlapping B claim and double-count source geometry.
     physical_claims: dict[
-        tuple[str, str, tuple[str, ...]],
-        SealedSourceClosedQuantity,
+        tuple[str, str], dict[str, SealedSourceClosedQuantity]
     ] = {}
     for row in rows:
         if not isinstance(row, SealedSourceClosedQuantity):
@@ -426,25 +428,27 @@ def _build_sealed_run(
             sorted({_clean(value) for value in row.object_identity_refs if _clean(value)})
         )
         if not row.abstained and identities:
-            claim_key = (
-                _clean(row.family).lower(),
-                _clean(row.semantic_key),
-                identities,
-            )
-            prior = physical_claims.get(claim_key)
-            if prior is not None:
+            claim_key = (_clean(row.family).lower(), _clean(row.semantic_key))
+            claimed_ids = physical_claims.setdefault(claim_key, {})
+            for identity in identities:
+                prior = claimed_ids.get(identity)
+                if prior is None:
+                    continue
+                prior_ids = frozenset(_clean(value) for value in prior.object_identity_refs if _clean(value))
                 same_claim = (
-                    prior.value == row.value
+                    prior_ids == frozenset(identities)
+                    and prior.value == row.value
                     and _clean(prior.unit).lower() == _clean(row.unit).lower()
                 )
                 detail = "duplicate" if same_claim else "conflicting"
                 raise SourceClosedRunConflictError(
                     f"{detail} sealed physical claim for family "
                     f"{row.family!r}, semantic key {row.semantic_key!r}, "
-                    f"identities {identities!r}: "
+                    f"overlapping source identity {identity!r}: "
                     f"{prior.quantity_id!r} vs {row.quantity_id!r}"
                 )
-            physical_claims[claim_key] = row
+            for identity in identities:
+                claimed_ids[identity] = row
 
         normalized.append(row)
 
