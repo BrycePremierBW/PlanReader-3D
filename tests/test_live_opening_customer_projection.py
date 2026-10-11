@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
+
+import pytest
 
 import fitz
 
@@ -118,3 +121,42 @@ def test_real_opening_seal_projects_one_complete_persisted_customer_row(tmp_path
     assert persisted_report.verified_quantity_ids == (
         sealed.quantities[0].quantity_id,
     )
+
+
+@pytest.mark.parametrize("kind", ("two_area_rows", "area_count_collision"))
+def test_opening_customer_output_rejects_reused_quantity_identity_before_trace_merge(
+    tmp_path, kind,
+):
+    path = tmp_path / "opening-identity-collision.pdf"
+    path.write_bytes(_opening_pdf())
+    claim = collect_live_physical_net_wall_claim(path, pages=(0,))
+    assert len(claim.opening_quantity_evidence) == 1
+    original = claim.opening_quantity_evidence[0]
+    if kind == "two_area_rows":
+        forged = replace(
+            claim,
+            opening_quantity_evidence=(original, original),
+        )
+    else:
+        forged_count = replace(
+            original,
+            family="opening_count",
+            metadata={
+                **dict(original.metadata),
+                "schedule_corroborated": True,
+                "opening_mark": "W1",
+            },
+        )
+        forged = replace(
+            claim,
+            opening_count_quantity_evidence=(forged_count,),
+        )
+    with pytest.raises(ValueError, match="quantity identities collide"):
+        project_live_opening_customer_rows(
+            forged,
+            workspace_id=17,
+            project_id="customer-workspace:17",
+        )
+    assert len(project_live_opening_customer_rows(
+        claim, workspace_id=17, project_id="customer-workspace:17",
+    )) == 1

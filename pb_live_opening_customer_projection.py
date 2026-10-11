@@ -86,6 +86,14 @@ def project_live_opening_customer_rows(
     quantities = (*area_quantities, *count_quantities)
     if not quantities:
         return ()
+    # Area and count are distinct commercial families. Never allow a reused
+    # quantity ID to make trace updates overwrite an independent source claim.
+    ids = tuple(quantity.quantity_id for quantity in quantities)
+    if (
+        any(type(value) is not str or not value.strip() for value in ids)
+        or len(set(ids)) != len(ids)
+    ):
+        raise ValueError("opening customer quantity identities collide across source claims")
 
     traces = {}
     if area_quantities:
