@@ -517,9 +517,12 @@ def _candidate_record(
     # receipt for each word owner. Never use word-facing geometry from one
     # source face with record ancestry belonging to another or older face.
     distinct_word_faces = tuple(dict.fromkeys(seed_face_ids))
-    actual_word_face_receipts = tuple(
+    raw_source_face_receipts = (
         getattr(candidate, "source_room_face_record_ids", ()) or ()
     )
+    if not isinstance(raw_source_face_receipts, (tuple, list)):
+        return None
+    actual_word_face_receipts = tuple(raw_source_face_receipts)
     expected_word_face_receipts = tuple(
         room_by_face[face_id].record_id for face_id in distinct_word_faces
     )
