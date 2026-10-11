@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -28,9 +29,9 @@ def finalize_split_project_handoff(
     input_dir: Path | str,
     output_dir: Path | str | None = None,
 ) -> dict[str, Any]:
-    clean_project_id = str(project_id or "").strip()
-    if not clean_project_id:
-        raise ValueError("project_id must be non-empty")
+    if type(project_id) is not str or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", project_id):
+        raise ValueError("project_id must be a single canonical filename-safe token")
+    clean_project_id = project_id
 
     source_dir = Path(input_dir)
     target_dir = Path(output_dir) if output_dir is not None else source_dir
