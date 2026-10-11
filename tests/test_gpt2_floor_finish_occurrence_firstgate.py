@@ -17,7 +17,8 @@ def view(**extra):
 def rec(**extra):
     r=dict(
         record_id="receipt-1",source_sha256="sha",page_id="7",
-        viewport_id="view_p7_2",code="FT2",source_evidence_id="source-ev",
+        viewport_id="view_p7_2",code="FT2",semantic_finish="authenticated-source-semantic",
+        source_evidence_id="source-ev",
         definition_record_id="schedule-definition-1",
         source_text_observation_ids=("obs-1",),
         bbox_pdf_pts=(20.,20.,25.,25.)
@@ -133,3 +134,27 @@ def test_gpt2_source_floor_material_viewport_supports_native_enum_values():
             "source_floor_plan_viewport_unresolved":1
         }
         assert not invalid["floor_finish_quantity_published"]
+
+
+def test_gpt2_material_observation_collection_cannot_be_stringified_into_receipts():
+    for invalid in ("obs-1",{"obs-1":1},73,None,("obs-1",[])):
+        row=run((rec(source_text_observation_ids=invalid),))
+        assert row["first_failure_counts"]=={
+            "material_occurrence_observation_receipt_ambiguous":1
+        }
+        assert not row["room_finish_ownership_published"]
+        assert not row["floor_finish_quantity_published"]
+
+
+def test_gpt2_untrusted_source_finish_material_code_or_semantic_abstains():
+    for changed in (
+        {"code":None},{"code":73},{"code":" FT2 "},{"code":""},
+        {"semantic_finish":None},{"semantic_finish":43},
+        {"semantic_finish":" "},{"semantic_finish":" floor_finish "},
+    ):
+        row=run((rec(**changed),))
+        assert row["first_failure_counts"]=={
+            "material_occurrence_material_semantic_unavailable":1
+        }
+        assert not row["room_finish_ownership_published"]
+        assert not row["floor_finish_quantity_published"]
