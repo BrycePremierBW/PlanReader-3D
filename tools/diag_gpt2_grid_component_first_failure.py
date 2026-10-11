@@ -175,10 +175,13 @@ def _physical_union_first_unclosed_gate(
         result["physical_union_first_unclosed_gate"] = (
             "source_external_grid_owned_subedge_room_incomplete"
         )
-    elif any(
-        not grid_evidence.get(wall_id, ())
+    elif not any(
+        grid_evidence.get(wall_id, ())
         for wall_id, edge in internal
     ):
+        # Production collects the union of source GRID evidence receipts
+        # over *all* internal separator walls, then requires that union
+        # to be non-empty. Do not introduce a stricter diagnostic rule.
         result["physical_union_first_unclosed_gate"] = (
             "source_grid_separator_receipt_unavailable"
         )
