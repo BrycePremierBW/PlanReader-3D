@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
+import tempfile
 from typing import Any, Mapping, Sequence
 
 from pb_customer_output_verification import verify_sealed_customer_output
@@ -91,13 +93,31 @@ def main() -> None:
     parser.add_argument("--customer-rows", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
+    # Diagnostic reports must never replace original signed source evidence or
+    # customer rows, even through relative path or symlink aliases.
+    output_identity = args.output.resolve()
+    if output_identity in {args.sealed_run.resolve(), args.customer_rows.resolve()}:
+        raise ValueError("evidence report output must not overwrite source input")
     sealed_payload = _read_strict_evidence_json(args.sealed_run)
     rows = _read_strict_evidence_json(args.customer_rows)
     if not isinstance(rows, list):
         raise TypeError("customer-rows JSON must be an array")
     report = build_source_customer_evidence_report(sealed_payload, rows)
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(report, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=args.output.parent,
+            prefix=f".{args.output.name}.", suffix=".tmp", delete=False,
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+            temporary.write(json.dumps(report, sort_keys=True, indent=2) + "\n")
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        os.replace(temporary_path, args.output)
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":
