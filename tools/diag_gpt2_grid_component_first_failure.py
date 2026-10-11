@@ -25,6 +25,14 @@ from pb_source_room_face_authority import SourceRoomFaceScopeResult
 from pb_source_room_label_authority import SourceRoomLabelScopeResult
 
 
+def _internal_grid_source_evidence_present(internal, by_wall) -> bool:
+    """Mirror production: union of all exact W4 GRID receipt sets is nonempty."""
+    return any(
+        by_wall.get(wall_id, ())
+        for wall_id, _edge in internal
+    )
+
+
 def _physical_union_first_unclosed_gate(
     component: tuple[str, ...],
     *,
@@ -175,10 +183,7 @@ def _physical_union_first_unclosed_gate(
         result["physical_union_first_unclosed_gate"] = (
             "source_external_grid_owned_subedge_room_incomplete"
         )
-    elif not any(
-        grid_evidence.get(wall_id, ())
-        for wall_id, edge in internal
-    ):
+    elif not _internal_grid_source_evidence_present(internal, grid_evidence):
         # Production collects the union of source GRID evidence receipts
         # over *all* internal separator walls, then requires that union
         # to be non-empty. Do not introduce a stricter diagnostic rule.
