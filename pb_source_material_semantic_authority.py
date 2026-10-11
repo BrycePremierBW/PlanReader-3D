@@ -1275,6 +1275,15 @@ def _trusted_native_material_schedule_cluster_blocks(
     # for every word copies the existing prefix repeatedly (quadratic on
     # dense CAD-exported text blocks). The immutable, deterministic sorted
     # tuples are materialized once, after all producer-owned words are read.
+    # Recovery below can invoke expensive source-registered raster OCR. The
+    # complete native source candidate universe is a pure, deterministic
+    # read-only scan and already required to contain >=2 rows by this lane.
+    # Avoid *all* OCR work on impossible one-row/empty clusters while keeping
+    # identical rejection semantics, even for an otherwise trusted title.
+    candidates = _raw_material_definition_candidates(words)
+    if len(candidates) < 2:
+        return (), ()
+
     grouped = _group_native_material_block_words(words)
 
     trusted_titles: list[tuple[tuple[float, float, float, float], tuple[str, ...]]] = []
@@ -1302,11 +1311,9 @@ def _trusted_native_material_schedule_cluster_blocks(
             )
         )
 
-    candidates = _raw_material_definition_candidates(words)
-    # This independent route only exists for a genuine multi-row split
-    # schedule cluster. Ordinary one-row schedules continue through the
-    # established viewport path and must not be poisoned by cluster detection.
-    if len(trusted_titles) != 1 or len(candidates) < 2:
+    # The row-count prerequisite has already been checked before any OCR.
+    # A missing/ambiguous material title remains fail-closed.
+    if len(trusted_titles) != 1:
         return (), ()
 
     title_bbox, title_ids = trusted_titles[0]
