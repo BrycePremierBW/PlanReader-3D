@@ -613,6 +613,8 @@ def test_live_count_rejects_forged_final_customer_count_and_physical_receipts():
     real_publish = GenericOpeningCountProducer.publish
     for target, field, forged_value in (
         ("quantity", "value", 2.0),
+        ("quantity", "evidence_ids", ()),
+        ("quantity", "evidence_ids", ("unrelated-original-source-receipt",)),
         ("quantity", "unit", "m2"),
         ("quantity", "family", "floor_area"),
         ("quantity", "input_entity_ids", ("foreign-opening",)),
