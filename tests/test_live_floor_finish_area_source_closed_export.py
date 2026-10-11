@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from copy import copy
+
 from dataclasses import replace
 
 import pytest
@@ -439,4 +441,65 @@ def test_floor_finish_seal_cannot_use_missing_floor_occurrence_witness() -> None
     ):
         seal_live_floor_finish_area_run(
             claim, workspace_id=1, project_id="project-1",
+        )
+
+
+@pytest.mark.parametrize("evidence", (
+    ("ev-area", "ev-occ", "ev-occ", "ev-def"),
+    ("ev-area", "ev-occ", "   ", "ev-def"),
+    ("ev-area", "", "ev-occ", "ev-def"),
+    (),
+))
+def test_floor_finish_source_seal_rejects_incomplete_or_duplicate_evidence(evidence):
+    claim = _claim()
+    altered_quantity = copy(claim.floor_finish_quantity_evidence[0])
+    object.__setattr__(altered_quantity, "evidence_ids", evidence)
+    altered_claim = replace(claim, floor_finish_quantity_evidence=(altered_quantity,))
+    with pytest.raises(SourceClosedRunConflictError):
+        build_live_floor_finish_area_source_traces(
+            altered_claim, workspace_id=1, project_id="project-1",
+        )
+    assert len(build_live_floor_finish_area_source_traces(
+        claim, workspace_id=1, project_id="project-1",
+    )) == 1
+
+
+@pytest.mark.parametrize("points", (
+    ((0., 0.), (float("nan"), 0.), (2., 2.)),
+    ((0., 0.), (float("inf"), 0.), (2., 2.)),
+    ((1., 1.), (1., 2.), (1., 3.)),
+    ((1., 1.), (2., 1.)),
+))
+def test_floor_finish_source_seal_rejects_invalid_source_polygon(points):
+    altered_floor = replace(_floor(), polygon_pdf_pts=points)
+    with pytest.raises(SourceClosedRunConflictError, match="source polygon is invalid"):
+        build_live_floor_finish_area_source_traces(
+            _claim(altered_floor), workspace_id=1, project_id="project-1",
+        )
+
+
+def test_floor_finish_cannot_seal_without_complete_original_physical_room_face():
+    for floor in (
+        replace(_floor(), geometry_complete=False),
+        replace(_floor(), polygon_pdf_pts=()),
+    ):
+        with pytest.raises(SourceClosedRunConflictError, match="polygon is invalid or incomplete"):
+            build_live_floor_finish_area_source_traces(
+                _claim(floor), workspace_id=1, project_id="project-1",
+            )
+
+
+@pytest.mark.parametrize("authority", (
+    "pdf_scaled", "model_derived", "user_corrected", "",
+))
+def test_floor_finish_seal_cannot_relabel_metric_measurement_authority(authority):
+    claim = _claim()
+    # Replayed sealed evidence must be tested at the export boundary;
+    # a blank authority is already rejected by QuantityEvidence.__post_init__.
+    forged = copy(claim.floor_finish_quantity_evidence[0])
+    object.__setattr__(forged, "authority", authority)
+    with pytest.raises(SourceClosedRunConflictError, match="metric authority disagrees"):
+        build_live_floor_finish_area_source_traces(
+            replace(claim, floor_finish_quantity_evidence=(forged,)),
+            workspace_id=1, project_id="project-1",
         )

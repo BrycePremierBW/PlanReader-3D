@@ -86,6 +86,11 @@ def build_live_floor_finish_area_source_traces(
             raise SourceClosedRunConflictError(
                 f"floor-finish quantity references unknown canonical floor: {floor_id}"
             )
+        if _clean(quantity.authority) != _clean(floor.metric_area_authority):
+            raise SourceClosedRunConflictError(
+                "floor-finish metric authority disagrees with canonical floor: "
+                f"{quantity.quantity_id}"
+            )
         if not floor.physical_floor_surface_identity_resolved:
             raise SourceClosedRunConflictError(
                 f"physical floor identity is unresolved: {floor_id}"
@@ -231,9 +236,20 @@ def build_live_floor_finish_area_source_traces(
                 f"floor-finish viewport mismatch: {quantity.quantity_id}"
             )
 
-        floor_evidence = {
-            _clean(value) for value in floor.evidence_ids if _clean(value)
-        }
+        # A source trace may not conceal duplicated or blank evidence IDs
+        # through set normalization before commercial sealing.
+        for receipts in (floor.evidence_ids, quantity.evidence_ids):
+            if (
+                not isinstance(receipts, (tuple, list))
+                or not receipts
+                or any(type(value) is not str or not value.strip() for value in receipts)
+                or len(set(receipts)) != len(receipts)
+            ):
+                raise SourceClosedRunConflictError(
+                    "floor-finish source evidence receipts are incomplete or duplicated: "
+                    f"{quantity.quantity_id}"
+                )
+        floor_evidence = set(floor.evidence_ids)
         if not set(quantity.evidence_ids).issubset(floor_evidence):
             raise SourceClosedRunConflictError(
                 "floor-finish source trace does not cover quantity evidence: "
@@ -241,6 +257,11 @@ def build_live_floor_finish_area_source_traces(
             )
 
         points = tuple(floor.polygon_pdf_pts or ())
+        if not floor.geometry_complete or len(points) < 3:
+            raise SourceClosedRunConflictError(
+                "floor-finish source polygon is invalid or incomplete: "
+                f"{quantity.quantity_id}"
+            )
         source_bbox = None
         if points:
             try:
@@ -251,6 +272,16 @@ def build_live_floor_finish_area_source_traces(
                     f"floor source polygon is invalid: {quantity.quantity_id}"
                 ) from exc
             if xs and ys:
+                if (
+                    len(points) < 3
+                    or not all(math.isfinite(value) for value in (*xs, *ys))
+                    or max(xs) <= min(xs)
+                    or max(ys) <= min(ys)
+                ):
+                    raise SourceClosedRunConflictError(
+                        "floor-finish source polygon is invalid: "
+                        f"{quantity.quantity_id}"
+                    )
                 source_bbox = (min(xs), min(ys), max(xs), max(ys))
 
         trace = CommercialTakeoffSourceTrace(
