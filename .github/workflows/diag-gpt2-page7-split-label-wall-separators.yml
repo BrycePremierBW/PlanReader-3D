@@ -299,8 +299,19 @@ jobs:
           from tools.diag_gpt2_split_label_wall_separators import (
               split_face_source_wall_separator_gate
           )
+          # A dict-comprehension would silently overwrite competing
+          # original source records. A duplicated producer receipt cannot
+          # authorize the split-label wall separator or collinear reports.
+          original_source_face_counts=Counter(
+              record.record_id for record in face_records
+          )
+          duplicate_source_face_receipt_ids=sorted(
+              record_id for record_id,count
+              in original_source_face_counts.items() if count!=1
+          )
           source_face_by_record_id={
               record.record_id:record for record in face_records
+              if original_source_face_counts[record.record_id]==1
           }
           split_rows=[]
           for selector in selectors:
@@ -321,6 +332,8 @@ jobs:
               "source_page":7,
               "physical_source_face_count":len(face_records),
               "authenticated_split_label_candidate_count":len(split_rows),
+              "duplicate_original_source_face_receipts_not_rebound":duplicate_source_face_receipt_ids,
+              "unique_original_source_face_receipt_count":len(source_face_by_record_id),
               "candidates":[{
                   **row,
                   "pairwise_first_gate_counts":dict(Counter(
