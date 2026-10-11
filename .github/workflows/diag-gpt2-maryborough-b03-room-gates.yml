@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - "tools/diag_gpt2_room_measurement_gates.py"
+      - "pb_quantity_takeoff_adapter.py"
+      - "tests/test_gpt3_family_claim_identity.py"
       - "tests/test_gpt2_b03_room_measurement_gates.py"
       - ".github/workflows/diag-gpt2-maryborough-b03-room-gates.yml"
   workflow_dispatch:
