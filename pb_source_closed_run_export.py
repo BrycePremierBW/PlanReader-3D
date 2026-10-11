@@ -60,7 +60,14 @@ def _lineage_reasons(
         candidate = metadata.get(key)
         if candidate is None:
             continue
-        if _clean(candidate).lower() != _clean(authoritative).lower():
+        # Project/document/revision IDs are case-sensitive producer identities.
+        # Only the hexadecimal representation of the source SHA is normalized.
+        actual = _clean(candidate)
+        expected_value = _clean(authoritative)
+        if key == "source_sha256":
+            actual = actual.lower()
+            expected_value = expected_value.lower()
+        if actual != expected_value:
             reasons.append(f"{key}_mismatch")
 
     missing_entities = set(quantity.input_entity_ids) - set(trace.canonical_entity_ids)
