@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 import json
+import math
 import re
 from typing import Any
 
@@ -93,12 +94,17 @@ def _canonical_source_id_array(name: str, values: Any) -> tuple[str, ...]:
         raise CustomerOutputVerificationError(
             f"customer source provenance {name} must be an array of canonical strings"
         )
-    return _string_tuple(values)
+    normalized = _string_tuple(values)
+    if len(normalized) != len(set(normalized)):
+        raise CustomerOutputVerificationError(f"customer source provenance {name} contains duplicate identities")
+    return normalized
 
 
 def _projection_provenance(row: Mapping[str, Any]) -> Mapping[str, Any]:
     direct = row.get("commercial_projection_provenance")
     if isinstance(direct, Mapping):
+        if _clean(direct.get("adapter")) != "commercial_takeoff":
+            raise CustomerOutputVerificationError("customer row has invalid commercial projection adapter")
         # Automated notes are a second persisted source receipt, not an
         # optional escape hatch for a valid-looking structured copy.
         notes = row.get("notes")
@@ -115,7 +121,10 @@ def _projection_provenance(row: Mapping[str, Any]) -> Mapping[str, Any]:
 
     notes = row.get("notes")
     if isinstance(notes, str) and notes.strip():
-        return _strict_customer_notes(notes)
+        parsed = _strict_customer_notes(notes)
+        if _clean(parsed.get("adapter")) != "commercial_takeoff":
+            raise CustomerOutputVerificationError("customer row has invalid commercial projection adapter")
+        return parsed
 
     raise CustomerOutputVerificationError(
         "customer row is missing commercial projection provenance"
@@ -123,9 +132,12 @@ def _projection_provenance(row: Mapping[str, Any]) -> Mapping[str, Any]:
 
 
 def _customer_quantity_id(row: Mapping[str, Any]) -> str:
-    direct = _clean(row.get("quantity_id"))
-    if direct:
-        return direct
+    direct_value = row.get("quantity_id")
+    if direct_value is not None:
+        if type(direct_value) is not str or direct_value != direct_value.strip():
+            raise CustomerOutputVerificationError("customer row has malformed quantity identity")
+        if direct_value:
+            return direct_value
 
     provenance = row.get("commercial_projection_provenance")
     if isinstance(provenance, Mapping):
@@ -137,8 +149,14 @@ def _customer_quantity_id(row: Mapping[str, Any]) -> str:
     if not isinstance(notes, str) or not notes.strip():
         return ""
     try:
-        parsed = json.loads(notes)
-    except json.JSONDecodeError:
+        parsed = _strict_customer_notes(notes)
+    except CustomerOutputVerificationError as exc:
+        if _has_machine_quantity_receipt(row.get("source_reference")) and "duplicate provenance key" not in str(exc):
+            raise CustomerOutputVerificationError(
+                "automated customer row is missing quantity identity"
+            ) from exc
+        if "duplicate provenance key" in str(exc):
+            raise
         return ""
     if not isinstance(parsed, Mapping):
         return ""
@@ -338,6 +356,8 @@ def _verify_row_lineage(
         raise CustomerOutputVerificationError(
             f"customer row {quantity_id!r} has invalid quantity"
         ) from exc
+    if not math.isfinite(row_value):
+        raise CustomerOutputVerificationError(f"customer row {quantity_id!r} has non-finite quantity")
     _require_equal("quantity", row_value, float(sealed.value), quantity_id)
 
     if row.get("canonical_entity_ids") is not None:
@@ -450,6 +470,8 @@ def verify_sealed_customer_output(
             "sealed source-closed run failed cryptographic verification"
         ) from exc
 
+    if isinstance(customer_rows, (str, bytes, Mapping)):
+        raise CustomerOutputVerificationError("customer rows must be a sequence of row mappings")
     sealed_by_id = {row.quantity_id: row for row in sealed_run.quantities}
     if len(sealed_by_id) != len(sealed_run.quantities):
         raise CustomerOutputVerificationError("sealed run contains duplicate quantity ids")
@@ -477,8 +499,12 @@ def verify_sealed_customer_output(
             notes_provenance = None
             if isinstance(notes, str) and notes.strip():
                 try:
-                    notes_provenance = json.loads(notes)
-                except json.JSONDecodeError:
+                    notes_provenance = _strict_customer_notes(notes)
+                except CustomerOutputVerificationError:
+                    if _has_machine_quantity_receipt(row.get("source_reference")):
+                        raise
+                    # Malformed notes without a source receipt are manual-only
+                    # unless their structured projection receipt says otherwise.
                     pass
             if (
                 row.get("commercial_projection_provenance") is not None
