@@ -729,3 +729,29 @@ def test_room_area_sealing_refuses_partial_physical_floor_or_invalid_receipts(
         export.build_live_room_area_source_traces(
             claim, workspace_id=7, project_id="source-project",
         )
+
+
+@pytest.mark.parametrize("field,bad_value", (
+    ("document_id", "unrelated-document"),
+    ("room_snapshot_id", "unrelated-room-snapshot"),
+    ("source_room_face_record_id", "unrelated-source-room-face"),
+))
+def test_room_area_source_metadata_must_own_same_original_room(
+    live_claim, field, bad_value,
+):
+    source = _firm_quantity(live_claim)
+    forged = replace(
+        source,
+        metadata={**dict(source.metadata), field: bad_value},
+    )
+    claim = replace(
+        live_claim,
+        room_area_quantity_evidence=tuple(
+            forged if q.quantity_id == source.quantity_id else q
+            for q in live_claim.room_area_quantity_evidence
+        ),
+    )
+    with pytest.raises(SourceClosedRunConflictError, match="original source"):
+        export.build_live_room_area_source_traces(
+            claim, workspace_id=7, project_id="source-project",
+        )
