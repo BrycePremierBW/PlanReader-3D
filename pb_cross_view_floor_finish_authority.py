@@ -111,6 +111,8 @@ def _bbox(
 ) -> Optional[tuple[float, float, float, float]]:
     if not isinstance(value, (tuple, list)) or len(value) != 4:
         return None
+    if any(type(item) not in (int, float) for item in value):
+        return None
     try:
         result = tuple(float(item) for item in value)
     except (TypeError, ValueError, OverflowError):
@@ -199,7 +201,11 @@ def _area_value(
     record: CrossViewRoomAreaRecord | SameViewRoomAreaRecord,
 ) -> Optional[float]:
     evidence = record.area_evidence
-    if _clean(evidence.unit).lower() not in {"m2", "m²"}:
+    if (
+        evidence.status is not EvidenceResolutionStatus.CORROBORATED
+        or _clean(evidence.unit).lower() not in {"m2", "m²"}
+        or type(evidence.normalized_value) not in (int, float)
+    ):
         return None
     try:
         value = float(evidence.normalized_value)
@@ -260,6 +266,8 @@ def _matching_floor(
         return None
     value = _area_value(area_record)
     if value is None:
+        return None
+    if type(floor.metric_area_m2) not in (int, float):
         return None
     try:
         floor_value = float(floor.metric_area_m2)
