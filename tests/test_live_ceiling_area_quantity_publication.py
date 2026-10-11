@@ -719,3 +719,24 @@ def test_ceiling_documented_metric_area_rejects_competing_dimension_systems():
         candidate = replace(_ceiling(), figured_dimension_ids=bad_ids)
         assert publish_live_ceiling_area_quantities(_result(ceiling=candidate)) == ()
     assert len(publish_live_ceiling_area_quantities(_result())) == 1
+
+
+@pytest.mark.parametrize("bad_source", (
+    ("value", True), ("value", False), ("value", "13.270425"),
+    ("confidence", True), ("confidence", float("nan")),
+    ("confidence", float("inf")), ("confidence", -0.01),
+    ("confidence", 1.01),
+))
+def test_canonical_ceiling_rejects_forged_untyped_metric_or_confidence(bad_source):
+    from copy import copy
+    field, value = bad_source
+    source = copy(_shadow_quantity())
+    object.__setattr__(source, field, value)
+    assert publish_live_ceiling_area_quantities(_result(shadow=source)) == ()
+
+
+@pytest.mark.parametrize("bad_area", (True, False, "13.270425", None))
+def test_canonical_ceiling_rejects_boolean_or_nonmetric_source_area(bad_area):
+    assert publish_live_ceiling_area_quantities(
+        _result(ceiling=replace(_ceiling(), area_m2=bad_area))
+    ) == ()
