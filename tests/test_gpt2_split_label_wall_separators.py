@@ -75,3 +75,117 @@ def test_multiple_faces_pairwise_no_automatic_transitive_join():
     assert len(row["pairwise_source_wall_gates"])==3
     assert row["merge_source_faces_authorized"] is False
     assert row["metric_quantity_published"] is False
+
+
+def test_partial_exact_collinear_source_span_is_not_merged_or_absent():
+    faces=sample()
+    faces["face-right"]=face(
+        "face-right","W4-wall-1",((5.,8.),(5.,2.))
+    )
+    result=gate(candidate(),faces)
+    pair=result["pairwise_source_wall_gates"][0]
+    assert pair["first_gate"]=="partial_collinear_source_span_requires_w4_proof"
+    assert len(pair["partial_collinear_source_spans_observed_only"])==1
+    assert pair["matching_authenticated_wall_segments"]==[]
+    assert result["merge_source_faces_authorized"] is False
+    assert result["source_room_label_published"] is False
+    assert result["metric_quantity_published"] is False
+
+
+def test_partial_collinear_span_other_w4_identity_is_unresolved():
+    faces=sample()
+    faces["face-right"]=face(
+        "face-right","W4-another-identity",((5.,8.),(5.,2.))
+    )
+    pair=gate(candidate(),faces)["pairwise_source_wall_gates"][0]
+    assert pair["first_gate"]=="partial_source_span_competing_wall_owners_unresolved"
+    assert len(pair["partial_span_competing_wall_owners_observed_only"])==1
+
+
+def test_partial_source_wall_spans_reject_offset_direction_and_point_contacts():
+    for edge in (
+        ((5.0001,8.),(5.0001,2.)),  # drawn parallel, not exact source
+        ((5.,2.),(5.,8.)),          # same direction, not facing separator
+        ((5.,15.),(5.,10.)),        # shares endpoint only
+        ((6.,8.),(5.,2.)),          # not collinear
+    ):
+        faces=sample()
+        faces["face-right"]=face("face-right","W4-wall-1",edge)
+        row=gate(candidate(),faces)["pairwise_source_wall_gates"][0]
+        assert row["first_gate"]=="no_exact_shared_source_wall_separator"
+        assert row["partial_collinear_source_spans_observed_only"]==[]
+
+
+def test_split_label_diagnostic_rejects_nontext_or_padded_original_face_id():
+    for invalid in (None, 73, "", " ", " face-left"):
+        row=gate(candidate((invalid,"face-right")),sample())
+        assert row["first_gate"]=="split_source_face_identity_invalid"
+        assert row["source_room_label_published"] is False
+        assert row["metric_quantity_published"] is False
+
+
+def test_split_label_diagnostic_rejects_missing_or_forged_lineage():
+    for attr,bad in (
+        ("source_sha256",None),
+        ("document_id",""),
+        ("revision_id"," "),
+        ("snapshot_id",None),
+        ("page_id",6),
+        ("decision_scope_id","view:7 "),
+    ):
+        split=candidate()
+        setattr(split,attr,bad)
+        faces=sample()
+        # Even if both sides agree on a malformed source scope, it is
+        # not an authenticated original room source identifier.
+        setattr(faces["face-left"],attr,bad)
+        setattr(faces["face-right"],attr,bad)
+        row=gate(split,faces)
+        assert row["first_gate"]=="split_source_face_lineage_mismatch"
+        assert row["merge_source_faces_authorized"] is False
+
+
+def test_gpt2_b01_native_near_reverse_edges_are_not_exact_separator_proof():
+    for shifted,expected in (
+        (((5.0000001,10.),(5.0000001,0.)),
+         "no_exact_shared_source_wall_separator"),
+        # These retain an actual positive original collinear subspan but
+        # do NOT prove whole-edge physical ownership or room composition.
+        (((5.,10.0000001),(5.,0.)),
+         "partial_collinear_source_span_requires_w4_proof"),
+        (((5.,10.),(5.,0.0000001)),
+         "partial_collinear_source_span_requires_w4_proof"),
+    ):
+        faces=sample()
+        faces["face-right"]=face("face-right","W4-wall-1",shifted)
+        report=gate(candidate(),faces)
+        pair=report["pairwise_source_wall_gates"][0]
+        assert pair["first_gate"]==expected
+        assert pair["matching_authenticated_wall_segments"]==[]
+        assert report["merge_source_faces_authorized"] is False
+        assert report["metric_quantity_published"] is False
+
+
+def test_gpt2_b01_overflowing_source_wall_coordinate_never_aborts_diagnostic():
+    faces=sample()
+    faces["face-right"]=face("face-right","W4-wall-1",(
+        (10**500,10.),(5.,0.)
+    ))
+    row=gate(candidate(),faces)
+    assert row["pairwise_source_wall_gates"][0]["first_gate"]==(
+        "malformed_source_wall_subedges"
+    )
+    assert row["merge_source_faces_authorized"] is False
+
+
+def test_gpt2_b01_invalid_w4_wall_addresses_are_not_source_separators():
+    for malformed in (None, 73, "", " ", "W4-wall-1 "):
+        original=sample()
+        original["face-right"]=face(
+            "face-right",malformed,((5.,10.),(5.,0.))
+        )
+        result=gate(candidate(),original)
+        pair=result["pairwise_source_wall_gates"][0]
+        assert pair["first_gate"]=="malformed_source_wall_subedges"
+        assert pair["matching_authenticated_wall_segments"]==[]
+        assert result["merge_source_faces_authorized"] is False
