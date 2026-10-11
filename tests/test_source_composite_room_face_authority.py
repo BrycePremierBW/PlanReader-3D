@@ -1183,3 +1183,32 @@ def test_gpt2_source_label_observation_and_word_authority_receipts_are_native():
         )
         assert withheld.records == ()
         assert withheld.status is EvidenceResolutionStatus.ABSTAINED
+
+
+def test_gpt2_original_split_label_candidate_identity_must_be_exact():
+    from dataclasses import replace
+    import copy
+    base=_label_scope()
+    original=base.split_face_candidates[0]
+    walls=_wall_scope((_grid_atom("e_sep"),))
+    rooms=_room_scope()
+    assert len(compose_grid_separated_room_faces(
+        wall_scope=walls,room_scope=rooms,label_scope=base
+    ).records)==1
+    for invalid in (None,37,""," "," split_label_1","split_label_1 "):
+        cand=copy.copy(original)
+        cand.record_id=invalid
+        result=compose_grid_separated_room_faces(
+            wall_scope=walls,room_scope=rooms,
+            label_scope=replace(base,split_face_candidates=(cand,))
+        )
+        assert result.records==()
+        assert result.status is EvidenceResolutionStatus.ABSTAINED
+    for invalid_label in (None,79,"","   "):
+        cand=copy.copy(original)
+        cand.label=invalid_label
+        result=compose_grid_separated_room_faces(
+            wall_scope=walls,room_scope=rooms,
+            label_scope=replace(base,split_face_candidates=(cand,))
+        )
+        assert result.records==()
