@@ -668,3 +668,17 @@ def test_ceiling_area_rejects_foreign_original_source_document_or_room_snapshot(
         },
     )
     assert len(publish_live_ceiling_area_quantities(_result(shadow=same_source))) == 1
+
+
+def test_ceiling_documented_metric_area_rejects_competing_dimension_systems():
+    # A third independent figured line does not validate the other two:
+    # original-source ownership of one orthogonal pair is required.
+    for bad_ids in (
+        ("dim-h", "dim-v", "unrelated-horizontal"),
+        ("dim-h", "dim-v", "unrelated-horizontal", "other-vertical"),
+        ("dim-h",),
+        (),
+    ):
+        candidate = replace(_ceiling(), figured_dimension_ids=bad_ids)
+        assert publish_live_ceiling_area_quantities(_result(ceiling=candidate)) == ()
+    assert len(publish_live_ceiling_area_quantities(_result())) == 1
