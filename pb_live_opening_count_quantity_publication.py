@@ -44,6 +44,16 @@ from pb_source_visibility_authority import SourceVisibilityProducer
 LIVE_OPENING_COUNT_QUANTITY_SCHEMA_VERSION = "1.0.0"
 
 
+def _authentic_source_id_universe(ids: object) -> bool:
+    """A complete original source inventory cannot silently deduplicate IDs."""
+    return (
+        isinstance(ids, (tuple, list))
+        and bool(ids)
+        and all(type(value) is str and value and value == value.strip() for value in ids)
+        and len(set(ids)) == len(ids)
+    )
+
+
 def publish_live_authenticated_opening_count_quantities(
     *,
     source_visibility_producer: SourceVisibilityProducer,
@@ -77,6 +87,7 @@ def publish_live_authenticated_opening_count_quantities(
         or published.revision.revision_id != semantic_record.revision_id
         or published.revision.source_sha256 != semantic_record.source_sha256
         or published.snapshot.snapshot_id != semantic_record.snapshot_id
+        or not _authentic_source_id_universe(semantic_record.representative_observation_ids)
     ):
         return ()
 
@@ -96,6 +107,7 @@ def publish_live_authenticated_opening_count_quantities(
     # this bridge never narrows the universe to the convenient members.
     binding_selectors: dict[str, ScheduleOpeningInstanceBindingSelector] = {}
     binding_results = {}
+    seen_physical_opening_ids: set[str] = set()
     for observation_id in semantic_record.representative_observation_ids:
         opening_selector = ObservationSelector(
             document_id=published.revision.document_id,
@@ -111,6 +123,16 @@ def publish_live_authenticated_opening_count_quantities(
             or opening is None
         ):
             continue
+        # A complete source semantic universe may not collapse two distinct
+        # existence observations into one identical opening identity by
+        # dictionary overwrite. Preserve unresolved universes as ABSTAIN.
+        if (
+            type(opening.record_id) is not str
+            or not opening.record_id.strip()
+            or opening.record_id in seen_physical_opening_ids
+        ):
+            return ()
+        seen_physical_opening_ids.add(opening.record_id)
         selector = ScheduleOpeningInstanceBindingSelector(
             document_id=opening.document_id,
             revision_id=opening.revision_id,
@@ -144,6 +166,12 @@ def publish_live_authenticated_opening_count_quantities(
             or record is None
             or not record.schedule_row_count_explicit
             or record.schedule_row_count is None
+            or type(record.schedule_row_count) not in (int, float)
+            or record.schedule_row_count <= 0
+            or int(record.schedule_row_count) != record.schedule_row_count
+            or type(record.schedule_page_id) is not str
+            or not record.schedule_page_id.strip()
+            or not _authentic_source_id_universe(record.schedule_row_observation_ids)
         ):
             continue
 
