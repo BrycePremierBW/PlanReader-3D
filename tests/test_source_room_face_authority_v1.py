@@ -477,3 +477,32 @@ def test_finite_source_coordinates_with_overflowed_intermediates_abstain():
     off_diagonal = ((5e199, 6e199), (9e199, 9e199))
     assert not _edge_contains_edge(huge_diagonal, off_diagonal)
     assert _collinear_overlap_edge(huge_diagonal, off_diagonal) is None
+
+def test_gpt2_b02_publication_exact_wall_owner_requires_real_original_subedge():
+    from pb_source_room_face_authority import _publication_boundary_ownership
+
+    ring=((0.0,0.0),(10.0,0.0),(10.0,10.0),(0.0,10.0))
+    edges=tuple(_edge(ring[i],ring[(i+1)%len(ring)]) for i in range(len(ring)))
+    walls={f"w{i}":(edge,) for i,edge in enumerate(edges)}
+    owners={edge:f"w{i}" for i,edge in enumerate(edges)}
+    positive=_publication_boundary_ownership(
+        ring,edge_owner=owners,wall_edges=walls,
+        ownership_grid={},ownership_oversized=[]
+    )
+    assert positive is not None
+    assert set(positive[1])==set(walls)
+    for forged in (
+        {**owners,edges[0]:"W4-absent"},
+        {**owners,edges[0]:"w1"},
+    ):
+        assert _publication_boundary_ownership(
+            ring,edge_owner=forged,wall_edges=walls,
+            ownership_grid={},ownership_oversized=[]
+        ) is None
+    # An index retaining its ID but losing the physical edge cannot
+    # publish the same boundary through stale source ancestry.
+    missing={**walls,"w0":()}
+    assert _publication_boundary_ownership(
+        ring,edge_owner=owners,wall_edges=missing,
+        ownership_grid={},ownership_oversized=[]
+    ) is None
