@@ -47,9 +47,23 @@ def _physical_union_first_unclosed_gate(
         "new_room_geometry_published": False,
         "new_metric_area_published": False,
     }
+    # Never let a dict overwrite competing physical face or producer receipt
+    # identities. This read-only gate must mirror the production fail-closed
+    # source identity contract before examining any geometry.
+    face_counts = Counter(getattr(rec, "face_id", None) for rec in room_scope.records)
+    receipt_counts = Counter(getattr(rec, "record_id", None) for rec in room_scope.records)
     records = {rec.face_id: rec for rec in room_scope.records}
     if any(face_id not in records for face_id in component):
         result["physical_union_first_unclosed_gate"] = "source_component_face_missing"
+        return result
+    if any(
+        face_counts[face_id] != 1
+        or not isinstance(records[face_id].record_id, str)
+        or not records[face_id].record_id
+        or receipt_counts[records[face_id].record_id] != 1
+        for face_id in component
+    ):
+        result["physical_union_first_unclosed_gate"] = "source_component_face_receipt_conflict"
         return result
     try:
         polygons = [Polygon(records[face_id].polygon_pdf_pts) for face_id in component]
