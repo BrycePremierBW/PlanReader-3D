@@ -135,7 +135,11 @@ def publish_live_authenticated_opening_count_quantities(
             existence.status is not EvidenceResolutionStatus.CORROBORATED
             or opening is None
         ):
-            continue
+            # The upstream semantic inventory says this source scope is
+            # complete. Losing one of its candidate physical members would
+            # make a matching schedule count for a smaller subset look FIRM.
+            # Fail closed for the entire mark inventory, not the one member.
+            return ()
         # A complete source semantic universe may not collapse two distinct
         # existence observations into one identical opening identity by
         # dictionary overwrite. Preserve unresolved universes as ABSTAIN.
