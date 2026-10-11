@@ -416,18 +416,29 @@ def _component_has_conflicting_label(
     """Block a completed grid component that contains another room identity."""
 
     component = set(component_face_ids)
+    # Another sealed source label cannot own the same cell, and malformed
+    # face IDs must not be stringified into a plausible physical identity.
     if any(
-        str(record.face_id) in component
+        isinstance(getattr(record, "face_id", None), str)
+        and record.face_id in component
         for record in tuple(label_scope.records or ())
     ):
         return True
 
-    for other in tuple(label_scope.split_face_candidates or ()):
-        # Skip only this exact sealed candidate. Another claim with the
-        # same record ID is a conflicting source owner, not the same object.
+    candidates = tuple(label_scope.split_face_candidates or ())
+    # Even a repeated reference to the exact same candidate is a second
+    # producer occurrence, not proof of a unique original room claim.
+    source_id = getattr(candidate, "record_id", None)
+    if (
+        not isinstance(source_id, str) or not source_id
+        or source_id != source_id.strip()
+        or sum(getattr(other, "record_id", None) == source_id for other in candidates) != 1
+    ):
+        return True
+    for other in candidates:
         if other is candidate:
             continue
-        if getattr(other, "record_id", None) == getattr(candidate, "record_id", None):
+        if getattr(other, "record_id", None) == source_id:
             return True
         if component.intersection(str(value) for value in other.word_face_ids):
             return True
