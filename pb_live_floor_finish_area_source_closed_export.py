@@ -100,6 +100,16 @@ def build_live_floor_finish_area_source_traces(
                 f"physical floor identity is missing: {floor_id}"
             )
 
+        if (
+            type(quantity.value) not in (int, float)
+            or type(floor.metric_area_m2) not in (int, float)
+            or type(quantity.confidence) not in (int, float)
+            or not math.isfinite(float(quantity.confidence))
+            or not 0.0 <= float(quantity.confidence) <= 1.0
+        ):
+            raise SourceClosedRunConflictError(
+                f"floor-finish source metric is untyped: {quantity.quantity_id}"
+            )
         try:
             qvalue = float(quantity.value)
             floor_value = float(floor.metric_area_m2)
@@ -281,6 +291,23 @@ def build_live_floor_finish_area_source_traces(
                     raise SourceClosedRunConflictError(
                         "floor-finish source polygon is invalid: "
                         f"{quantity.quantity_id}"
+                    )
+                # Bounding boxes do not prove a physical floor face. A
+                # diagonal collinear or self-cancelling source room may have
+                # a positive box and old FIRM m2, but cannot seal a finish.
+                try:
+                    twice_area = math.fsum(
+                        xs[i] * ys[(i + 1) % len(xs)]
+                        - xs[(i + 1) % len(xs)] * ys[i]
+                        for i in range(len(xs))
+                    )
+                except (ValueError, OverflowError) as exc:
+                    raise SourceClosedRunConflictError(
+                        f"floor-finish source polygon is invalid: {quantity.quantity_id}"
+                    ) from exc
+                if not math.isfinite(twice_area) or abs(twice_area) <= 2e-9:
+                    raise SourceClosedRunConflictError(
+                        f"floor-finish source polygon is degenerate: {quantity.quantity_id}"
                     )
                 source_bbox = (min(xs), min(ys), max(xs), max(ys))
 
