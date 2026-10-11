@@ -1,0 +1,138 @@
+name: GPT MAX Raster Source W4 Ancestry Audit
+on:
+  pull_request:
+    paths:
+      - tools/diag_gptmax_raster_host_source_membership.py
+      - tools/diag_gptmax_required_flank_source.py
+      - tests/test_gptmax_raster_host_source_membership.py
+      - tests/test_gptmax_required_flank_source.py
+      - docs/engineering/gptmax_raster_host_source_membership.md
+      - .github/workflows/test-gptmax-raster-host-source-membership.yml
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      matrix:
+        python-version: ["3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - run: python -m pip install -r requirements.txt -r requirements-ci-v1228.txt
+      - name: Raster source-W4 membership cannot publish a host or count
+        run: |
+          PYTHONPATH=. python -m pytest -q tests/test_gptmax_raster_host_source_membership.py tests/test_gptmax_required_flank_source.py
+          PYTHONPATH=. python scripts/check_provider_gold_isolation.py
+          PYTHONPATH=. python scripts/check_full_plan_v2_integrity.py
+  original-lot16:
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: python -m pip install -r requirements.txt -r requirements-ci-v1228.txt
+      - name: Independent original PR-base source receipts
+        run: |
+          git worktree add /tmp/raster-source-base "${{ github.event.pull_request.base.sha }}"
+          (
+            cd /tmp/raster-source-base
+            PYTHONPATH=. python -u tools/diag_opening_wall_face_preservation.py \
+              --pdf "documents/sources/1. Construction Plans - Lot 16 Power (REV E).pdf" \
+              --page-id 3 --output "$GITHUB_WORKSPACE/lot16-raster-source-base.json"
+          )
+      - name: Original SHA-pinned raster source-W4 first membership without host binding
+        run: |
+          PYTHONPATH=. python -u tools/diag_gptmax_raster_host_source_membership.py \
+            --pdf "documents/sources/1. Construction Plans - Lot 16 Power (REV E).pdf" \
+            --page-id 3 \
+            --expected-source-sha 10109b4b6e85e6e27af81f6399ce4b92abfdba80f87dc69dd5887bd6f3a65844 \
+            --output lot16-raster-source-w4-membership.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          x=json.loads(Path("lot16-raster-source-w4-membership.json").read_text())
+          assert x["source_sha256"]=="10109b4b6e85e6e27af81f6399ce4b92abfdba80f87dc69dd5887bd6f3a65844"
+          assert (x["source_original_opening_count"],x["source_original_host_count"],
+                  x["source_original_frame_count"])==(23,14,9)
+          assert len(x["opening_rows"]) == 7, "Original raster first-gate universe unexpectedly changed"
+          assert not x["source_audit_abstained"]
+          assert not x["host_publication_allowed"]
+          assert not x["opening_count_publication_allowed"]
+          assert not x["metric_quantity_publication_allowed"]
+          assert x["benchmark_accuracy"] is None
+          for row in x["opening_rows"]:
+              assert any("raster_source_band_" in reason
+                         for reason in row["original_binding_reason_codes"])
+              evidence=row["source_w4_ancestry_audit"]
+              assert evidence["candidate_ancestry_only"]
+              assert not evidence["local_host_contact_proven"]
+              assert not evidence["host_publication_allowed"]
+              support = row["original_g17_support_receipts"]
+              assert sorted(r["requested_source_observation_id"] for r in support) == sorted(row["original_g17_support_observation_ids"])
+              band_support = [r for r in support if r["eligible_g17_host_band_support"]]
+              assert sorted(r["observation_kind"] for r in band_support) == ["raster_wall_band_end"] * 2 + ["raster_wall_band_face"] * 4
+              for receipt in support:
+                  assert receipt["source_receipt_authenticated"]
+                  assert receipt["source_observation_id"] == receipt["requested_source_observation_id"]
+                  assert receipt["source_sha256"] == x["source_sha256"]
+                  assert receipt["revision_id"] == x["revision_id"]
+                  assert receipt["snapshot_id"] == x["snapshot_id"]
+                  if receipt["eligible_g17_host_band_support"]:
+                      assert receipt["geometry_disposition"] == "finite_signed_support_projection_observed"
+                  assert not receipt["physical_contact_proven"]
+                  assert not receipt["host_publication_allowed"]
+          assert x["source_w2_deduplication_censuses"]
+          for census in x["source_w2_deduplication_censuses"]:
+              scope = census["source_scope_at_graph_time"]
+              assert scope["source_sha256"] == x["source_sha256"]
+              assert scope["revision_id"] == x["revision_id"]
+              assert scope["page_id"] == x["page_id"]
+              assert scope["input_source_scope_observed"]
+              assert not scope["source_ownership_proven"]
+              edges = census["all_w2_edge_receipts"]
+              assert len(edges) == census["original_w2_edge_count"]
+              assert sum(e["w3_disposition"] == "RETAINED" for e in edges) == census["retained_w3_edge_count"]
+              assert sum(e["w3_disposition"] == "REMOVED_SNAPPED_NODE_DUPLICATE" for e in edges) == census["removed_w2_edge_count"]
+              for edge in edges:
+                  assert not edge["source_parents_transferred_to_w4"]
+                  assert not edge["physical_equivalence_proven"]
+                  assert not edge["host_publication_allowed"]
+                  for alternative in edge["actual_w4_edge_membership_alternatives"]:
+                      assert not alternative["physical_equivalence_proven"]
+                      assert not alternative["host_publication_allowed"]
+              for parent in census["source_parent_stage_receipts"]:
+                  assert parent["source_parent_removed_from_entire_w3_inventory"] == (not parent["retained_w3_source_edge_ids"])
+                  assert not parent["source_parents_transferred_to_w4"]
+                  assert not parent["host_publication_allowed"]
+          print({"original_lot16_host_frame_unchanged":True,
+                 "raster_source_first_failures":len(x["opening_rows"])})
+          PY
+          PYTHONPATH=. python tools/gptmax_compare_source_face_retention.py \
+            --baseline lot16-raster-source-base.json \
+            --candidate lot16-raster-source-w4-membership.json \
+            --output lot16-raster-source-retention.json
+          PYTHONPATH=. python tools/diag_gptmax_required_flank_source.py \
+            --source-report lot16-raster-source-w4-membership.json \
+            --expected-source-sha 10109b4b6e85e6e27af81f6399ce4b92abfdba80f87dc69dd5887bd6f3a65844 \
+            --output lot16-required-flank-source.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gptmax-raster-w4-source-first-membership-lot16
+          path: |
+            lot16-raster-source-w4-membership.json
+            lot16-raster-source-base.json
+            lot16-raster-source-retention.json
+            lot16-required-flank-source.json
+          retention-days: 30
