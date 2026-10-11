@@ -678,8 +678,10 @@ def test_sealed_floor_area_rejects_duplicate_original_floor_face_evidence():
 
     source = _source_area()
     bad_floor = replace(_floor(), evidence_ids=("ev-room", "ev-area", "ev-room"))
-    with pytest.raises(SourceClosedRunConflictError):
-        build_live_floor_area_source_traces(
-            replace(_claim_with(source), canonical_floors=(bad_floor,)),
-            workspace_id=1, project_id="original-source",
-        )
+    # The upstream quantity publisher already quarantines this source face;
+    # sealing receives zero positive quantities, not a fabricated empty trace.
+    result = build_live_floor_area_source_traces(
+        replace(_claim_with(source), canonical_floors=(bad_floor,)),
+        workspace_id=1, project_id="original-source",
+    )
+    assert result == {}
