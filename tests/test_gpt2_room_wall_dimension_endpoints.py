@@ -127,3 +127,53 @@ def test_nonfinite_native_figured_endpoint_geometry_stays_unbound(bad):
     assert inspect(face(), dimension(((bad, 5.0), (20.0, 5.0))))[
         "first_authority_gate"
     ] == "figured_endpoint_not_on_source_room_wall"
+
+
+def test_gpt2_source_endpoint_distance_is_nonpublishing_first_failure_only():
+    from tools.diag_gpt2_room_wall_dimension_endpoints import (
+        _native_point_to_source_subedge_distance,
+    )
+    edge=((0.,0.),(0.,10.))
+    assert _native_point_to_source_subedge_distance((0.,5.),edge)==0.0
+    assert _native_point_to_source_subedge_distance((2.,5.),edge)==2.0
+    assert _native_point_to_source_subedge_distance((0.,13.),edge)==3.0
+    report=inspect(face(),dimension(((2.,5.),(18.,5.))))
+    assert report["first_authority_gate"]=="figured_endpoint_not_on_source_room_wall"
+    assert report["endpoint_nearest_source_wall_distance_pdf_pts_diagnostic_only"]==[2.0,2.0]
+    assert report["room_dimension_owned"] is False
+    assert report["metric_area_published"] is False
+
+
+@pytest.mark.parametrize("point,edge", [
+    ((float("nan"),1.),((0.,0.),(0.,10.))),
+    ((float("inf"),1.),((0.,0.),(0.,10.))),
+    ((1.,1.),((0.,0.),(float("inf"),10.))),
+    ((1.,1.),((0.,0.),(0.,0.))),
+    ("bad",((0.,0.),(0.,10.))),
+    ((1.,1.),"missing"),
+])
+def test_gpt2_no_nonfinite_or_unsupported_nearest_source_wall_distance(point,edge):
+    from tools.diag_gpt2_room_wall_dimension_endpoints import (
+        _native_point_to_source_subedge_distance,
+    )
+    assert _native_point_to_source_subedge_distance(point,edge) is None
+
+
+def test_gpt2_unbound_figured_endpoints_have_no_pseudo_wall_distances():
+    report=inspect(face(),dimension(None))
+    assert report["first_authority_gate"]=="source_dimension_endpoints_unbound"
+    assert report["endpoint_nearest_source_wall_distance_pdf_pts_diagnostic_only"]==[]
+    assert not report["room_dimension_owned"]
+    assert not report["metric_area_published"]
+
+
+def test_gpt2_mixed_invalid_endpoint_distance_remains_safe_nonpublishing():
+    row=inspect(face(),dimension(((float("nan"),5.),(20.,5.))))
+    assert row["first_authority_gate"]=="figured_endpoint_not_on_source_room_wall"
+    assert row["endpoint_nearest_source_wall_distance_pdf_pts_diagnostic_only"]==[
+        None,0.0
+    ]
+    # A broken witness does not inherit the other endpoint's valid wall.
+    assert row["endpoint_wall_owner_ids"]==[[],["source-wall-right"]]
+    assert row["room_dimension_owned"] is False
+    assert row["metric_area_published"] is False
