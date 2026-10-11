@@ -148,16 +148,34 @@ def _wall_metric_first_failure(wall) -> str:
         return "physical_wall_identity_unresolved"
     if not wall.evidence_ids or not wall.plan_members:
         return "canonical_wall_source_receipts_unavailable"
-    if wall.length_m is None:
-        return "metric_wall_length_unavailable"
-    if wall.height_m is None:
-        return "authenticated_wall_height_unavailable"
-    if wall.gross_area_m2 is None or not wall.gross_polygon_wkb_hex:
+    # The ledger must not call a wall metric-ready from a nonempty source
+    # field when its actual value is Boolean, nonfinite or physically invalid.
+    for attr, reason, strictly_positive in (
+        ("length_m", "metric_wall_length_unavailable", True),
+        ("height_m", "authenticated_wall_height_unavailable", True),
+        ("gross_area_m2", "gross_wall_area_unavailable", True),
+    ):
+        measurement = getattr(wall, attr, None)
+        if (
+            type(measurement) not in (int, float)
+            or not math.isfinite(float(measurement))
+            or (measurement <= 0.0 if strictly_positive else measurement < 0.0)
+        ):
+            return reason
+    if not wall.gross_polygon_wkb_hex:
         return "gross_wall_area_unavailable"
     if not wall.role or not wall.whole_wall_role_record_id:
         return "authenticated_whole_wall_role_unavailable"
-    if wall.net_area_m2 is None or not wall.net_polygon_wkb_hex:
+    net_value = getattr(wall, "net_area_m2", None)
+    if (
+        type(net_value) not in (int, float)
+        or not math.isfinite(float(net_value))
+        or net_value < 0.0
+        or not wall.net_polygon_wkb_hex
+    ):
         return "net_wall_area_or_deduction_unavailable"
+    if net_value > wall.gross_area_m2 + 1e-6:
+        return "net_wall_greater_than_authenticated_gross_area"
     return "canonical_net_wall_area_available"
 
 
