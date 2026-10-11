@@ -558,3 +558,57 @@ def test_opening_area_never_normalizes_corrupted_original_source_receipts(receip
     forged = replace(_opening(), evidence_ids=receipts)
     assert _opening_quantity(forged) is None
     assert _opening_quantity(_opening()) is not None
+
+
+@pytest.mark.parametrize("field,value", (
+    ("document_id", "foreign-document"),
+    ("revision_id", "foreign-revision"),
+    ("source_sha256", "f" * 64),
+    ("snapshot_id", "foreign-snapshot"),
+    ("viewport_id", "foreign-viewport"),
+    ("canonical_opening_id", "foreign-opening"),
+    ("physical_opening_id", "foreign-opening"),
+))
+def test_sealed_opening_area_rejects_replayed_foreign_source_ownership(field, value):
+    from pb_live_opening_source_closed_export import _build_opening_area_source_traces
+    from pb_source_closed_run_export import SourceClosedRunConflictError
+
+    opening = _opening()
+    quantity = _opening_quantity(opening)
+    assert quantity is not None
+    forged = replace(quantity, metadata={**dict(quantity.metadata), field: value})
+    with pytest.raises(SourceClosedRunConflictError, match="source.*identity mismatch"):
+        _build_opening_area_source_traces(
+            (forged,), (opening,),
+            workspace_id=1, project_id="source-project",
+        )
+
+
+def test_source_closed_opening_claim_cannot_hide_duplicate_physical_evidence():
+    from pb_live_opening_source_closed_export import _build_opening_area_source_traces
+    from pb_source_closed_run_export import SourceClosedRunConflictError
+    from copy import copy
+
+    opening = _opening()
+    quantity = _opening_quantity(opening)
+    assert quantity is not None
+    bad_opening = replace(opening, evidence_ids=(
+        *opening.evidence_ids, opening.evidence_ids[0],
+    ))
+    with pytest.raises(SourceClosedRunConflictError, match="source evidence"):
+        _build_opening_area_source_traces(
+            (quantity,), (bad_opening,),
+            workspace_id=1, project_id="source-project",
+        )
+
+    forged = copy(quantity)
+    object.__setattr__(forged, "evidence_ids", (*quantity.evidence_ids, ""))
+    with pytest.raises(SourceClosedRunConflictError, match="source evidence"):
+        _build_opening_area_source_traces(
+            (forged,), (opening,),
+            workspace_id=1, project_id="source-project",
+        )
+    assert len(_build_opening_area_source_traces(
+        (quantity,), (opening,),
+        workspace_id=1, project_id="source-project",
+    )) == 1
