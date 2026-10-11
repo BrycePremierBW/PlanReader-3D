@@ -49,7 +49,11 @@ def inspect_floor_finish_occurrence_first_gates(scope: Any, viewport: Any, *, sh
     )
     observation_counts=Counter(
         obs for rec in records
-        for obs in (getattr(rec,"source_text_observation_ids",()) or ())
+        for obs in (
+            getattr(rec,"source_text_observation_ids",())
+            if isinstance(getattr(rec,"source_text_observation_ids",None),(tuple,list))
+            else ()
+        )
         if _owned_text(obs)
     )
     rows=[]
@@ -80,6 +84,9 @@ def inspect_floor_finish_occurrence_first_gates(scope: Any, viewport: Any, *, sh
             "material_occurrence_definition_receipt_unavailable"
             if not _owned_text(getattr(record,"definition_record_id",None))
             or not _owned_text(getattr(record,"source_evidence_id",None)) else
+            "material_occurrence_material_semantic_unavailable"
+            if not _owned_text(getattr(record,"code",None))
+            or not _owned_text(getattr(record,"semantic_finish",None)) else
             "material_occurrence_native_bbox_unavailable"
             if own_box is None else
             "material_occurrence_outside_source_floor_viewport"
