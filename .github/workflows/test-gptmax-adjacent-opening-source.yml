@@ -1,0 +1,125 @@
+name: GPT MAX Adjacent Opening Source Authority
+on:
+  pull_request:
+    paths:
+      - pb_physical_opening_authority.py
+      - pb_semantic_opening_enumeration_authority.py
+      - tests/test_physical_opening_candidate_structure_v1.py
+      - tests/test_semantic_conflict_diagnostic_v1.py
+      - tests/test_physical_opening_viewport_scope_live_gate.py
+      - .github/workflows/test-gptmax-adjacent-opening-source.yml
+concurrency:
+  group: gptmax-adjacent-opening-source-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  full-regressions:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.13", "3.14"]
+    env:
+      ORT_DISABLE_TELEMETRY: "1"
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Dependencies
+        run: pip install -r requirements.txt -r requirements-ci-v1228.txt ruff
+      - name: Integrity and provider isolation
+        run: |
+          PYTHONPATH=. python scripts/check_provider_gold_isolation.py
+          PYTHONPATH=. python scripts/check_full_plan_v2_integrity.py
+          python -m compileall -q .
+          ruff check --select F821,F823 .
+      - name: Adjacent opening and mixed-view regressions
+        run: PYTHONPATH=. python -m pytest -q tests/test_physical_opening_candidate_structure_v1.py tests/test_semantic_conflict_diagnostic_v1.py tests/test_physical_opening_viewport_scope_live_gate.py
+      - name: Full regression suite
+        run: PYTHONPATH=. python -m pytest -q tests/
+      - name: Smoke test
+        run: python tests/ci_smoke.py
+  source-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ORT_DISABLE_TELEMETRY: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Dependencies
+        run: pip install -r requirements.txt -r requirements-ci-v1228.txt
+      - name: Compare real Lot16 authority stages with verified prerequisite
+        run: |
+          git show 184e32bf832746fe57e7ae3134fe11248f568a87:tools/diag_gptmax_source_authority_stages.py > /tmp/gptmax-source-stages.py
+          # Compare with the exact base incorporated into GitHub's tested merge.
+          # A historical baseline predates independent host integrations.
+          git worktree add /tmp/gptmax-measurement-prerequisite ${{ github.event.pull_request.base.sha }}
+          (cd /tmp/gptmax-measurement-prerequisite && PYTHONPATH=. python -u /tmp/gptmax-source-stages.py --pdf 'documents/sources/1. Construction Plans - Lot 16 Power (REV E).pdf' --page-id 3 --source-all-pages --output /tmp/lot16-measurement-source-baseline.json)
+          cp /tmp/lot16-measurement-source-baseline.json lot16-measurement-source-baseline.json
+          PYTHONPATH=. python -u /tmp/gptmax-source-stages.py --pdf 'documents/sources/1. Construction Plans - Lot 16 Power (REV E).pdf' --page-id 3 --source-all-pages --output lot16-measurement-source-current.json
+      - name: Verify physical ownership retention and retain exact source authority gates
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          baseline = json.loads(Path('lot16-measurement-source-baseline.json').read_text())
+          current = json.loads(Path('lot16-measurement-source-current.json').read_text())
+          assert baseline['source_sha256'] == current['source_sha256'] == '10109b4b6e85e6e27af81f6399ce4b92abfdba80f87dc69dd5887bd6f3a65844'
+          assert current['primitive_safety_cap'] == 20_000
+          assert current['source_decode_coverage'] == baseline['source_decode_coverage']
+          before_bindings = {row['opening_identity_id']: row for row in baseline['opening_bindings']}
+          after_bindings = {row['opening_identity_id']: row for row in current['opening_bindings']}
+          assert before_bindings.keys() == after_bindings.keys()
+          assert len(after_bindings) == len(current['opening_bindings'])
+          canonical = {row['physical_opening_id']: row for row in current['canonical_openings']}
+          for key in before_bindings:
+              before, after = before_bindings[key], after_bindings[key]
+              if before['representative_observation_id'] != after['representative_observation_id']:
+                  # Removing a false overlapping candidate can change which
+                  # independently re-proven support represents the SAME object.
+                  # No hosted or measured object may use this exception.
+                  assert before['host_wall_id'] is None and after['host_wall_id'] is None
+                  assert before['record_id'] is None and after['record_id'] is None
+                  assert not canonical[key]['geometry_complete']
+                  assert before['representative_observation_id'] in canonical[key]['source_observation_ids']
+                  assert after['representative_observation_id'] in canonical[key]['source_observation_ids']
+              assert {k: v for k, v in before.items() if k != 'representative_observation_id'} == {k: v for k, v in after.items() if k != 'representative_observation_id'}
+          assert current['resolved_host_frame_evidence'] == baseline['resolved_host_frame_evidence']
+          old = {row['physical_opening_id']: row for row in baseline['canonical_openings']}
+          new = {row['physical_opening_id']: row for row in current['canonical_openings']}
+          assert len(new) == len(current['canonical_openings'])
+          assert old.keys() == new.keys()
+          for key in old:
+              for field in ('physical_opening_id', 'canonical_opening_id', 'source_observation_ids', 'source_lineage_root_ids'):
+                  assert old[key][field] == new[key][field]
+          traces = current['opening_measurement_traces']
+          assert traces
+          def normalized_traces(report):
+              rows = {}
+              for trace in report['opening_measurement_traces']:
+                  row = {key: (sorted(value) if key.endswith('_reason_codes') else value)
+                         for key, value in trace.items() if key != 'representative_observation_id'}
+                  rows[row['opening_identity_id']] = row
+              assert len(rows) == len(report['opening_measurement_traces'])
+              return rows
+          assert normalized_traces(current) == normalized_traces(baseline)
+          assert current['primitive_safety_cap'] == baseline['primitive_safety_cap']
+          assert 'quantities' not in current
+          print(json.dumps({'baseline': baseline['summary'], 'current': current['summary'],
+                            'measurement_traces': traces}, sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lot16-raster-measurement-source-handoff
+          path: lot16-measurement-source-*.json
+          retention-days: 14

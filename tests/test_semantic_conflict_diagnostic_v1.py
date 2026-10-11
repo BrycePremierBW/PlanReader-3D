@@ -1055,22 +1055,22 @@ def test_candidate_structure_of_adjacent_openings_is_reported_from_member_sets(a
     summary = diag.candidate_structure
     assert isinstance(summary, CandidateStructureSummary)
     assert summary.pages_enumerated == 1 and summary.pages_unavailable == 0
-    # two adjacent gaps + the collinear pair spanning both: three 6-member candidates
-    assert summary.candidates_total == 3
-    assert dict(summary.candidates_by_pattern) == {"jamb_bounded_two_face_interruption": 3}
-    assert dict(summary.members_per_candidate) == {"jamb_bounded_two_face_interruption:6": 3}
-    # 10 observations belong to candidates; 8 belong to two of them
+    # A visible solid stub separates two real gaps; the false spanning candidate is removed.
+    assert summary.candidates_total == 2
+    assert dict(summary.candidates_by_pattern) == {"jamb_bounded_two_face_interruption": 2}
+    assert dict(summary.members_per_candidate) == {"jamb_bounded_two_face_interruption:6": 2}
+    # Ten observations support the two gaps; only the shared stub faces overlap.
     assert summary.observations_in_candidates == 10
-    assert summary.observations_in_multiple_candidates == 8
-    assert dict(summary.candidates_per_observation) == {"1": 2, "2": 8}
-    # every candidate differs from every other by more than one member: 3 families
-    assert summary.variant_families_total == 3
-    assert dict(summary.variant_family_sizes) == {"1": 3}
+    assert summary.observations_in_multiple_candidates == 2
+    assert dict(summary.candidates_per_observation) == {"1": 8, "2": 2}
+    # Neither separate gap is a one-member variation of the other.
+    assert summary.variant_families_total == 2
+    assert dict(summary.variant_family_sizes) == {"1": 2}
     assert summary.candidates_with_strict_superset == 0
     assert summary.candidates_with_identical_member_set == 0
-    # every ambiguous observation spans two distinct families; nothing is resolved
-    assert summary.ambiguous_observations_assessed == len(diag.conflicts) == 8
-    assert dict(summary.ambiguous_observation_family_span) == {"2": 8}
+    # Only the shared boundary is multiply supported by distinct gap families.
+    assert summary.ambiguous_observations_assessed == len(diag.conflicts) == 2
+    assert dict(summary.ambiguous_observation_family_span) == {"2": 2}
     assert summary.disposition_candidate_id_mismatches == 0
     assert {c.candidate_family_count for c in diag.conflicts} == {2}
 
@@ -1190,11 +1190,11 @@ def test_candidate_structure_aggregation_sums_and_is_order_invariant(
     backward = aggregate_semantic_conflict_diagnostics([second, first])
     assert forward == backward
     block = forward["candidate_structure"]
-    assert block["candidates_total"] == 5
-    assert block["variant_families_total"] == 4
-    assert block["ambiguous_observations_assessed"] == 13
-    assert block["ambiguous_observation_family_span"] == {"1": 5, "2": 8}
-    assert block["variant_family_sizes"] == {"1": 3, "2": 1}
+    assert block["candidates_total"] == 4
+    assert block["variant_families_total"] == 3
+    assert block["ambiguous_observations_assessed"] == 7
+    assert block["ambiguous_observation_family_span"] == {"1": 5, "2": 2}
+    assert block["variant_family_sizes"] == {"1": 2, "2": 1}
     assert block["disposition_candidate_id_mismatches"] == 0
     assert aggregate_semantic_conflict_diagnostics([])["candidate_structure"]["candidates_total"] == 0
 
@@ -1202,8 +1202,8 @@ def test_candidate_structure_aggregation_sums_and_is_order_invariant(
 def test_script_report_carries_the_candidate_structure(tmp_path, adjacent_pdf):
     report = report_script.build_report([adjacent_pdf], detail="full")
     (entry,) = report["entries"]
-    assert entry["diagnostic"]["candidate_structure"]["candidates_total"] == 3
-    assert report["summary"]["candidate_structure"]["candidates_total"] == 3
+    assert entry["diagnostic"]["candidate_structure"]["candidates_total"] == 2
+    assert report["summary"]["candidate_structure"]["candidates_total"] == 2
 
 
 # ---------------------------------------- member-set analysis on fabricated candidates
