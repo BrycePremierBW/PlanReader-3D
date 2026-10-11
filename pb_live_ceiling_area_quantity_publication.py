@@ -75,10 +75,21 @@ def _publish_one(
     ):
         return None
 
+    # Producer-sealed numeric evidence must remain a real metric value at
+    # final quantity publication. Python's float(True) == 1 is not source m².
+    if (
+        type(ceiling.area_m2) not in (int, float)
+        or type(source.value) not in (int, float)
+        or type(source.confidence) not in (int, float)
+    ):
+        return None
     try:
         area = float(ceiling.area_m2)
         source_value = float(source.value)
+        confidence = float(source.confidence)
     except (TypeError, ValueError, OverflowError):
+        return None
+    if not math.isfinite(confidence) or not (0.0 <= confidence <= 1.0):
         return None
     if (
         not math.isfinite(area)
