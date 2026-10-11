@@ -80,6 +80,8 @@ def project_live_opening_customer_rows(
     """Project all currently sealable opening quantities to AI-review rows."""
     if type(claim) is not LivePhysicalNetWallClaim:
         raise TypeError("claim must be LivePhysicalNetWallClaim")
+    if type(workspace_id) is not int or workspace_id <= 0:
+        raise ValueError("workspace_id must be an authenticated positive integer")
 
     area_quantities = _eligible_area_quantities(claim)
     count_quantities = _eligible_count_quantities(claim)
@@ -91,7 +93,7 @@ def project_live_opening_customer_rows(
     if area_quantities:
         area_traces = build_live_opening_area_claim_source_traces(
             claim,
-            workspace_id=int(workspace_id),
+            workspace_id=workspace_id,
             project_id=project_id,
         )
         traces.update(
@@ -101,7 +103,7 @@ def project_live_opening_customer_rows(
     if count_quantities:
         count_traces = build_live_opening_count_source_traces(
             claim,
-            workspace_id=int(workspace_id),
+            workspace_id=workspace_id,
             project_id=project_id,
         )
         traces.update(
