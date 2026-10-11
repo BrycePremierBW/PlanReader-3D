@@ -117,9 +117,9 @@ def build_live_opening_count_source_traces(
             ) from exc
         if (
             not math.isfinite(count_value)
-            or count_value < 0
-            or abs(count_value - round(count_value)) > 1e-9
-            or int(round(count_value)) != len(identities)
+            or count_value <= 0
+            or not count_value.is_integer()
+            or int(count_value) != len(identities)
         ):
             raise SourceClosedRunConflictError(
                 "opening-count quantity must equal its authenticated physical member count"
