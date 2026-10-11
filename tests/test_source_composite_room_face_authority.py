@@ -1151,3 +1151,35 @@ def test_gpt2_b01_original_composite_wall_receipt_requires_typed_exact_w4_id():
         )
         assert result.records==()
         assert result.status is EvidenceResolutionStatus.ABSTAINED
+
+
+def test_gpt2_source_label_observation_and_word_authority_receipts_are_native():
+    from dataclasses import replace
+    import copy
+    walls=_wall_scope((_grid_atom("e_sep"),))
+    rooms=_room_scope()
+    original_scope=_label_scope()
+    assert len(compose_grid_separated_room_faces(
+        wall_scope=walls,room_scope=rooms,label_scope=original_scope
+    ).records)==1
+    original=original_scope.split_face_candidates[0]
+    for bad in (None,7,""," ", "native-receipt "):
+        label=copy.copy(original)
+        label.observation_ids=(bad,"obs_b")
+        withheld=compose_grid_separated_room_faces(
+            wall_scope=walls,room_scope=rooms,
+            label_scope=replace(original_scope,split_face_candidates=(label,))
+        )
+        assert withheld.records == ()
+        assert withheld.status is EvidenceResolutionStatus.ABSTAINED
+        label=copy.copy(original)
+        label.word_evidence=(
+            SimpleNamespace(authority_record_id=bad),
+            SimpleNamespace(authority_record_id="text_b"),
+        )
+        withheld=compose_grid_separated_room_faces(
+            wall_scope=walls,room_scope=rooms,
+            label_scope=replace(original_scope,split_face_candidates=(label,))
+        )
+        assert withheld.records == ()
+        assert withheld.status is EvidenceResolutionStatus.ABSTAINED
