@@ -348,3 +348,52 @@ def test_count_sealing_requires_real_original_observation_ids_per_physical_membe
             replace(claim, canonical_openings=(corrupted,)),
             workspace_id=7, project_id="source-project",
         )
+
+
+@pytest.mark.parametrize("field,forged_value", (
+    ("unit", "m2"),
+    ("unit", "each"),
+    ("status", "provisional"),
+    ("status", "conflict"),
+    ("authority", "model_derived"),
+))
+def test_opening_count_source_seal_requires_producer_owned_commercial_units_and_status(
+    tmp_path, field, forged_value,
+):
+    from copy import copy
+    path = tmp_path / "count-commercial-source-trace.pdf"
+    path.write_bytes(_floor_plan_with_schedule_quantity(quantity=1))
+    claim = collect_live_physical_net_wall_claim(path, pages=(0,))
+    source = claim.opening_count_quantity_evidence[0]
+    forged = copy(source)
+    object.__setattr__(forged, field, forged_value)
+    with pytest.raises(SourceClosedRunConflictError, match="commercial measurement authority"):
+        build_live_opening_count_source_traces(
+            replace(claim, opening_count_quantity_evidence=(forged,)),
+            workspace_id=7, project_id="source-project",
+        )
+    assert len(build_live_opening_count_source_traces(
+        claim, workspace_id=7, project_id="source-project",
+    )) == 1
+
+
+def test_opening_count_source_seal_requires_explicit_commercial_publication_permission(
+    tmp_path,
+):
+    path = tmp_path / "count-commercial-permission.pdf"
+    path.write_bytes(_floor_plan_with_schedule_quantity(quantity=1))
+    claim = collect_live_physical_net_wall_claim(path, pages=(0,))
+    source = claim.opening_count_quantity_evidence[0]
+    for permission in (False, None, "true"):
+        forged = replace(
+            source,
+            metadata={
+                **dict(source.metadata),
+                "commercial_projection_allowed": permission,
+            },
+        )
+        with pytest.raises(SourceClosedRunConflictError, match="commercial measurement authority"):
+            build_live_opening_count_source_traces(
+                replace(claim, opening_count_quantity_evidence=(forged,)),
+                workspace_id=7, project_id="source-project",
+            )
