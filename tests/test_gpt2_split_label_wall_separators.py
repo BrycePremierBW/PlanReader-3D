@@ -143,3 +143,31 @@ def test_split_label_diagnostic_rejects_missing_or_forged_lineage():
         row=gate(split,faces)
         assert row["first_gate"]=="split_source_face_lineage_mismatch"
         assert row["merge_source_faces_authorized"] is False
+
+
+def test_gpt2_b01_native_near_reverse_edges_are_not_exact_separator_proof():
+    for shifted in (
+        ((5.0000001,10.),(5.0000001,0.)),
+        ((5.,10.0000001),(5.,0.)),
+        ((5.,10.),(5.,0.0000001)),
+    ):
+        faces=sample()
+        faces["face-right"]=face("face-right","W4-wall-1",shifted)
+        report=gate(candidate(),faces)
+        pair=report["pairwise_source_wall_gates"][0]
+        assert pair["first_gate"]=="no_exact_shared_source_wall_separator"
+        assert pair["matching_authenticated_wall_segments"]==[]
+        assert report["merge_source_faces_authorized"] is False
+        assert report["metric_quantity_published"] is False
+
+
+def test_gpt2_b01_overflowing_source_wall_coordinate_never_aborts_diagnostic():
+    faces=sample()
+    faces["face-right"]=face("face-right","W4-wall-1",(
+        (10**500,10.),(5.,0.)
+    ))
+    row=gate(candidate(),faces)
+    assert row["pairwise_source_wall_gates"][0]["first_gate"]==(
+        "malformed_source_wall_subedges"
+    )
+    assert row["merge_source_faces_authorized"] is False
