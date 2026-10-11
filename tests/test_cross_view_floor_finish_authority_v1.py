@@ -1098,3 +1098,31 @@ def test_gpt2_canonical_floor_finish_handoff_rejects_foreign_physical_ancestry(
         assert output.floors[0].commercial_quantity_authority is False
     valid=enrich_live_canonical_floor_finishes(floors,real)
     assert valid.floors[0].finish_descriptor=="tile"
+
+
+def test_gpt2_finish_result_floor_lookup_never_silently_overwrites_conflicts(
+    monkeypatch,
+):
+    _patch_material_viewports(monkeypatch)
+    source,areas,floors=_source_room_area_and_floor(_payload())
+    produced=CrossViewFloorFinishProducer.from_source(
+        source=source,room_areas=areas,floors=floors,
+    ).publish()
+    authentic=produced.records[0]
+    assert produced.records_by_floor_id=={
+        authentic.canonical_floor_id:authentic
+    }
+    competing=replace(
+        authentic,occurrence_record_id="independent-competing-occurrence",
+    )
+    unrelated=replace(
+        authentic,canonical_floor_id="other-canonical-floor",
+        physical_floor_surface_id="other-canonical-floor",
+        occurrence_record_id="other-original-occurrence",
+    )
+    disputed=replace(produced,records=(authentic,competing,unrelated))
+    assert dict(disputed.records_by_floor_id)=={
+        "other-canonical-floor":unrelated
+    }
+    assert authentic.canonical_floor_id not in disputed.records_by_floor_id
+    assert competing.canonical_floor_id not in disputed.records_by_floor_id
