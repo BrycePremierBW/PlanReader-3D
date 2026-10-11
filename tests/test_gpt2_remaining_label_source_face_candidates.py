@@ -52,3 +52,40 @@ def test_duplicate_same_face_receipt_not_multiple_physical_owners():
     row=classify((30.,30.,40.,40.),(duplicate,duplicate))
     assert row["sampled_box_face_record_ids"]==["face-one"]
     assert row["source_room_label_authenticated"] is False
+
+
+def test_conflicting_source_face_receipt_geometry_never_owns_native_room_label():
+    # Two producer rows under one source receipt cannot be silently collapsed
+    # into a single authentic room, even if both geometries contain the label.
+    first=face("duplicate-source-id", BOX)
+    competing=face("duplicate-source-id",(
+        (20.,20.),(80.,20.),(80.,80.),(20.,80.)
+    ))
+    actual=classify((30.,30.,40.,40.),(first,competing))
+    assert actual["first_source_face_gate"]=="source_face_receipt_geometry_conflict"
+    assert actual["ambiguous_source_face_record_ids"]==["duplicate-source-id"]
+    assert actual["centre_face_record_ids"]==[]
+    assert actual["sampled_box_face_record_ids"]==[]
+    assert actual["source_room_label_authenticated"] is False
+    assert actual["metric_area_published"] is False
+    # Exact source record replay is idempotent and stays only a candidate.
+    replay=classify((30.,30.,40.,40.),(first,face("duplicate-source-id",BOX)))
+    assert replay["first_source_face_gate"]=="single_source_face_spatial_candidate_only"
+    assert replay["sampled_box_face_record_ids"]==["duplicate-source-id"]
+
+
+def test_invalid_source_face_receipts_and_overflowing_native_geometry_abstain():
+    for invalid in (None, 73, "", " ", "source-id "):
+        row=classify((30.,30.,40.,40.),(
+            face(invalid, BOX),
+        ))
+        assert row["centre_face_record_ids"]==[]
+        assert row["sampled_box_face_record_ids"]==[]
+        assert not row["source_room_label_authenticated"]
+    row=classify((30.,30.,40.,40.),(
+        face("overgrown",((10**500,0),(10,0),(10,10))),
+    ))
+    assert row["first_source_face_gate"]=="native_label_outside_source_room_faces"
+    assert row["invalid_source_face_record_ids"]==["overgrown"]
+    row=classify((0,0,10**500,10.),(face("one",BOX),))
+    assert row["first_source_face_gate"]=="native_label_bbox_unavailable"
