@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
+import tempfile
 from typing import Iterable
 
 from pb_source_closed_run_export import (
@@ -56,12 +58,34 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
 
+    # Source-closed family receipts are immutable inputs, not disposable CLI
+    # scratch files. Resolve aliases/symlinks before composition so a caller
+    # cannot silently replace one authenticated producer run with its aggregate.
+    output_identity = args.output.resolve()
+    if any(output_identity == source.resolve() for source in args.inputs):
+        raise ValueError("combined output must not overwrite a sealed source input")
+
     combined = combine_sealed_run_files(
         args.inputs,
         project_id=args.project_id,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(combined.to_json(), encoding="utf-8")
+    # Publish only a complete verified aggregate. A failed serialization,
+    # filesystem write or rename must not truncate a previous sealed result.
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=args.output.parent,
+            prefix=f".{args.output.name}.", suffix=".tmp", delete=False,
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+            temporary.write(combined.to_json())
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        os.replace(temporary_path, args.output)
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
     return 0
 
 
