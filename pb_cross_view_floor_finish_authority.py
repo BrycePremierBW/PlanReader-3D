@@ -472,6 +472,31 @@ def _unique_documented_area_owner_receipts(
             disputed.update(source_ids)
             for source_id in source_ids:
                 selected.pop(source_id, None)
+
+    # Exact source room-label observation and producer receipt identities
+    # likewise cannot be owned by two independently quantified room floors.
+    # No string/name/geometry similarity is involved in this check.
+    for field in ("source_label_observation_ids", "source_label_receipt_ids"):
+        receipt_owners = {}
+        for source_id, record in tuple(selected.items()):
+            raw = getattr(record, field, ()) or ()
+            if not isinstance(raw, (tuple, list)):
+                disputed.add(source_id)
+                continue
+            ids = tuple(raw)
+            if (
+                any(not valid(receipt) for receipt in ids)
+                or len(ids) != len(set(ids))
+            ):
+                disputed.add(source_id)
+                continue
+            for receipt in ids:
+                receipt_owners.setdefault(receipt, set()).add(source_id)
+        for source_ids in receipt_owners.values():
+            if len(source_ids) > 1:
+                disputed.update(source_ids)
+    for source_id in disputed:
+        selected.pop(source_id, None)
     return selected, tuple(sorted(disputed))
 
 
