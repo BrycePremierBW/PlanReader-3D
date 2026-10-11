@@ -6,6 +6,8 @@ physical finish-surface identities for downstream coverage/publication.
 """
 from __future__ import annotations
 
+import math
+
 from pb_bound_wall_finish_quantity_authority import (
     FINISH_QUANTITY_RESOLVED,
     SourceBoundWallFinishQuantityRecord,
@@ -32,46 +34,59 @@ def publish_bound_wall_finish_quantity(
     if not record.physical_surface_ids:
         raise ValueError("resolved wall-finish quantity lacks physical surface identities")
 
-    # The record is producer-sealed, but immutable replay/copy operations can
-    # still carry emptied source or physical identities. They must never
-    # become a commercially publishable quantity with an orphan surface ID.
-    if (
-        any(
-            not str(value or "").strip()
-            for value in (
-                record.record_id,
-                record.document_id,
-                record.revision_id,
-                record.source_sha256,
-                record.snapshot_id,
-                record.trade_scope_id,
-                record.finish_material,
-            )
-        )
-        or not record.physical_face_ids
-        or not record.physical_wall_ids
-        or any(
-            not str(value or "").strip()
-            for group in (
-                record.physical_face_ids,
-                record.physical_wall_ids,
-                record.physical_surface_ids,
-            )
-            for value in group
-        )
-    ):
+    # Resolve every structural and scalar identity before hashing/deduplicating:
+    # dataclass replacement can otherwise smuggle lists, integers or None into
+    # source receipt tuples, leading to TypeError or stringified fake receipts.
+    source_fields = (
+        record.record_id, record.document_id, record.revision_id,
+        record.source_sha256, record.snapshot_id, record.page_id,
+        record.viewport_id, record.decision_scope_id, record.trade_scope_id,
+        record.finish_material,
+    )
+    if any(type(value) is not str or not value.strip() for value in source_fields):
         raise ValueError("resolved wall-finish quantity lacks physical/source identity")
 
-    # A corroborated record cannot mint a commercial finish quantity if its
-    # scope, bindings, or net-wall evidence receipts are absent or blank.
+    physical_groups = (
+        record.physical_surface_ids, record.physical_face_ids,
+        record.physical_wall_ids,
+    )
+    receipt_groups = (record.finish_binding_ids, record.net_wall_record_ids)
+    for groups, error in (
+        (physical_groups, "resolved wall-finish quantity lacks physical/source identity"),
+        (receipt_groups, "resolved wall-finish quantity lacks source lineage receipts"),
+    ):
+        if any(
+            not isinstance(group, (tuple, list)) or not group
+            or any(type(value) is not str or not value.strip() for value in group)
+            for group in groups
+        ):
+            raise ValueError(error)
+        if any(len(set(group)) != len(group) for group in groups):
+            raise ValueError(error)
     if (
-        not str(record.finish_scope_record_id).strip()
-        or not record.finish_binding_ids
-        or not record.net_wall_record_ids
-        or any(not str(value).strip() for value in record.finish_binding_ids)
-        or any(not str(value).strip() for value in record.net_wall_record_ids)
+        type(record.finish_scope_record_id) is not str
+        or not record.finish_scope_record_id.strip()
     ):
         raise ValueError("resolved wall-finish quantity lacks source lineage receipts")
+
+    # Producer authority is required, but the final projection must still
+    # reject replayed non-finite, non-positive or boolean metric quantities.
+    if (
+        type(record.quantity_m2) not in (int, float)
+        or not math.isfinite(record.quantity_m2)
+        or record.quantity_m2 <= 0
+    ):
+        raise ValueError("resolved wall-finish quantity has invalid metric area")
+
+    # The record is already source-resolved; distinct classes of source receipt
+    # must not collapse into the same evidence ID during commercial projection.
+    raw_evidence_ids = (
+        record.finish_scope_record_id,
+        *record.finish_binding_ids,
+        *record.net_wall_record_ids,
+    )
+    if len(raw_evidence_ids) != len(set(raw_evidence_ids)):
+        raise ValueError("resolved wall-finish quantity has aliased source receipts")
 
     evidence_ids = tuple(
         dict.fromkeys(
