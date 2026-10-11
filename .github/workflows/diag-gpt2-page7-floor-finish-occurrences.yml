@@ -7,6 +7,8 @@ on:
       - gpt2/page7-source-double-border-plan-owner-20261010
     paths:
       - ".github/workflows/diag-gpt2-page7-floor-finish-occurrences.yml"
+      - "tools/diag_gpt2_floor_finish_occurrence_firstgate.py"
+      - "tests/test_gpt2_floor_finish_occurrence_firstgate.py"
   workflow_dispatch:
 
 jobs:
@@ -24,6 +26,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y tesseract-ocr
       - name: Frozen V2 unchanged
         run: PYTHONPATH=. python scripts/check_full_plan_v2_integrity.py
+      - name: Exact source floor-finish occurrence regression suite
+        run: PYTHONPATH=. python -m pytest -q tests/test_gpt2_floor_finish_occurrence_firstgate.py
       - name: Real source-owned floor finish occurrence first gate
         shell: bash
         run: |
@@ -46,6 +50,9 @@ jobs:
               segment_page_viewports, validate_non_overlapping_viewports,
           )
           from pb_drawing_evidence_binding import DrawingViewType
+          from tools.diag_gpt2_floor_finish_occurrence_firstgate import (
+              inspect_floor_finish_occurrence_first_gates,
+          )
 
           raw=Path("documents/sources/Arch_Combined_Maryborough_Service_Station.pdf").read_bytes()
           sha=hashlib.sha256(raw).hexdigest()
@@ -114,7 +121,14 @@ jobs:
                       source_evidence_id=rec.source_evidence_id,
                       native_bbox_pdf_pts=rec.bbox_pdf_pts,
                   ))
+              ownership_first_gates=inspect_floor_finish_occurrence_first_gates(
+                  result,v,sha=sha,page_id="7",
+              )
+              assert ownership_first_gates["diagnostic_only"]
+              assert not ownership_first_gates["room_finish_ownership_published"]
+              assert not ownership_first_gates["floor_finish_quantity_published"]
               floor_scopes.append(dict(
+                  **ownership_first_gates,
                   viewport_id=v.view_id,
                   status=str(result.status),
                   first_gate=list(result.reason_codes),
