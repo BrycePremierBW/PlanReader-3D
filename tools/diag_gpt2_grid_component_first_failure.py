@@ -216,10 +216,12 @@ def diagnose_original_w4_address_collisions(records):
     evidence = []
     for index, record in enumerate(source):
         native_id = getattr(record, "wall_candidate_id", None)
-        if native_id not in collisions:
+        if not exact(native_id) or native_id not in collisions:
             continue
         candidate = getattr(record, "wall_candidate", None)
         points = getattr(candidate, "centerline_pts", ()) or ()
+        if not isinstance(points, (tuple, list)):
+            points = ()
         source_points = []
         for p in points:
             try:
