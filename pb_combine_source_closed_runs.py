@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
+import tempfile
 from typing import Iterable
 
 from pb_source_closed_run_export import (
@@ -68,7 +70,22 @@ def main(argv: list[str] | None = None) -> int:
         project_id=args.project_id,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(combined.to_json(), encoding="utf-8")
+    # Publish only a complete verified aggregate. A failed serialization,
+    # filesystem write or rename must not truncate a previous sealed result.
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=args.output.parent,
+            prefix=f".{args.output.name}.", suffix=".tmp", delete=False,
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+            temporary.write(combined.to_json())
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        os.replace(temporary_path, args.output)
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
     return 0
 
 
