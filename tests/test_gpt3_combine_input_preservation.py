@@ -72,3 +72,29 @@ def test_cli_still_writes_separate_verified_aggregate(tmp_path):
     assert payload["project_id"] == "project-a"
     assert [row["quantity_id"] for row in payload["quantities"]] == ["q1"]
     assert cli.load_verified_sealed_run(output).fingerprint == payload["fingerprint"]
+
+
+def test_cli_atomic_publication_keeps_previous_receipt_if_rename_fails(tmp_path, monkeypatch):
+    source = _original_source(tmp_path)
+    output = tmp_path / "combined.json"
+    output.write_bytes(source.read_bytes())
+    previous = output.read_bytes()
+    signed_source = source.read_bytes()
+
+    def fail_rename(_source, _destination):
+        raise OSError("simulated publication failure")
+
+    monkeypatch.setattr(cli.os, "replace", fail_rename)
+    with pytest.raises(OSError, match="simulated publication failure"):
+        cli.main(["--input", str(source), "--output", str(output)])
+    assert output.read_bytes() == previous
+    assert source.read_bytes() == signed_source
+    assert not list(tmp_path.glob(".combined.json.*.tmp"))
+
+
+def test_cli_atomic_publication_leaves_no_staging_file_on_success(tmp_path):
+    source = _original_source(tmp_path)
+    output = tmp_path / "combined.json"
+    assert cli.main(["--input", str(source), "--output", str(output)]) == 0
+    assert cli.load_verified_sealed_run(output).project_id == "project-a"
+    assert not list(tmp_path.glob(".combined.json.*.tmp"))
