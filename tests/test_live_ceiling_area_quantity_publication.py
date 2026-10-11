@@ -715,6 +715,8 @@ def test_ceiling_documented_metric_area_rejects_competing_dimension_systems():
     # original-source ownership of one orthogonal pair is required.
     for bad_ids in (
         ("dim-h", "dim-v", "unrelated-horizontal"),
+        ("dim-h", "dim-v", "dim-h"),
+        ("dim-h", "dim-v", ""),
         ("dim-h", "dim-v", "unrelated-horizontal", "other-vertical"),
         ("dim-h",),
         (),
