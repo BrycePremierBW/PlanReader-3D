@@ -1069,3 +1069,32 @@ def test_gpt2_malformed_floor_room_label_receipts_preserve_unrelated_area():
         )
         assert owners=={"room-authentic":good}
         assert disputed==("room-unsupported",)
+
+
+def test_gpt2_canonical_floor_finish_handoff_rejects_foreign_physical_ancestry(
+    monkeypatch,
+):
+    _patch_material_viewports(monkeypatch)
+    source,areas,floors=_source_room_area_and_floor(_payload())
+    real=CrossViewFloorFinishProducer.from_source(
+        source=source,room_areas=areas,floors=floors
+    ).publish()
+    assert len(real.records)==1
+    authentic=real.records[0]
+    original=floors.floors[0]
+    for impostor in (
+        replace(authentic,physical_floor_surface_id="other-physical-floor"),
+        replace(authentic,source_room_face_record_id="foreign-face-receipt"),
+        replace(authentic,physical_room_id="different-physical-room"),
+        replace(authentic,quantity=replace(
+            authentic.quantity,input_entity_ids=("foreign-canonical-floor",)
+        )),
+    ):
+        disputed=replace(real,records=(impostor,))
+        output=enrich_live_canonical_floor_finishes(floors,disputed)
+        assert output.status is EvidenceResolutionStatus.CONFLICT
+        assert output.floors[0]==original
+        assert output.floors[0].finish_descriptor is None
+        assert output.floors[0].commercial_quantity_authority is False
+    valid=enrich_live_canonical_floor_finishes(floors,real)
+    assert valid.floors[0].finish_descriptor=="tile"
