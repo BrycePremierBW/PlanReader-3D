@@ -165,3 +165,15 @@ def test_gpt2_unbound_figured_endpoints_have_no_pseudo_wall_distances():
     assert report["endpoint_nearest_source_wall_distance_pdf_pts_diagnostic_only"]==[]
     assert not report["room_dimension_owned"]
     assert not report["metric_area_published"]
+
+
+def test_gpt2_mixed_invalid_endpoint_distance_remains_safe_nonpublishing():
+    row=inspect(face(),dimension(((float("nan"),5.),(20.,5.))))
+    assert row["first_authority_gate"]=="figured_endpoint_not_on_source_room_wall"
+    assert row["endpoint_nearest_source_wall_distance_pdf_pts_diagnostic_only"]==[
+        None,0.0
+    ]
+    # A broken witness does not inherit the other endpoint's valid wall.
+    assert row["endpoint_wall_owner_ids"]==[[],["source-wall-right"]]
+    assert row["room_dimension_owned"] is False
+    assert row["metric_area_published"] is False
