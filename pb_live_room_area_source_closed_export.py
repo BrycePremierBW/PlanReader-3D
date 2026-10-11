@@ -12,6 +12,8 @@ commercial claims.
 from __future__ import annotations
 
 import math
+
+from pb_geometry_takeoff_model import MeasurementAuthorityType
 from types import MappingProxyType
 from typing import Mapping
 
@@ -73,6 +75,24 @@ def _firm_room_area_quantities(
             raise SourceClosedRunConflictError(
                 f"room-area quantity has unsupported unit: {quantity_id}"
             )
+        if quantity.blocking_reasons or quantity.authority not in {
+            MeasurementAuthorityType.DOCUMENTED_DIMENSION.value,
+            MeasurementAuthorityType.PDF_SCALED.value,
+        }:
+            raise SourceClosedRunConflictError(
+                f"room-area quantity lacks admissible metric authority: {quantity_id}"
+            )
+        for receipts in (quantity.input_entity_ids, quantity.evidence_ids):
+            if (
+                not isinstance(receipts, (tuple, list))
+                or not receipts
+                or any(type(value) is not str or not value.strip()
+                       for value in receipts)
+                or len(set(receipts)) != len(receipts)
+            ):
+                raise SourceClosedRunConflictError(
+                    f"room-area source identity receipts are invalid: {quantity_id}"
+                )
         try:
             numeric = float(quantity.value)
         except (TypeError, ValueError, OverflowError) as exc:
