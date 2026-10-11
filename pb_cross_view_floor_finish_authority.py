@@ -20,6 +20,7 @@ benchmark values are never inputs.
 """
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass, replace
 import math
 from types import MappingProxyType
@@ -406,9 +407,108 @@ class CrossViewFloorFinishResult:
 
     @property
     def records_by_floor_id(self) -> Mapping[str, CrossViewFloorFinishRecord]:
-        return MappingProxyType(
-            {record.canonical_floor_id: record for record in self.records}
+        # A direct consumer must never silently choose the last of two
+        # competing finish claims for one canonical physical floor.
+        counts = Counter(
+            record.canonical_floor_id for record in self.records
+            if isinstance(record.canonical_floor_id, str)
+            and record.canonical_floor_id
         )
+        return MappingProxyType({
+            record.canonical_floor_id: record for record in self.records
+            if isinstance(record.canonical_floor_id, str)
+            and record.canonical_floor_id == record.canonical_floor_id.strip()
+            and counts[record.canonical_floor_id] == 1
+        })
+
+
+def _unique_documented_area_owner_receipts(
+    same_view: Sequence[SameViewRoomAreaRecord],
+    cross_view: Sequence[CrossViewRoomAreaRecord],
+) -> tuple[
+    dict[str, CrossViewRoomAreaRecord | SameViewRoomAreaRecord],
+    tuple[str, ...],
+]:
+    """Select only unambiguous source-room areas, preserving producer priority.
+
+    One cross-view documented measurement legitimately supersedes one or more
+    supplementary same-view candidates. But two entries from the SAME
+    authority claiming one physical source-room face cannot silently overwrite
+    each other or mint a floor finish from insertion order.
+    """
+    def valid(value: object) -> bool:
+        return isinstance(value, str) and bool(value) and value == value.strip()
+
+    def grouped(rows):
+        out = {}
+        for record in rows:
+            source_id = getattr(record, "source_room_face_record_id", None)
+            if valid(source_id):
+                out.setdefault(source_id, []).append(record)
+        return out
+
+    supplementary = grouped(same_view)
+    authoritative = grouped(cross_view)
+    selected = {}
+    disputed = set()
+    for source_id in sorted(set(supplementary) | set(authoritative)):
+        high = authoritative.get(source_id, ())
+        low = supplementary.get(source_id, ())
+        if len(high) > 1:
+            disputed.add(source_id)
+        elif high:
+            # An independent single source-proven cross-view measurement
+            # retains priority over possibly duplicated supplements.
+            selected[source_id] = high[0]
+        elif len(low) > 1:
+            disputed.add(source_id)
+        elif low:
+            selected[source_id] = low[0]
+
+    # A producer-owned figured area receipt cannot independently authenticate
+    # the metric finish quantity of two different physical source rooms.
+    # Quarantine both owners rather than choosing first/last or copying area.
+    evidence_owners = {}
+    for source_id, record in tuple(selected.items()):
+        evidence_id = getattr(
+            getattr(record, "area_evidence", None), "evidence_id", None
+        )
+        if not valid(evidence_id):
+            disputed.add(source_id)
+            del selected[source_id]
+            continue
+        evidence_owners.setdefault(evidence_id, set()).add(source_id)
+    for source_ids in evidence_owners.values():
+        if len(source_ids) > 1:
+            disputed.update(source_ids)
+            for source_id in source_ids:
+                selected.pop(source_id, None)
+
+    # Exact source room-label observation and producer receipt identities
+    # likewise cannot be owned by two independently quantified room floors.
+    # No string/name/geometry similarity is involved in this check.
+    for field in ("source_label_observation_ids", "source_label_receipt_ids"):
+        receipt_owners = {}
+        for source_id, record in tuple(selected.items()):
+            raw = getattr(record, field, ()) or ()
+            if not isinstance(raw, (tuple, list)):
+                disputed.add(source_id)
+                continue
+            ids = tuple(raw)
+            if (
+                any(not valid(receipt) for receipt in ids)
+                or len(ids) != len(set(ids))
+            ):
+                disputed.add(source_id)
+                continue
+            for receipt in ids:
+                receipt_owners.setdefault(receipt, set()).add(source_id)
+        for source_ids in receipt_owners.values():
+            if len(source_ids) > 1:
+                disputed.update(source_ids)
+    for source_id in disputed:
+        selected.pop(source_id, None)
+    return selected, tuple(sorted(disputed))
 
 
 def _quarantine_reused_floor_finish_occurrences(
@@ -505,31 +605,39 @@ class CrossViewFloorFinishProducer:
         # Same-view documented area is supplemental. Preserve established
         # cross-view authority for a source room when both producers resolve,
         # exactly as the live room-area bridge does.
-        area_by_source_room: dict[
-            str,
-            CrossViewRoomAreaRecord | SameViewRoomAreaRecord,
-        ] = {
-            str(record.source_room_face_record_id): record
-            for record in (
+        area_by_source_room, disputed_area_source_ids = (
+            _unique_documented_area_owner_receipts(
                 self._same_view_room_areas.records
-                if self._same_view_room_areas is not None
-                else ()
+                if self._same_view_room_areas is not None else (),
+                self._room_areas.records
+                if self._room_areas is not None else (),
             )
-        }
-        for record in (
-            self._room_areas.records if self._room_areas is not None else ()
-        ):
-            area_by_source_room[str(record.source_room_face_record_id)] = record
+        )
         area_records = tuple(
             area_by_source_room[key]
             for key in sorted(area_by_source_room)
         )
+        unresolved_disputed_area_floors = {
+            floor.canonical_floor_id
+            for floor in self._floors.floors
+            if floor.source_room_face_record_id in disputed_area_source_ids
+        }
         if not area_records:
             return CrossViewFloorFinishResult(
-                status=EvidenceResolutionStatus.ABSTAINED,
-                reason_codes=(CROSS_VIEW_FLOOR_FINISH_UNAVAILABLE,),
+                status=(
+                    EvidenceResolutionStatus.CONFLICT
+                    if disputed_area_source_ids
+                    else EvidenceResolutionStatus.ABSTAINED
+                ),
+                reason_codes=(
+                    (CROSS_VIEW_FLOOR_FINISH_CONFLICT,)
+                    if disputed_area_source_ids
+                    else (CROSS_VIEW_FLOOR_FINISH_UNAVAILABLE,)
+                ),
                 records=(),
-                unresolved_canonical_floor_ids=(),
+                unresolved_canonical_floor_ids=tuple(sorted(
+                    unresolved_disputed_area_floors
+                )),
             )
 
         document_ids: set[str] = set()
@@ -597,8 +705,8 @@ class CrossViewFloorFinishProducer:
         occurrence_results = material_producer.published_occurrence_results()
 
         records: list[CrossViewFloorFinishRecord] = []
-        unresolved: set[str] = set()
-        conflict = False
+        unresolved: set[str] = set(unresolved_disputed_area_floors)
+        conflict = bool(disputed_area_source_ids)
 
         # Cross-view fallback: a floor-finish plan may carry the room label and
         # finish code separately from the figured-dimension view that measured
@@ -1000,6 +1108,27 @@ def enrich_live_canonical_floor_finishes(
             enriched.append(floor)
             continue
         record = matches[0]
+        # Canonical floor ID agreement is necessary, not sufficient. Every
+        # producer-owned floor finish must retain exactly the same physical
+        # source room, floor surface and QuantityEvidence input ancestry.
+        physical_room_id = getattr(record, "physical_room_id", None)
+        quantity_inputs = getattr(
+            getattr(record, "quantity", None), "input_entity_ids", None
+        )
+        if (
+            not isinstance(physical_room_id, str) or not physical_room_id
+            or physical_room_id != physical_room_id.strip()
+            or record.physical_floor_surface_id != floor.physical_floor_surface_id
+            or record.source_room_face_record_id != floor.source_room_face_record_id
+            or _expected_floor_id(
+                document_id=floor.document_id,
+                physical_room_id=physical_room_id,
+            ) != floor.canonical_floor_id
+            or quantity_inputs != (floor.canonical_floor_id,)
+        ):
+            conflict = True
+            enriched.append(floor)
+            continue
         if floor.finish_descriptor not in (None, "", record.semantic_finish):
             conflict = True
             enriched.append(floor)

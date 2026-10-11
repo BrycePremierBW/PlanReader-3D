@@ -882,3 +882,247 @@ def test_shared_floor_finish_conflict_result_is_input_order_independent(
     assert tuple(row.occurrence_record_id for row in reversed_rows) == (
         "different-authenticated-occurrence",
     )
+
+
+def test_gpt2_duplicate_documented_area_cannot_own_a_floor_finish(monkeypatch):
+    from pb_cross_view_floor_finish_authority import (
+        _unique_documented_area_owner_receipts,
+    )
+    _patch_material_viewports(monkeypatch)
+    source, documented, floors = _source_room_area_and_floor(_payload())
+    original = documented.records[0]
+    conflicting = replace(
+        original,
+        area_evidence=replace(
+            original.area_evidence, evidence_id="competing-source-documented-area",
+            normalized_value=9.0,
+        ),
+    )
+    selected, disputed = _unique_documented_area_owner_receipts(
+        (), (original, conflicting)
+    )
+    assert selected == {}
+    assert disputed == (original.source_room_face_record_id,)
+
+    result = CrossViewFloorFinishProducer.from_source(
+        source=source,
+        room_areas=replace(documented, records=(original, conflicting)),
+        floors=floors,
+    ).publish()
+    assert result.status is EvidenceResolutionStatus.CONFLICT
+    assert result.records == ()
+    assert result.quantities == ()
+    assert result.unresolved_canonical_floor_ids == (
+        floors.floors[0].canonical_floor_id,
+    )
+
+
+def test_gpt2_source_floor_finish_crossview_priority_survives_duplicate_supplements(
+    monkeypatch,
+):
+    from pb_cross_view_floor_finish_authority import (
+        _unique_documented_area_owner_receipts,
+    )
+    _patch_material_viewports(monkeypatch)
+    source, documented, floors = _source_room_area_and_floor(_payload())
+    strong = documented.records[0]
+    other = replace(strong, area_evidence=replace(
+        strong.area_evidence, evidence_id="supplement-one",
+    ))
+    another = replace(strong, area_evidence=replace(
+        strong.area_evidence, evidence_id="supplement-two",
+    ))
+    selected, disputed = _unique_documented_area_owner_receipts(
+        (other, another), (strong,),
+    )
+    assert selected == {strong.source_room_face_record_id: strong}
+    assert disputed == ()
+    # A duplicate cross-view producer receipt may not be silently replaced
+    # by even a single independently positive same-view candidate.
+    selected, disputed = _unique_documented_area_owner_receipts(
+        (other,), (strong, strong),
+    )
+    assert selected == {}
+    assert disputed == (strong.source_room_face_record_id,)
+
+
+def test_gpt2_invalid_source_room_area_id_never_becomes_finish_owner():
+    from types import SimpleNamespace
+    from pb_cross_view_floor_finish_authority import (
+        _unique_documented_area_owner_receipts,
+    )
+    authentic = SimpleNamespace(
+        source_room_face_record_id="source-face-1",
+        area_evidence=SimpleNamespace(evidence_id="independent-source-area-1"),
+    )
+    invalid = tuple(
+        SimpleNamespace(
+            source_room_face_record_id=value,
+            area_evidence=SimpleNamespace(evidence_id="foreign-source-area"),
+        )
+        for value in (None, 17, "", " source-face-1", "source-face-1 ")
+    )
+    owners, disputed = _unique_documented_area_owner_receipts(
+        invalid, (authentic,)
+    )
+    assert owners == {"source-face-1": authentic}
+    assert disputed == ()
+
+
+def test_gpt2_reused_source_area_evidence_cannot_quantify_two_room_finishes():
+    from types import SimpleNamespace as Record
+    from pb_cross_view_floor_finish_authority import (
+        _unique_documented_area_owner_receipts,
+    )
+    def source_room(room_id, receipt):
+        return Record(
+            source_room_face_record_id=room_id,
+            area_evidence=Record(evidence_id=receipt),
+        )
+    first=source_room("physical-source-room-one","same-figured-area-receipt")
+    second=source_room("physical-source-room-two","same-figured-area-receipt")
+    independent=source_room("physical-source-room-three","unique-source-area")
+    kept, disputed=_unique_documented_area_owner_receipts(
+        (), (first,second,independent)
+    )
+    assert kept=={"physical-source-room-three":independent}
+    assert disputed==(
+        "physical-source-room-one","physical-source-room-two"
+    )
+    assert "physical-source-room-one" not in kept
+    assert "physical-source-room-two" not in kept
+
+
+def test_gpt2_invalid_figured_area_receipt_quarantines_only_its_source_room():
+    from types import SimpleNamespace as Record
+    from pb_cross_view_floor_finish_authority import (
+        _unique_documented_area_owner_receipts,
+    )
+    good=Record(
+        source_room_face_record_id="room-valid",
+        area_evidence=Record(evidence_id="real-source-figured-area"),
+    )
+    for invalid in (None, 79, "", "  ", " source-area-receipt"):
+        untrusted=Record(
+            source_room_face_record_id="room-unsupported",
+            area_evidence=Record(evidence_id=invalid),
+        )
+        kept,disputed=_unique_documented_area_owner_receipts(
+            (), (good,untrusted)
+        )
+        assert kept=={"room-valid":good}
+        assert disputed==("room-unsupported",)
+
+
+def test_gpt2_room_label_source_observation_cannot_own_two_floor_finishes():
+    from types import SimpleNamespace as R
+    from pb_cross_view_floor_finish_authority import (
+        _unique_documented_area_owner_receipts,
+    )
+    def room(face,evidence,word,label_receipt):
+        return R(
+            source_room_face_record_id=face,
+            area_evidence=R(evidence_id=evidence),
+            source_label_observation_ids=(word,),
+            source_label_receipt_ids=(label_receipt,),
+        )
+    first=room("room-a","area-a","native-word-shared","source-label-a")
+    second=room("room-b","area-b","native-word-shared","source-label-b")
+    unaffected=room("room-c","area-c","native-word-c","source-label-c")
+    owners,disputed=_unique_documented_area_owner_receipts(
+        (), (first,second,unaffected)
+    )
+    assert owners=={"room-c":unaffected}
+    assert disputed==("room-a","room-b")
+    # A shared original producer SOURCE LABEL receipt independently proves
+    # the same conflict, even with distinct native word observations.
+    other=room("room-b","area-b","native-word-b","source-label-a")
+    owners,disputed=_unique_documented_area_owner_receipts(
+        (), (first,other,unaffected)
+    )
+    assert owners=={"room-c":unaffected}
+    assert disputed==("room-a","room-b")
+
+
+def test_gpt2_malformed_floor_room_label_receipts_preserve_unrelated_area():
+    from types import SimpleNamespace as R
+    from pb_cross_view_floor_finish_authority import (
+        _unique_documented_area_owner_receipts,
+    )
+    good=R(
+        source_room_face_record_id="room-authentic",
+        area_evidence=R(evidence_id="real-figured-source-area"),
+        source_label_observation_ids=("observed-room-text",),
+        source_label_receipt_ids=("source-room-label",),
+    )
+    for bad_receipts in (
+        "source-label", 73, ["", "native"], [" one", "two"], [[], "one"]
+    ):
+        false=R(
+            source_room_face_record_id="room-unsupported",
+            area_evidence=R(evidence_id="different-source-area"),
+            source_label_observation_ids=("different-native-text",),
+            source_label_receipt_ids=bad_receipts,
+        )
+        owners,disputed=_unique_documented_area_owner_receipts(
+            (), (good,false)
+        )
+        assert owners=={"room-authentic":good}
+        assert disputed==("room-unsupported",)
+
+
+def test_gpt2_canonical_floor_finish_handoff_rejects_foreign_physical_ancestry(
+    monkeypatch,
+):
+    _patch_material_viewports(monkeypatch)
+    source,areas,floors=_source_room_area_and_floor(_payload())
+    real=CrossViewFloorFinishProducer.from_source(
+        source=source,room_areas=areas,floors=floors
+    ).publish()
+    assert len(real.records)==1
+    authentic=real.records[0]
+    original=floors.floors[0]
+    for impostor in (
+        replace(authentic,physical_floor_surface_id="other-physical-floor"),
+        replace(authentic,source_room_face_record_id="foreign-face-receipt"),
+        replace(authentic,physical_room_id="different-physical-room"),
+        replace(authentic,quantity=replace(
+            authentic.quantity,input_entity_ids=("foreign-canonical-floor",)
+        )),
+    ):
+        disputed=replace(real,records=(impostor,))
+        output=enrich_live_canonical_floor_finishes(floors,disputed)
+        assert output.status is EvidenceResolutionStatus.CONFLICT
+        assert output.floors[0]==original
+        assert output.floors[0].finish_descriptor is None
+        assert output.floors[0].commercial_quantity_authority is False
+    valid=enrich_live_canonical_floor_finishes(floors,real)
+    assert valid.floors[0].finish_descriptor=="tile"
+
+
+def test_gpt2_finish_result_floor_lookup_never_silently_overwrites_conflicts(
+    monkeypatch,
+):
+    _patch_material_viewports(monkeypatch)
+    source,areas,floors=_source_room_area_and_floor(_payload())
+    produced=CrossViewFloorFinishProducer.from_source(
+        source=source,room_areas=areas,floors=floors,
+    ).publish()
+    authentic=produced.records[0]
+    assert produced.records_by_floor_id=={
+        authentic.canonical_floor_id:authentic
+    }
+    competing=replace(
+        authentic,occurrence_record_id="independent-competing-occurrence",
+    )
+    unrelated=replace(
+        authentic,canonical_floor_id="other-canonical-floor",
+        physical_floor_surface_id="other-canonical-floor",
+        occurrence_record_id="other-original-occurrence",
+    )
+    disputed=replace(produced,records=(authentic,competing,unrelated))
+    assert dict(disputed.records_by_floor_id)=={
+        "other-canonical-floor":unrelated
+    }
+    assert authentic.canonical_floor_id not in disputed.records_by_floor_id
+    assert competing.canonical_floor_id not in disputed.records_by_floor_id
