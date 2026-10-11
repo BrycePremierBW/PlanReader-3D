@@ -180,14 +180,24 @@ def _validate_explicit_area(
         blockers.append("explicit_area_not_corroborated")
     if evidence.normalized_value is None:
         blockers.append("explicit_area_missing_normalized_value")
+    elif type(evidence.normalized_value) not in (int, float):
+        blockers.append("explicit_area_invalid")
     else:
-        try:
-            value = float(evidence.normalized_value)
-        except (TypeError, ValueError):
+        value = float(evidence.normalized_value)
+        if not math.isfinite(value) or value <= 0.0:
             blockers.append("explicit_area_invalid")
-        else:
-            if not math.isfinite(value) or value <= 0.0:
-                blockers.append("explicit_area_invalid")
+    # Figured-dimension receipts are optional for genuinely explicit printed
+    # area labels, but when supplied may never be an iterable string that
+    # masquerades as two independent source dimensions.
+    meta = evidence.metadata if isinstance(evidence.metadata, dict) else {}
+    figured = meta.get("figured_dimension_ids")
+    if figured is not None and (
+        not isinstance(figured, (tuple, list))
+        or len(figured) != 2
+        or any(type(item) is not str or not item.strip() for item in figured)
+        or len(set(figured)) != 2
+    ):
+        blockers.append("explicit_area_figured_receipts_invalid")
     if str(evidence.unit or "").strip().lower() not in {"m2", "m²"}:
         blockers.append("explicit_area_unit_not_m2")
     return tuple(blockers)
@@ -252,16 +262,10 @@ def build_room_area_quantity(
             if isinstance(explicit_area_evidence.metadata, dict)
             else {}
         )
+        # Validated by _validate_explicit_area; do not coerce an arbitrary
+        # string into a false two-axis figured source receipt at publication.
         figured_dimension_ids = tuple(
-            sorted(
-                {
-                    str(value).strip()
-                    for value in (
-                        explicit_metadata.get("figured_dimension_ids") or ()
-                    )
-                    if str(value).strip()
-                }
-            )
+            sorted(explicit_metadata.get("figured_dimension_ids") or ())
         )
         payload = {
             "family": ROOM_AREA_FAMILY,
