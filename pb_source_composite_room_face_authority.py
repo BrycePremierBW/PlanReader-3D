@@ -354,9 +354,32 @@ def _grid_connected_component(
 ) -> tuple[str, ...] | None:
     """Complete one room through exact two-sided grid-owned subedges."""
 
-    room_by_face = {str(record.face_id): record for record in room_scope.records}
-    seeds = tuple(dict.fromkeys(str(value) for value in seed_face_ids))
-    if len(seeds) < 2 or any(face_id not in room_by_face for face_id in seeds):
+    # The connected-component authority must not coerce, overwrite or
+    # choose between source face identities, even when called independently
+    # of the higher-level composite candidate guard.
+    def valid(value):
+        return isinstance(value, str) and bool(value) and value == value.strip()
+
+    raw_seeds = tuple(seed_face_ids) if isinstance(seed_face_ids, (tuple, list)) else ()
+    if len(raw_seeds) < 2 or any(not valid(value) for value in raw_seeds):
+        return None
+    face_counts = Counter(
+        rec.face_id for rec in room_scope.records if valid(getattr(rec, "face_id", None))
+    )
+    receipt_counts = Counter(
+        rec.record_id for rec in room_scope.records if valid(getattr(rec, "record_id", None))
+    )
+    room_by_face = {
+        rec.face_id: rec for rec in room_scope.records
+        if valid(getattr(rec, "face_id", None))
+    }
+    seeds = tuple(dict.fromkeys(raw_seeds))
+    if len(seeds) < 2 or any(
+        face_counts[face_id] != 1 or face_id not in room_by_face
+        or not valid(getattr(room_by_face[face_id], "record_id", None))
+        or receipt_counts[room_by_face[face_id].record_id] != 1
+        for face_id in seeds
+    ):
         return None
 
     if adjacency is None:
@@ -371,6 +394,15 @@ def _grid_connected_component(
                 pending.append(neighbour)
 
     if any(seed not in visited for seed in seeds):
+        return None
+    # All recovered intermediary faces must have exact single source owners;
+    # checking just the native label seed cells is not sufficient.
+    if any(
+        face_counts[face_id] != 1 or face_id not in room_by_face
+        or not valid(getattr(room_by_face[face_id], "record_id", None))
+        or receipt_counts[room_by_face[face_id].record_id] != 1
+        for face_id in visited
+    ):
         return None
     return tuple(sorted(visited))
 
@@ -391,8 +423,12 @@ def _component_has_conflicting_label(
         return True
 
     for other in tuple(label_scope.split_face_candidates or ()):
-        if str(other.record_id) == str(candidate.record_id):
+        # Skip only this exact sealed candidate. Another claim with the
+        # same record ID is a conflicting source owner, not the same object.
+        if other is candidate:
             continue
+        if getattr(other, "record_id", None) == getattr(candidate, "record_id", None):
+            return True
         if component.intersection(str(value) for value in other.word_face_ids):
             return True
     return False
