@@ -17,6 +17,7 @@ import pb_source_room_label_authority as label_authority
 import pb_same_view_room_area_authority as same_view_authority
 from pb_geometry_takeoff_model import MeasurementAuthorityType
 from pb_live_floor_area_quantity_publication import publish_live_floor_area_quantities
+from pb_live_opening_area_quantity_publication import _opening_quantity
 from pb_live_physical_net_wall_integration import collect_live_physical_net_wall_claim
 
 
@@ -218,15 +219,23 @@ def _opening_quantity_first_failure(opening) -> str:
     }
     if basis not in bases:
         return "authenticated_opening_area_basis_unavailable"
+    if type(opening.area_m2) not in (int, float):
+        return "metric_opening_area_unavailable"
     try:
         area = float(opening.area_m2)
     except (TypeError, ValueError, OverflowError):
         return "metric_opening_area_unavailable"
     if not math.isfinite(area) or area <= 0.0:
         return "metric_opening_area_unavailable"
-    evidence = {str(value).strip() for value in opening.evidence_ids if str(value).strip()}
-    if not evidence:
+    original_receipts = opening.evidence_ids
+    if (
+        not isinstance(original_receipts, (tuple, list))
+        or not original_receipts
+        or any(type(value) is not str or not value.strip() for value in original_receipts)
+        or len(set(original_receipts)) != len(original_receipts)
+    ):
         return "opening_source_evidence_unavailable"
+    evidence = set(original_receipts)
     authority_record_id = str(getattr(opening, bases[basis]) or "").strip()
     if not authority_record_id or authority_record_id not in evidence:
         return "opening_area_measurement_source_receipt_unavailable"
@@ -235,6 +244,11 @@ def _opening_quantity_first_failure(opening) -> str:
         and str(opening.schedule_row_dimension_basis or "").strip().lower() != "frame"
     ):
         return "authenticated_frame_schedule_basis_unavailable"
+    # A diagnostic heuristic is never authoritative over the actual
+    # canonical→quantity publisher. Report the exact first failed publication
+    # gate rather than falsely declaring an opening ready to improve recall.
+    if _opening_quantity(opening) is None:
+        return "production_opening_area_quantity_gate_unresolved"
     return "opening_area_quantity_prerequisites_resolved"
 
 
