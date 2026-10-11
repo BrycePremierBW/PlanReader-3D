@@ -18,7 +18,7 @@ from pb_migration_contracts import (
     canonical_contract_json,
     stable_contract_id,
 )
-from pb_quantity_takeoff_adapter import CommercialTakeoffSourceTrace
+from pb_quantity_takeoff_adapter import CommercialTakeoffSourceTrace, quantity_status_not_publishable
 
 
 SOURCE_CLOSED_RUN_EXPORT_SCHEMA_VERSION = "1.0.0"
@@ -56,6 +56,23 @@ def _lineage_reasons(
         "source_sha256": trace.source_sha256,
         "revision_id": trace.revision_id,
     }
+    if not quantity.abstained and metadata.get("shadow_only") is True:
+        reasons.append("shadow_only_quantity")
+    if (
+        not quantity.abstained
+        and metadata.get("commercial_projection_allowed") is False
+        and not (
+            metadata.get("quantity_handoff_only") is True
+            and not quantity_status_not_publishable(quantity.status)
+            and metadata.get("shadow_only") is not True
+        )
+    ):
+        # Published floor/ceiling QuantityEvidence may be explicitly marked
+        # handoff-only: its producer authenticates a final quantity for sealing,
+        # then a separate customer adapter adds presentation/AI-review metadata.
+        # This flag is NOT permission to project raw shadow/provisional rows.
+        reasons.append("commercial_projection_forbidden")
+
     for key, authoritative in expected.items():
         candidate = metadata.get(key)
         if candidate is None:
@@ -77,6 +94,8 @@ def _lineage_reasons(
     status = _clean(quantity.status).lower()
     if "conflict" in status:
         reasons.append("quantity_status_conflict")
+    if not quantity.abstained and quantity_status_not_publishable(quantity.status):
+        reasons.append("quantity_status_not_publishable")
     if any("conflict" in _clean(reason).lower() for reason in quantity.reason_codes):
         reasons.append("quantity_reason_conflict")
     return tuple(dict.fromkeys(reasons))

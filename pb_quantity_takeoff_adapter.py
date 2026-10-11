@@ -61,6 +61,20 @@ def _json_copy(value: Any) -> Any:
     return json.loads(canonical_contract_json(value))
 
 
+# Publication is an explicit authority grant, not the absence of a known
+# negative state. New/unknown statuses (including shadow or review states)
+# must never silently become source-supported commercial quantities.
+_PUBLISHABLE_QUANTITY_STATES = frozenset({"firm", "corroborated"})
+
+
+def quantity_status_not_publishable(status: Any) -> bool:
+    # Resolve actual Enum values before normalizing their display names.
+    # str(EvidenceResolutionStatus.CANDIDATE) may be the qualified class
+    # token rather than "candidate" even though it is not firm evidence.
+    value = getattr(status, "value", status)
+    return _norm(value) not in _PUBLISHABLE_QUANTITY_STATES
+
+
 def _unit_is_valid(unit: str) -> bool:
     return _clean(unit).lower().replace(" ", "") in _VALID_COMMERCIAL_UNITS
 
@@ -238,10 +252,19 @@ def _validate_quantity_trace(
         raise MissingCommercialAuthorityError(
             "QuantityEvidence carries publication blockers: " + ", ".join(quantity.blocking_reasons)
         )
-    status = _norm(quantity.status)
+    status = _norm(getattr(quantity.status, "value", quantity.status))
     reasons = {_norm(reason) for reason in quantity.reason_codes}
     if "conflict" in status or any("conflict" in reason for reason in reasons):
         raise CommercialTakeoffConflictError("conflicting QuantityEvidence cannot enter commercial projection")
+    # Source-closed seals require firm/corroborated evidence; unapproved AI
+    # *review drafts* intentionally admit provisional/review_required source
+    # evidence after full trace, scale, shadow and publication-permission checks.
+    # This function only returns an origin=AI / To review row. It does not
+    # authorize estimator approval, pricing, JobHub publication, or a V2 seal.
+    if status not in {"firm", "corroborated", "provisional", "review_required"}:
+        raise MissingCommercialAuthorityError(
+            "nonpublishable QuantityEvidence status cannot enter commercial projection"
+        )
     if not _unit_is_valid(quantity.unit):
         raise MissingCommercialAuthorityError(
             f"unit {quantity.unit!r} is not valid for the commercial takeoff projection"
