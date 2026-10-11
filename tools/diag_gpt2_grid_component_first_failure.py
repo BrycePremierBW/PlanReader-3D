@@ -43,6 +43,7 @@ def _physical_union_first_unclosed_gate(
         "physical_union_candidate_source_face_count": len(component),
         "physical_union_merged_geometry_type_observed_only": None,
         "physical_union_external_grid_edge_count": 0,
+        "physical_union_external_grid_w4_ids_diagnostic_only": [],
         "physical_union_internal_separator_edge_count": 0,
         "new_room_geometry_published": False,
         "new_metric_area_published": False,
@@ -143,9 +144,16 @@ def _physical_union_first_unclosed_gate(
             )
             return result
     result["physical_union_internal_separator_edge_count"] = len(internal)
+    external_grid_ids=sorted({
+        wall_id for wall_id, edge in external if wall_id in fully_grid_wall_ids
+    })
     result["physical_union_external_grid_edge_count"] = sum(
         wall_id in fully_grid_wall_ids for wall_id, edge in external
     )
+    # Record actual W4 source identities needed by the upstream wall agent;
+    # they remain unowned/diagnostic and are not used as a geometry repair.
+    result["physical_union_external_grid_w4_ids_diagnostic_only"] = external_grid_ids[:24]
+    result["physical_union_external_grid_w4_id_count"] = len(external_grid_ids)
     if not internal or not external:
         result["physical_union_first_unclosed_gate"] = (
             "source_internal_or_external_boundary_not_complete"
