@@ -1212,3 +1212,52 @@ def test_gpt2_original_split_label_candidate_identity_must_be_exact():
             label_scope=replace(base,split_face_candidates=(cand,))
         )
         assert result.records==()
+
+
+def test_gpt2_atomic_grid_index_rejects_non_native_source_wall_identifiers():
+    from dataclasses import replace
+    from pb_source_composite_room_face_authority import (
+        _atomic_source_wall_edge_counts,
+    )
+    source=_room_scope()
+    left,right=source.records
+    clean=_atomic_source_wall_edge_counts(source,{"w_sep"})
+    assert clean
+    bad_face=replace(source,records=(replace(left,face_id=73),right))
+    invalid=_atomic_source_wall_edge_counts(bad_face,{"w_sep"})
+    assert all("73" not in owners for owners in invalid.values())
+    for wall in (None,7,""," w_sep","w_sep "):
+        injected=replace(left,boundary_wall_edges=(
+            (wall,left.boundary_wall_edges[0][1]),
+            *left.boundary_wall_edges[1:],
+        ))
+        invalid=_atomic_source_wall_edge_counts(
+            replace(source,records=(injected,right)),{"w_sep"}
+        )
+        assert all(
+            key[0] not in ("None","7"," w_sep","w_sep ")
+            for key in invalid
+        )
+    assert _atomic_source_wall_edge_counts(source,{"w_sep"})==clean
+
+
+def test_gpt2_local_wall_edge_index_never_coerces_source_owner_ids():
+    from dataclasses import replace
+    from pb_source_composite_room_face_authority import _local_edge_owners
+    source=_room_scope()
+    left,right=source.records
+    clean=_local_edge_owners(source)
+    assert clean
+    for bad in (None,71,""," w_left","w_left "):
+        altered=replace(left,boundary_wall_edges=(
+            (bad,left.boundary_wall_edges[0][1]),
+            *left.boundary_wall_edges[1:],
+        ))
+        index=_local_edge_owners(replace(source,records=(altered,right)))
+        assert all(
+            key[0] not in ("None","71"," w_left","w_left ")
+            for key in index
+        )
+    bad_face=replace(source,records=(replace(left,face_id=None),right))
+    assert all("None" not in owners for owners in _local_edge_owners(bad_face).values())
+    assert _local_edge_owners(source)==clean
