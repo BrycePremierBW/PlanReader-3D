@@ -648,3 +648,26 @@ def test_source_closed_opening_area_rechecks_original_numeric_measurement(corrup
         (original,), (opening,),
         workspace_id=1, project_id="source-project",
     )) == 1
+
+
+@pytest.mark.parametrize("dropped", (
+    "document_id", "revision_id", "source_sha256", "snapshot_id",
+    "page_no", "viewport_id", "canonical_opening_id",
+    "physical_opening_id", "host_wall_id", "opening_kind",
+    "area_basis", "measurement_record_id",
+))
+def test_source_closed_opening_area_requires_producer_owned_measurement_metadata(dropped):
+    from pb_live_opening_source_closed_export import _build_opening_area_source_traces
+    from pb_source_closed_run_export import SourceClosedRunConflictError
+
+    opening = _opening()
+    quantity = _opening_quantity(opening)
+    assert quantity is not None
+    altered = {**dict(quantity.metadata)}
+    altered.pop(dropped)
+    forged = replace(quantity, metadata=altered)
+    with pytest.raises(SourceClosedRunConflictError, match="missing original source ownership"):
+        _build_opening_area_source_traces(
+            (forged,), (opening,),
+            workspace_id=1, project_id="source-project",
+        )
