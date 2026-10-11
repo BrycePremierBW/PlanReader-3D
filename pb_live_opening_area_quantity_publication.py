@@ -70,6 +70,9 @@ def _opening_quantity(
     ):
         return None
 
+    if type(opening.area_m2) not in (int, float):
+        # A source replay with True must not become 1.0 m².
+        return None
     try:
         value = float(opening.area_m2)
     except (TypeError, ValueError, OverflowError):
@@ -77,15 +80,18 @@ def _opening_quantity(
     if not math.isfinite(value) or value <= 0.0:
         return None
 
-    evidence_ids = tuple(
-        sorted(
-            {
-                str(value).strip()
-                for value in opening.evidence_ids
-                if str(value).strip()
-            }
-        )
-    )
+    # Do not turn malformed original source receipts into a cleaner universe
+    # by string coercion, blank suppression or set deduplication.
+    original_receipts = opening.evidence_ids
+    if (
+        not isinstance(original_receipts, (tuple, list))
+        or not original_receipts
+        or any(type(item) is not str or not item.strip()
+               for item in original_receipts)
+        or len(set(original_receipts)) != len(original_receipts)
+    ):
+        return None
+    evidence_ids = tuple(sorted(original_receipts))
     if not evidence_ids:
         return None
     # A caller-replayed host string alone cannot certify the physical opening
