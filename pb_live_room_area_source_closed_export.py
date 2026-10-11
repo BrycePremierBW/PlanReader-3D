@@ -209,8 +209,7 @@ def build_live_room_area_source_traces(
             or room.source_sha256 != floor.source_sha256
             or room.snapshot_id != floor.snapshot_id
             or str(room.page_id) != str(floor.page_id)
-            or (room.viewport_id and floor.viewport_id
-                and room.viewport_id != floor.viewport_id)
+            or _clean(room.viewport_id) != _clean(floor.viewport_id)
         ):
             raise SourceClosedRunConflictError(
                 f"room and canonical floor have inconsistent original source lineage: {floor.canonical_floor_id}"
