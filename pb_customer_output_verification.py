@@ -347,15 +347,22 @@ def _verify_row_lineage(
             or len(direct_box) != 4
             or len(proven_box) != 4
             or any(type(x) not in (int, float) for x in (*direct_box, *proven_box))
-            or not all(math.isfinite(x) for x in (*direct_box, *proven_box))
         ):
             raise CustomerOutputVerificationError(
                 f"customer row {quantity_id!r} has invalid source_bbox"
             )
-        _require_equal(
-            "source_bbox", tuple(float(x) for x in direct_box),
-            tuple(float(x) for x in proven_box), quantity_id,
-        )
+        try:
+            actual_bbox = tuple(float(x) for x in direct_box)
+            expected_bbox = tuple(float(x) for x in proven_box)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise CustomerOutputVerificationError(
+                f"customer row {quantity_id!r} has invalid source_bbox"
+            ) from exc
+        if not all(math.isfinite(x) for x in (*actual_bbox, *expected_bbox)):
+            raise CustomerOutputVerificationError(
+                f"customer row {quantity_id!r} has invalid source_bbox"
+            )
+        _require_equal("source_bbox", actual_bbox, expected_bbox, quantity_id)
     _require_optional_equal(
         "viewport_id", _clean(row.get("viewport_id")), sealed.viewport_id, quantity_id
     )
