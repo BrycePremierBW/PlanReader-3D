@@ -332,22 +332,64 @@ def _validate_area_quantity(
         blockers.append("upstream_area_unit_not_m2")
     if _norm(area_quantity.status) not in _AUTHORITATIVE_AREA_STATUSES:
         blockers.append("upstream_area_not_authoritative")
+    # FIRM is a status, not a measurement method: a guessed/model-derived
+    # area cannot be laundered through provisional ceiling lining by copying
+    # a FIRM status string from an unrelated quantity producer.
+    if _norm(area_quantity.authority) not in {
+        MeasurementAuthorityType.DOCUMENTED_DIMENSION.value,
+        MeasurementAuthorityType.PDF_SCALED.value,
+        MeasurementAuthorityType.USER_APPROVED.value,
+    }:
+        blockers.append("upstream_area_measurement_authority_untrusted")
+    if area_quantity.semantic_key != (
+        f"{area_quantity.family}:{_clean(scope_entity_id)}"
+    ):
+        blockers.append("upstream_area_semantic_owner_mismatch")
     if area_quantity.blocking_reasons:
         blockers.append("upstream_area_carries_blockers")
 
     if tuple(area_quantity.input_entity_ids) != (_clean(scope_entity_id),):
         blockers.append("upstream_area_scope_mismatch")
 
+    # This is only a PROVISIONAL ceiling handoff, but a false positive here
+    # can be replayed as a future source-backed ceiling. Validate the actual
+    # original area evidence instead of relying on an upstream status string.
     if area_quantity.value is not None:
-        try:
-            value = float(area_quantity.value)
-        except (TypeError, ValueError, OverflowError):
+        if type(area_quantity.value) not in (int, float):
             blockers.append("upstream_area_invalid")
         else:
-            if not math.isfinite(value) or value <= 0.0:
+            try:
+                value = float(area_quantity.value)
+            except (TypeError, ValueError, OverflowError):
                 blockers.append("upstream_area_invalid")
+            else:
+                if not math.isfinite(value) or value <= 0.0:
+                    blockers.append("upstream_area_invalid")
+    try:
+        source_confidence = (
+            float(area_quantity.confidence)
+            if type(area_quantity.confidence) in (int, float)
+            else float("nan")
+        )
+    except (TypeError, ValueError, OverflowError):
+        source_confidence = float("nan")
+    if not math.isfinite(source_confidence) or not 0.0 <= source_confidence <= 1.0:
+        blockers.append("upstream_area_confidence_invalid")
+    if (
+        not isinstance(area_quantity.evidence_ids, (tuple, list))
+        or not area_quantity.evidence_ids
+        or any(type(value) is not str or not value.strip() for value in area_quantity.evidence_ids)
+        or len(set(area_quantity.evidence_ids)) != len(area_quantity.evidence_ids)
+    ):
+        blockers.append("upstream_area_source_receipts_invalid")
 
-    if not set(area_quantity.evidence_ids).issubset(set(document.evidence_ids)):
+    try:
+        document_receipts_cover_area = set(area_quantity.evidence_ids).issubset(
+            set(document.evidence_ids)
+        )
+    except (TypeError, ValueError):
+        document_receipts_cover_area = False
+    if not document_receipts_cover_area:
         blockers.append("upstream_area_evidence_not_owned_by_document")
 
     meta = _metadata(area_quantity.metadata)
@@ -357,13 +399,22 @@ def _validate_area_quantity(
         blockers.append("upstream_area_revision_mismatch")
     if _clean(meta.get("viewport_id")) != viewport.viewport_id:
         blockers.append("upstream_area_coordinate_frame_mismatch")
-    try:
-        area_page = int(meta.get("page_no"))
-    except (TypeError, ValueError, OverflowError):
+    raw_area_page = meta.get("page_no")
+    if type(raw_area_page) not in (int, str) or (
+        isinstance(raw_area_page, str) and (
+            not raw_area_page or raw_area_page != raw_area_page.strip()
+            or not raw_area_page.isdecimal()
+        )
+    ):
         blockers.append("upstream_area_page_unbound")
     else:
-        if area_page != int(page_no):
-            blockers.append("upstream_area_page_mismatch")
+        try:
+            area_page = int(raw_area_page)
+        except (TypeError, ValueError, OverflowError):
+            blockers.append("upstream_area_page_unbound")
+        else:
+            if area_page != int(page_no):
+                blockers.append("upstream_area_page_mismatch")
 
     blockers.extend(
         _base_context_blockers(
@@ -400,12 +451,18 @@ def _abstention(
         "finish_entity_id": finish_entity.candidate_entity_id if finish_entity is not None else None,
         "blockers": list(reasons),
     }
-    evidence_ids = sorted(
-        {
-            *(() if area_quantity is None else area_quantity.evidence_ids),
-            *(() if finish_entity is None else finish_entity.evidence_ids),
-        }
-    )
+    # Abstention itself must remain serializable when replayed upstream
+    # evidence contains invalid/non-string source receipts. Record the gate
+    # failure; do not elevate or synthesize any supposedly genuine witness.
+    evidence_ids = sorted({
+        value
+        for group in (
+            () if area_quantity is None else area_quantity.evidence_ids,
+            () if finish_entity is None else finish_entity.evidence_ids,
+        )
+        for value in (group if isinstance(group, (tuple, list)) else ())
+        if type(value) is str and value and value == value.strip()
+    })
     return QuantityEvidence(
         quantity_id=stable_contract_id("qty", payload),
         family=CEILING_LINING_FAMILY,
