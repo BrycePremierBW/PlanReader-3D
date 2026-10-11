@@ -268,7 +268,7 @@ def _verify_row_lineage(
         )
     if method == "scaled_geometry" and (
         not _clean(apro.get("resolved_scale_id"))
-        or _clean(apro.get("scale_status")).lower() not in {"verified", "resolved"}
+        or _clean(apro.get("scale_status")).lower() not in {"verified", "resolved", "authoritative", "calibrated"}
         or apro.get("scale_conflicts")
     ):
         raise CustomerOutputVerificationError(
