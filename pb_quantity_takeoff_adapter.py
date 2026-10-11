@@ -129,11 +129,16 @@ class CommercialTakeoffSourceTrace:
         )
 
         if self.source_bbox is not None:
-            if len(self.source_bbox) != 4:
+            if type(self.source_bbox) not in (list, tuple) or len(self.source_bbox) != 4:
                 raise MissingCommercialAuthorityError("source_bbox must contain four coordinates")
+            # bool and numeric-looking text can otherwise be coerced to a
+            # different physical coordinate with float(...), making corrupt
+            # source geometry look metrically authoritative.
+            if any(type(v) not in (int, float) for v in self.source_bbox):
+                raise MissingCommercialAuthorityError("source_bbox must contain numeric coordinates")
             try:
                 bbox = tuple(float(v) for v in self.source_bbox)
-            except (TypeError, ValueError) as exc:
+            except (TypeError, ValueError, OverflowError) as exc:
                 raise MissingCommercialAuthorityError("source_bbox must contain numeric coordinates") from exc
             if not all(math.isfinite(v) for v in bbox):
                 raise MissingCommercialAuthorityError("source_bbox must be finite")
