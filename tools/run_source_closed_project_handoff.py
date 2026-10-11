@@ -519,21 +519,37 @@ def generate_project_handoff(
         _write_json(output_dir / "production_summary.json", summary)
         raise RuntimeError("source PDF SHA changed during production handoff")
 
+    # Validate *all* families before writing a single sealed file: checking
+    # after _write_run would leave a plausible but unauthenticated artifact.
+    # This production command accepts exactly one PDF; sibling source digests
+    # in its sealed envelope have no authenticated owner here.
+    for family, run in family_runs:
+        if set(run.source_sha256s) != {source_sha256}:
+            summary["status"] = "source_envelope_conflict"
+            summary["claim_reason_codes"] = [
+                *summary["claim_reason_codes"],
+                f"sealed_source_envelope_conflict:{family}",
+            ]
+            _write_json(output_dir / "production_summary.json", summary)
+            raise RuntimeError(f"{family} sealed run has conflicting source SHA envelope")
+
     for family, run in family_runs:
         run_path = _write_run(output_dir, family, run)
         summary["family_run_ids"][family] = run.run_id
         summary["family_run_files"][family] = str(run_path)
-        # Every family handoff must still bind to the input PDF's exact bytes.
-        if source_sha256 not in set(run.source_sha256s):
-            raise RuntimeError(
-                f"{family} sealed run does not bind to input source SHA"
-            )
 
     if family_runs:
         combined = combine_source_closed_runs(
             tuple(run for _, run in family_runs),
             project_id=project_id,
         )
+        if set(combined.source_sha256s) != {source_sha256}:
+            summary["status"] = "source_envelope_conflict"
+            summary["claim_reason_codes"] = [
+                *summary["claim_reason_codes"], "combined_source_envelope_conflict",
+            ]
+            _write_json(output_dir / "production_summary.json", summary)
+            raise RuntimeError("combined sealed run has conflicting source SHA envelope")
         combined_filename = (
             f"{project_id}.json"
             if clean_family_group == "all"
