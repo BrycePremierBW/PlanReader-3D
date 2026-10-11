@@ -63,6 +63,34 @@ def _lineage_reasons(
         if _clean(candidate).lower() != _clean(authoritative).lower():
             reasons.append(f"{key}_mismatch")
 
+    for marker in ("is_stale", "is_superseded"):
+        if marker in metadata and metadata[marker] is not False:
+            reasons.append(f"quantity_{marker}")
+
+    workspace = metadata.get("workspace_id")
+    if workspace is not None:
+        if type(workspace) is int and workspace > 0:
+            original_workspace = workspace
+        elif type(workspace) is str and workspace.isascii() and workspace.isdecimal():
+            original_workspace = int(workspace)
+        else:
+            original_workspace = None
+        if original_workspace != trace.workspace_id:
+            reasons.append("workspace_id_mismatch")
+
+    # A whitespace-only parent ID can otherwise pass the set-membership test
+    # when it is copied verbatim into both QuantityEvidence and its trace,
+    # falsely authenticating a physical object which has no usable identity.
+    if not quantity.abstained and any(
+        type(value) is not str or not value or value != value.strip()
+        for value in quantity.input_entity_ids
+    ):
+        reasons.append("quantity_identity_malformed")
+    if not quantity.abstained and any(
+        type(value) is not str or not value or value != value.strip()
+        for value in (*quantity.evidence_ids, *trace.evidence_ids, *trace.canonical_entity_ids)
+    ):
+        reasons.append("source_trace_identity_malformed")
     missing_entities = set(quantity.input_entity_ids) - set(trace.canonical_entity_ids)
     if missing_entities:
         reasons.append("canonical_entity_trace_incomplete")
@@ -403,9 +431,11 @@ def _build_sealed_run(
 
     normalized: list[SealedSourceClosedQuantity] = []
     quantity_ids: set[str] = set()
+    # Index by each producer-owned physical ID, not by an exact identity tuple.
+    # One quantity can claim A+B while another claims B+C; exact-set checks
+    # would miss the overlapping B claim and double-count source geometry.
     physical_claims: dict[
-        tuple[str, str, tuple[str, ...]],
-        SealedSourceClosedQuantity,
+        tuple[str, str], dict[str, SealedSourceClosedQuantity]
     ] = {}
     for row in rows:
         if not isinstance(row, SealedSourceClosedQuantity):
@@ -415,6 +445,30 @@ def _build_sealed_run(
         if row.project_id != clean_project_id:
             raise SourceClosedRunConflictError(
                 f"quantity {row.quantity_id} belongs to project {row.project_id}"
+            )
+        # Production seal writers emit canonical sorted, unique source ID
+        # arrays. The verifier must not accept re-signed duplicate or padded
+        # identities merely because the SHA fingerprint matches their bytes.
+        for field in (
+            "object_identity_refs", "trace_canonical_entity_ids",
+            "evidence_ids", "trace_evidence_ids",
+        ):
+            receipts = getattr(row, field)
+            if (
+                any(type(value) is not str or not value or value != value.strip()
+                    for value in receipts)
+                or tuple(receipts) != tuple(sorted(set(receipts)))
+            ):
+                raise SourceClosedRunConflictError(
+                    f"noncanonical sealed source identity array: {field}"
+                )
+        if row.lineage_ok != (not row.lineage_reason_codes):
+            raise SourceClosedRunConflictError(
+                f"sealed quantity {row.quantity_id!r} has contradictory lineage validity receipt"
+            )
+        if not row.abstained and not row.object_identity_refs and row.lineage_ok:
+            raise SourceClosedRunConflictError(
+                f"sealed quantity {row.quantity_id!r} falsely authenticates a missing physical identity"
             )
         if row.quantity_id in quantity_ids:
             raise SourceClosedRunConflictError(
@@ -426,25 +480,27 @@ def _build_sealed_run(
             sorted({_clean(value) for value in row.object_identity_refs if _clean(value)})
         )
         if not row.abstained and identities:
-            claim_key = (
-                _clean(row.family).lower(),
-                _clean(row.semantic_key),
-                identities,
-            )
-            prior = physical_claims.get(claim_key)
-            if prior is not None:
+            claim_key = (_clean(row.family).lower(), _clean(row.semantic_key))
+            claimed_ids = physical_claims.setdefault(claim_key, {})
+            for identity in identities:
+                prior = claimed_ids.get(identity)
+                if prior is None:
+                    continue
+                prior_ids = frozenset(_clean(value) for value in prior.object_identity_refs if _clean(value))
                 same_claim = (
-                    prior.value == row.value
+                    prior_ids == frozenset(identities)
+                    and prior.value == row.value
                     and _clean(prior.unit).lower() == _clean(row.unit).lower()
                 )
                 detail = "duplicate" if same_claim else "conflicting"
                 raise SourceClosedRunConflictError(
                     f"{detail} sealed physical claim for family "
                     f"{row.family!r}, semantic key {row.semantic_key!r}, "
-                    f"identities {identities!r}: "
+                    f"overlapping source identity {identity!r}: "
                     f"{prior.quantity_id!r} vs {row.quantity_id!r}"
                 )
-            physical_claims[claim_key] = row
+            for identity in identities:
+                claimed_ids[identity] = row
 
         normalized.append(row)
 
