@@ -18,6 +18,43 @@ from pb_viewport_segmentation import (
 PDF=Path("documents/sources/Arch_Combined_Maryborough_Service_Station.pdf")
 SOURCE_SHA="b1be53531412005f42937c89d0cfce66fbbe608315016bbb56731029ffc9e007"
 
+def _nearest_native_frames_to_title(title_bbox, frames, *, limit=4):
+    """Rank original vector frames by source-native distance, never ownership.
+
+    Exact native geometry only. No guessed offsets, title-to-frame binding,
+    viewport construction, room finish attribution, or metric area authority.
+    """
+    import math
+    try:
+        t=tuple(float(v) for v in title_bbox)
+    except (TypeError,ValueError,OverflowError):
+        return []
+    if len(t)!=4 or not all(math.isfinite(v) for v in t) or t[2]<=t[0] or t[3]<=t[1]:
+        return []
+    result=[]
+    for raw in frames:
+        try:
+            box=tuple(float(v) for v in raw)
+        except (TypeError,ValueError,OverflowError):
+            continue
+        if len(box)!=4 or not all(math.isfinite(v) for v in box) or box[2]<=box[0] or box[3]<=box[1]:
+            continue
+        dx=max(t[0]-box[2],box[0]-t[2],0.0)
+        dy=max(t[1]-box[3],box[1]-t[3],0.0)
+        distance=math.hypot(dx,dy)
+        if not math.isfinite(distance):
+            continue
+        result.append({
+            "frame_bbox_native_pdf_pts":list(box),
+            "title_to_frame_native_distance_pdf_pts":round(distance,6),
+            "original_vector_frame_not_title_owned":True,
+        })
+    return sorted(result,key=lambda row:(
+        row["title_to_frame_native_distance_pdf_pts"],
+        row["frame_bbox_native_pdf_pts"],
+    ))[:limit]
+
+
 def audit(source: bytes) -> dict:
     sha=hashlib.sha256(source).hexdigest()
     if sha!=SOURCE_SHA:
@@ -45,6 +82,10 @@ def audit(source: bytes) -> dict:
                 "qualifying_candidate_frame_count":len(candidates),
                 "qualifying_candidate_frames_pdf_pts":[list(box) for box in candidates],
                 "candidate_geometry_grants_authority":False,
+                "nearest_unowned_native_vector_frames":_nearest_native_frames_to_title(
+                    anchor.bbox,source_frames,
+                ),
+                "nearest_frame_does_not_prove_viewport_boundary":True,
             }
         rows=[]
         for v in views:
