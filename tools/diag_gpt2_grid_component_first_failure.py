@@ -6,6 +6,7 @@ never creates room geometry, changes candidate truth, or issues quantities.
 from __future__ import annotations
 
 from collections import Counter
+import math
 from typing import Any
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
@@ -195,6 +196,58 @@ def _physical_union_first_unclosed_gate(
             "source_boundary_gates_passed_candidate_only"
         )
     return result
+
+
+def diagnose_original_w4_address_collisions(records):
+    """Read-only unmerged source records behind colliding native W4 addresses.
+
+    No geometry identity, physical equivalence, wall host or room closure is
+    inferred. Each original record stays individually visible even when its
+    candidate address was reused by the producer.
+    """
+    def exact(value):
+        return isinstance(value, str) and bool(value) and value == value.strip()
+    source = tuple(records)
+    counts = Counter(
+        rec.wall_candidate_id for rec in source
+        if exact(getattr(rec, "wall_candidate_id", None))
+    )
+    collisions = {key for key, count in counts.items() if count > 1}
+    evidence = []
+    for index, record in enumerate(source):
+        native_id = getattr(record, "wall_candidate_id", None)
+        if native_id not in collisions:
+            continue
+        candidate = getattr(record, "wall_candidate", None)
+        points = getattr(candidate, "centerline_pts", ()) or ()
+        source_points = []
+        for p in points:
+            try:
+                pair = tuple(float(v) for v in p)
+            except (ValueError, TypeError, OverflowError):
+                continue
+            if len(pair) == 2 and all(math.isfinite(v) for v in pair):
+                source_points.append(list(pair))
+        fragments = tuple(getattr(record, "source_edge_fragments", ()) or ())
+        evidence.append({
+            "source_record_ordinal": index,
+            "original_wall_candidate_id": native_id,
+            "original_centerline_points_diagnostic_only": source_points[:16],
+            "original_centerline_point_count": len(source_points),
+            "source_edge_fragment_count": len(fragments),
+            "source_fragment_observation_ids_sample": [
+                str(getattr(frag, "source_observation_id", "") or "")
+                for frag in fragments[:8]
+            ],
+            "physical_wall_equivalence_proven": False,
+            "source_room_boundary_published": False,
+        })
+    return {
+        "colliding_original_w4_ids": sorted(collisions),
+        "individual_original_record_count": len(evidence),
+        "original_collision_records_diagnostic_only": evidence,
+        "physical_wall_equivalence_proven": False,
+    }
 
 
 def _competing_original_label_receipts(component, candidate, label_scope):
