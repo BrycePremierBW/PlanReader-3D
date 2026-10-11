@@ -362,8 +362,12 @@ jobs:
                       for row in sorted(
                           entry["native_dimension_endpoints"],
                           key=lambda item:max(
-                              item["endpoint_nearest_source_wall_distance_pdf_pts_diagnostic_only"]
-                              or [float("inf")]
+                              [
+                                  v if v is not None else float("inf")
+                                  for v in item[
+                                      "endpoint_nearest_source_wall_distance_pdf_pts_diagnostic_only"
+                                  ]
+                              ] or [float("inf")]
                           ),
                       )
                       if row["first_authority_gate"]==
