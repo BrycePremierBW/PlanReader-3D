@@ -47,6 +47,17 @@ def scoped_rcp_material_occurrence_gate(viewport: Any, result: Any) -> dict[str,
         kind=="reflected_ceiling_plan" and bool(view_id) and bbox_valid
         and (view_token=="resolved" or derived_authenticated)
     )
+    viewport_first_failure_reasons=[]
+    if kind!="reflected_ceiling_plan":
+        viewport_first_failure_reasons.append("source_viewport_not_rcp")
+    if not view_id:
+        viewport_first_failure_reasons.append("source_rcp_viewport_id_invalid")
+    if not bbox_valid:
+        viewport_first_failure_reasons.append("source_rcp_viewport_native_bbox_invalid")
+    if view_token=="derived" and not derived_authenticated:
+        viewport_first_failure_reasons.append("source_derived_rcp_partition_unproven")
+    elif view_token not in ("resolved","derived"):
+        viewport_first_failure_reasons.append("source_rcp_viewport_status_unresolved")
     # The occurrence producer authenticates ownership to an exact source
     # viewport. A valid occurrence on a *different* RCP cannot authenticate
     # this viewport (e.g. page9 proposed vs original drawing).
@@ -110,6 +121,7 @@ def scoped_rcp_material_occurrence_gate(viewport: Any, result: Any) -> dict[str,
         "source_view_type":kind,
         "source_view_status":status,
         "source_view_native_bbox_pdf_pts":bbox,
+        "source_rcp_viewport_first_failure_reasons":viewport_first_failure_reasons,
         "producer_occurrence_scope_status":scope_status,
         "producer_scope_complete":complete,
         "producer_reason_codes":reasons,
