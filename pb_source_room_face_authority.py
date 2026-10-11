@@ -539,7 +539,12 @@ def _unique_containing_wall_owner(
         return exact
 
     owner: str | None = None
-    for wall_id in sorted(wall_edges):
+    for wall_id in sorted(
+        key for key in wall_edges
+        if isinstance(key, str) and key and key == key.strip()
+    ):
+        # Malformed W4 producer addresses cannot become authentic owners,
+        # and cannot crash otherwise valid independent source-wall checks.
         if not any(
             _edge_contains_edge(parent, edge) for parent in wall_edges[wall_id]
         ):
