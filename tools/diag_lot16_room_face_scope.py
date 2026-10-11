@@ -286,6 +286,25 @@ def _opening_quantity_diagnostic(claim) -> dict:
     ledger = []
     for opening in claim.canonical_openings:
         published = published_by_opening.get(str(opening.canonical_opening_id), ())
+        readiness = _opening_quantity_first_failure(opening)
+        authentic = _opening_quantity(opening)
+        signed_publication_matches = tuple(
+            candidate for candidate in published
+            if authentic is not None
+            and candidate.quantity_id == authentic.quantity_id
+            and type(candidate.value) in (int, float)
+            and candidate.value == authentic.value
+            and candidate.authority == authentic.authority
+            and candidate.unit == authentic.unit
+            and candidate.status == authentic.status
+            and candidate.semantic_key == authentic.semantic_key
+            and candidate.input_entity_ids == authentic.input_entity_ids
+            and candidate.evidence_ids == authentic.evidence_ids
+        )
+        if readiness == "opening_area_quantity_prerequisites_resolved" and published and (
+            len(signed_publication_matches) != 1 or len(published) != 1
+        ):
+            readiness = "opening_area_published_claim_drift"
         ledger.append({
             "canonical_opening_id": opening.canonical_opening_id,
             "physical_opening_id": opening.physical_opening_id,
@@ -301,12 +320,22 @@ def _opening_quantity_diagnostic(claim) -> dict:
             "area_m2": opening.area_m2,
             "source_evidence_count": len(opening.evidence_ids),
             "schedule_explicit_count": bool(opening.schedule_count_explicit),
-            "first_missing_prerequisite": _opening_quantity_first_failure(opening),
+            "first_missing_prerequisite": readiness,
             "published_area_quantity_ids": [quantity.quantity_id for quantity in published],
+            "production_matched_area_quantity_ids": [
+                quantity.quantity_id for quantity in signed_publication_matches
+            ],
         })
     return {
         "canonical_opening_count": len(claim.canonical_openings),
         "published_area_quantity_count": len(claim.opening_quantity_evidence),
+        "production_matched_area_quantity_count": sum(
+            len(row["production_matched_area_quantity_ids"]) for row in ledger
+        ),
+        "published_area_claim_drift_count": sum(
+            row["first_missing_prerequisite"] == "opening_area_published_claim_drift"
+            for row in ledger
+        ),
         "published_explicit_count_quantity_count": len(
             claim.opening_count_quantity_evidence
         ),
