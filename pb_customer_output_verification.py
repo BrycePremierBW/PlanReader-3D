@@ -10,8 +10,17 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 import json
+import math
 import re
 from typing import Any
+
+from pb_migration_contracts import QuantityEvidence
+from pb_quantity_takeoff_adapter import (
+    CommercialMeasurementAuthority,
+    CommercialTakeoffProjectionError,
+    CommercialTakeoffSourceTrace,
+    compute_commercial_projection_fingerprint,
+)
 
 from pb_source_closed_run_export import (
     SealedSourceClosedRun,
@@ -314,6 +323,46 @@ def _verify_row_lineage(
             quantity_id,
         )
     _require_equal("source_page", _clean(row.get("source_page")), sealed.source_page, quantity_id)
+    # These original-source fields may be absent from persisted database rows,
+    # but a present direct copy must agree exactly with the signed producer
+    # provenance. Do not let changed spatial scope inherit a valid fingerprint.
+    if row.get("workspace_id") is not None:
+        if type(row["workspace_id"]) is bool or type(row["workspace_id"]) not in (int, str):
+            raise CustomerOutputVerificationError(
+                f"customer row {quantity_id!r} has invalid workspace_id"
+            )
+        try:
+            workspace_id = int(row["workspace_id"])
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise CustomerOutputVerificationError(
+                f"customer row {quantity_id!r} has invalid workspace_id"
+            ) from exc
+        _require_equal("workspace_id", workspace_id, tprov.get("workspace_id"), quantity_id)
+    if row.get("source_bbox") is not None:
+        direct_box = row["source_bbox"]
+        proven_box = tprov.get("source_bbox")
+        if (
+            type(direct_box) not in (list, tuple)
+            or type(proven_box) not in (list, tuple)
+            or len(direct_box) != 4
+            or len(proven_box) != 4
+            or any(type(x) not in (int, float) for x in (*direct_box, *proven_box))
+        ):
+            raise CustomerOutputVerificationError(
+                f"customer row {quantity_id!r} has invalid source_bbox"
+            )
+        try:
+            actual_bbox = tuple(float(x) for x in direct_box)
+            expected_bbox = tuple(float(x) for x in proven_box)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise CustomerOutputVerificationError(
+                f"customer row {quantity_id!r} has invalid source_bbox"
+            ) from exc
+        if not all(math.isfinite(x) for x in (*actual_bbox, *expected_bbox)):
+            raise CustomerOutputVerificationError(
+                f"customer row {quantity_id!r} has invalid source_bbox"
+            )
+        _require_equal("source_bbox", actual_bbox, expected_bbox, quantity_id)
     _require_optional_equal(
         "viewport_id", _clean(row.get("viewport_id")), sealed.viewport_id, quantity_id
     )
@@ -360,6 +409,28 @@ def _verify_row_lineage(
         raise CustomerOutputVerificationError(
             f"customer row {quantity_id!r} has an invalid projection fingerprint"
         )
+    if fingerprint:
+        # Recompute the adapter's actual signed commercial row identity from
+        # the complete source-owned persisted provenance. A syntactically
+        # valid 64-character digest is not proof that this row belongs to the
+        # recorded revision, geometry or measurement method.
+        try:
+            produced_quantity = QuantityEvidence(**dict(qprov))
+            produced_trace = CommercialTakeoffSourceTrace(**dict(tprov))
+            produced_authority = CommercialMeasurementAuthority(**dict(apro))
+            expected_fingerprint = compute_commercial_projection_fingerprint(
+                produced_quantity,
+                trace=produced_trace,
+                authority=produced_authority,
+            )
+        except (TypeError, ValueError, OverflowError, CommercialTakeoffProjectionError) as exc:
+            raise CustomerOutputVerificationError(
+                f"customer row {quantity_id!r} has invalid signed projection provenance"
+            ) from exc
+        if fingerprint != expected_fingerprint:
+            raise CustomerOutputVerificationError(
+                f"customer row {quantity_id!r} projection fingerprint mismatch"
+            )
 
     source_reference = _clean(row.get("source_reference"))
     if not source_reference:
