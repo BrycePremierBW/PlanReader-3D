@@ -133,12 +133,23 @@ def _fully_grid_opposed_wall_evidence(
     # can authorize a grid separator until W4 source identity is resolved.
     # This preserves independent wall evidence while preventing ambiguous
     # source edge ancestry from silently connecting physical room cells.
-    wall_ids = Counter(str(record.wall_candidate_id) for record in wall_scope.records)
+    # Do not convert invalid producer keys into plausible literal wall IDs
+    # (for example None -> "None", or 42 -> "42").
+    def authentic_wall_id(value):
+        return (
+            value if isinstance(value, str) and value
+            and value == value.strip() else None
+        )
+
+    wall_ids = Counter(
+        authentic_wall_id(getattr(record, "wall_candidate_id", None))
+        for record in wall_scope.records
+    )
     fully: set[str] = set()
     evidence_by_wall: dict[str, tuple[str, ...]] = {}
     for record in wall_scope.records:
-        wall_id = str(record.wall_candidate_id)
-        if not wall_id.strip() or wall_ids[wall_id] != 1:
+        wall_id = authentic_wall_id(getattr(record, "wall_candidate_id", None))
+        if wall_id is None or wall_ids[wall_id] != 1:
             continue
         edge_ids = _wall_edge_ids(record)
         if not edge_ids or not all(edge_id in grid_evidence_by_edge for edge_id in edge_ids):
