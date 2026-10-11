@@ -70,6 +70,29 @@ def _opening_quantity(
     ):
         return None
 
+    # Never turn bool/string area values or synthetically stringified source
+    # receipt IDs into an authenticated physical opening quantity.
+    required_source_ids = (
+        opening.canonical_opening_id, opening.physical_opening_id,
+        opening.document_id, opening.revision_id, opening.source_sha256,
+        opening.snapshot_id, opening.page_id, opening.viewport_id,
+        opening.host_wall_id, opening.representative_observation_id,
+    )
+    if (
+        type(opening.area_m2) not in (int, float)
+        or any(type(value) is not str or not value or value != value.strip()
+               for value in required_source_ids)
+        or any(type(value) is not str or not value or value != value.strip()
+               for value in (opening.host_binding_record_id, opening.host_frame_record_id)
+               if value not in (None, ""))
+        or not isinstance(opening.evidence_ids, (tuple, list))
+        or not opening.evidence_ids
+        or any(type(value) is not str or not value or value != value.strip()
+               for value in opening.evidence_ids)
+        or len(set(opening.evidence_ids)) != len(opening.evidence_ids)
+    ):
+        return None
+
     try:
         value = float(opening.area_m2)
     except (TypeError, ValueError, OverflowError):
@@ -77,15 +100,7 @@ def _opening_quantity(
     if not math.isfinite(value) or value <= 0.0:
         return None
 
-    evidence_ids = tuple(
-        sorted(
-            {
-                str(value).strip()
-                for value in opening.evidence_ids
-                if str(value).strip()
-            }
-        )
-    )
+    evidence_ids = tuple(sorted(opening.evidence_ids))
     if not evidence_ids:
         return None
     # A caller-replayed host string alone cannot certify the physical opening
