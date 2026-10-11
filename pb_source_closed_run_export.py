@@ -63,6 +63,19 @@ def _lineage_reasons(
         if _clean(candidate).lower() != _clean(authoritative).lower():
             reasons.append(f"{key}_mismatch")
 
+    # A whitespace-only parent ID can otherwise pass the set-membership test
+    # when it is copied verbatim into both QuantityEvidence and its trace,
+    # falsely authenticating a physical object which has no usable identity.
+    if not quantity.abstained and any(
+        type(value) is not str or not value or value != value.strip()
+        for value in quantity.input_entity_ids
+    ):
+        reasons.append("quantity_identity_malformed")
+    if not quantity.abstained and any(
+        type(value) is not str or not value or value != value.strip()
+        for value in (*quantity.evidence_ids, *trace.evidence_ids, *trace.canonical_entity_ids)
+    ):
+        reasons.append("source_trace_identity_malformed")
     missing_entities = set(quantity.input_entity_ids) - set(trace.canonical_entity_ids)
     if missing_entities:
         reasons.append("canonical_entity_trace_incomplete")
