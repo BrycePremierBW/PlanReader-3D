@@ -106,12 +106,13 @@ def _floor_quantity_diagnostic(claim) -> dict:
     from pb_live_floor_finish_area_source_closed_export import (
         build_live_floor_finish_area_source_traces,
     )
+    from pb_source_closed_run_export import SourceClosedRunConflictError
     try:
         finish_source_traces = build_live_floor_finish_area_source_traces(
             claim, workspace_id=1, project_id="gpt1-lot16-source-diagnostic",
         )
         finish_source_trace_failure = None
-    except (TypeError, ValueError) as error:
+    except (TypeError, ValueError, SourceClosedRunConflictError) as error:
         finish_source_traces = {}
         finish_source_trace_failure = str(error)
     finishes: dict[str, list[str]] = {}
