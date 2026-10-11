@@ -19,7 +19,7 @@ def _finite_native_edge(raw: Any):
         if len(a)!=2 or len(b)!=2:
             return None
         pts=((float(a[0]),float(a[1])),(float(b[0]),float(b[1])))
-    except (TypeError,ValueError,IndexError):
+    except (TypeError,ValueError,IndexError,OverflowError):
         return None
     if not all(math.isfinite(v) for point in pts for v in point):
         return None
@@ -29,10 +29,12 @@ def _finite_native_edge(raw: Any):
 
 
 def _edge_reverse_equal(first,second) -> bool:
-    return all(
-        math.dist(first[i],second[1-i])<=_EPS_PDF_PT
-        for i in range(2)
-    )
+    """Positive source separator evidence requires literally reversed endpoints.
+
+    A near-coincident painted line is not source-owned physical equivalence.
+    Small offsets belong in separate read-only candidate diagnostics.
+    """
+    return first[0] == second[1] and first[1] == second[0]
 
 
 def _opposite_collinear_positive_overlap(first, second):
