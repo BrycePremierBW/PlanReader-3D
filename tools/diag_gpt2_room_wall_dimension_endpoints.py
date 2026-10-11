@@ -71,6 +71,48 @@ def _native_point_to_source_subedge_distance(point: Any, edge: Any) -> float | N
     return distance if math.isfinite(distance) else None
 
 
+def source_native_dimension_text_room_locality(face: Any, observation: Any) -> dict[str, Any]:
+    """Classify source text bbox centre against an original source room face.
+
+    Read-only observation. This is not a figured dimension owner, wall span,
+    scale proof, room metric area, or QuantityEvidence. Missing/ambiguous
+    source geometry is not a negative factual assertion about a dimension.
+    """
+    from pb_source_room_label_authority import _point_in_polygon
+    result = {
+        "observation_id":getattr(observation,"dimension_id",None),
+        "first_spatial_gate":"native_dimension_text_geometry_unavailable",
+        "native_room_text_spatial_candidate_only":False,
+        "room_dimension_owned":False,
+        "metric_area_published":False,
+    }
+    try:
+        bbox=tuple(float(v) for v in getattr(observation,"bbox",()) or ())
+        verts=tuple(
+            (float(v[0]),float(v[1]))
+            for v in (getattr(face,"polygon_pdf_pts",()) or ())
+        )
+    except (ValueError,TypeError,OverflowError,IndexError):
+        return result
+    if (
+        len(bbox)!=4 or not all(math.isfinite(v) for v in bbox)
+        or bbox[2]<=bbox[0] or bbox[3]<=bbox[1]
+        or len(verts)<3
+        or not all(math.isfinite(v) for vertex in verts for v in vertex)
+    ):
+        return result
+    center=((bbox[0]+bbox[2])/2.0,(bbox[1]+bbox[3])/2.0)
+    if not all(math.isfinite(v) for v in center):
+        return result
+    inside=bool(_point_in_polygon(center,verts))
+    result["first_spatial_gate"]=(
+        "native_dimension_text_centre_inside_source_room_candidate_only"
+        if inside else "native_dimension_text_outside_source_room"
+    )
+    result["native_room_text_spatial_candidate_only"]=inside
+    return result
+
+
 def inspect_source_face_dimension_endpoints(
     face: Any,
     binding: Any,

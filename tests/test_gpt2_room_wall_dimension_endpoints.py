@@ -177,3 +177,42 @@ def test_gpt2_mixed_invalid_endpoint_distance_remains_safe_nonpublishing():
     assert row["endpoint_wall_owner_ids"]==[[],["source-wall-right"]]
     assert row["room_dimension_owned"] is False
     assert row["metric_area_published"] is False
+
+
+def test_gpt2_source_figure_text_room_locality_is_candidate_only():
+    from tools.diag_gpt2_room_wall_dimension_endpoints import (
+        source_native_dimension_text_room_locality,
+    )
+    f=face()
+    f.polygon_pdf_pts=((0.,0.),(20.,0.),(20.,10.),(0.,10.))
+    inside=NS(dimension_id="figure-1",bbox=(2.,2.,4.,4.))
+    outside=NS(dimension_id="figure-2",bbox=(30.,2.,32.,4.))
+    yes=source_native_dimension_text_room_locality(f,inside)
+    no=source_native_dimension_text_room_locality(f,outside)
+    assert yes["first_spatial_gate"]==(
+        "native_dimension_text_centre_inside_source_room_candidate_only"
+    )
+    assert yes["native_room_text_spatial_candidate_only"] is True
+    assert no["first_spatial_gate"]=="native_dimension_text_outside_source_room"
+    assert no["native_room_text_spatial_candidate_only"] is False
+    for item in (yes,no):
+        assert item["room_dimension_owned"] is False
+        assert item["metric_area_published"] is False
+
+
+@pytest.mark.parametrize("bbox", [
+    None, (), (0.,0.,0.,2.), (0.,0.,float("nan"),2.),
+    (0.,0.,float("inf"),2.), (0.,0.,1.), ("invalid",0,1,1)
+])
+def test_gpt2_missing_native_dimension_text_bbox_does_not_prove_room_locality(bbox):
+    from tools.diag_gpt2_room_wall_dimension_endpoints import (
+        source_native_dimension_text_room_locality,
+    )
+    f=face()
+    f.polygon_pdf_pts=((0.,0.),(20.,0.),(20.,10.),(0.,10.))
+    result=source_native_dimension_text_room_locality(
+        f,NS(dimension_id="fig",bbox=bbox),
+    )
+    assert result["first_spatial_gate"]=="native_dimension_text_geometry_unavailable"
+    assert not result["native_room_text_spatial_candidate_only"]
+    assert not result["room_dimension_owned"]
