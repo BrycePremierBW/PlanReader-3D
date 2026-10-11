@@ -82,3 +82,31 @@ def test_source_overlapping_abstention_does_not_create_false_commercial_duplicat
     final=combine_source_closed_runs([a,b])
     assert len(final.quantities)==2
     assert sum(not q.abstained for q in final.quantities)==1
+
+
+@pytest.mark.parametrize("bad_id",["", " ", " floor-a", "floor-a "])
+def test_malformed_quantity_parent_id_is_not_a_source_closed_identity(bad_id):
+    from pb_source_closed_run_export import seal_source_closed_quantity
+    q=quantity(quantity_id="qty-malformed", input_entity_ids=(bad_id,))
+    source=trace(canonical_entity_ids=(bad_id,))
+    result=seal_source_closed_quantity(q,trace=source)
+    assert not result.lineage_ok
+    assert "quantity_identity_malformed" in result.lineage_reason_codes
+
+
+@pytest.mark.parametrize("bad_evidence",["", " ", " ev-room-1", "ev-room-1 "])
+def test_malformed_source_evidence_receipt_breaks_signed_lineage(bad_evidence):
+    from pb_source_closed_run_export import seal_source_closed_quantity
+    q=quantity(quantity_id="qty-malformed",evidence_ids=(bad_evidence,))
+    source=trace(evidence_ids=(bad_evidence,))
+    result=seal_source_closed_quantity(q,trace=source)
+    assert not result.lineage_ok
+    assert "source_trace_identity_malformed" in result.lineage_reason_codes
+
+
+def test_good_original_source_ids_remain_sealable_after_malformed_rejection():
+    from pb_source_closed_run_export import seal_source_closed_quantity
+    q=quantity()
+    result=seal_source_closed_quantity(q,trace=trace())
+    assert result.lineage_ok
+    assert result.lineage_reason_codes==()
