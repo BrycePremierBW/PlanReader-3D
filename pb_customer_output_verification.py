@@ -150,9 +150,11 @@ def _customer_quantity_id(row: Mapping[str, Any]) -> str:
         return ""
     try:
         parsed = _strict_customer_notes(notes)
-    except CustomerOutputVerificationError:
+    except CustomerOutputVerificationError as exc:
         if _has_machine_quantity_receipt(row.get("source_reference")):
-            raise
+            raise CustomerOutputVerificationError(
+                "automated customer row is missing quantity identity"
+            ) from exc
         return ""
     if not isinstance(parsed, Mapping):
         return ""
