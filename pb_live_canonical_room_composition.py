@@ -6,7 +6,9 @@ geometry, names, levels, finishes, quantities, or commercial authority.
 """
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass, field
+import math
 from typing import Collection, Mapping, Optional
 
 from pb_drawing_evidence_binding import DrawingViewType
@@ -31,6 +33,7 @@ from pb_source_visibility_authority import SourceVisibilityProducer
 from pb_source_room_label_authority import (
     SourceRoomLabelProducer,
     SourceRoomLabelRecord,
+    SourceRoomLabelWordEvidence,
     SourceRoomLabelSelector,
 )
 
@@ -274,8 +277,30 @@ def _canonical_polygon_identity(
         (round(float(point[0]), 6), round(float(point[1]), 6))
         for point in polygon
     )
-    if len(points) < 3:
-        return ()
+    # A NaN/Inf coordinate cannot identify a source-owned physical room.
+    # Do not hash JSON non-finite tokens into a persistent canonical ID.
+    if any(not (math.isfinite(x) and math.isfinite(y)) for x, y in points):
+        raise ValueError("non-finite source room polygon coordinate")
+
+    # An explicitly closed PDF ring and its otherwise identical open ring
+    # are one physical boundary, not two canonical room identities.
+    if len(points) > 1 and points[0] == points[-1]:
+        points = points[:-1]
+    # Consecutive duplicate source vertices represent a zero-length edge;
+    # normalize only identity hashing, never mutate the source geometry.
+    distinct_consecutive = []
+    for vertex in points:
+        if not distinct_consecutive or distinct_consecutive[-1] != vertex:
+            distinct_consecutive.append(vertex)
+    points = tuple(distinct_consecutive)
+    # An empty/collinear ring has no enclosed source-owned physical area.
+    # Refuse to generate a shared sentinel identity for degenerate rooms.
+    if len(set(points)) < 3 or math.fsum(
+        points[i][0] * points[(i + 1) % len(points)][1]
+        - points[(i + 1) % len(points)][0] * points[i][1]
+        for i in range(len(points))
+    ) == 0.0:
+        raise ValueError("degenerate source room polygon identity")
     variants: list[tuple[tuple[float, float], ...]] = []
     for start in range(len(points)):
         variants.append(
@@ -321,9 +346,34 @@ def _unique_source_room_labels_by_face(
     Competing records for one physical face revoke the semantic label only,
     never the producer-authenticated physical room geometry.
     """
+    candidates = tuple(
+        label for label in labels if type(label) is SourceRoomLabelRecord
+    )
+    # One producer source-label receipt cannot authenticate two different
+    # physical room faces, regardless of iteration order.
+    source_receipt_faces: dict[str, set[str]] = {}
+    for label in candidates:
+        if isinstance(label.record_id, str) and label.record_id.strip():
+            source_receipt_faces.setdefault(label.record_id, set()).add(
+                str(label.face_id or "").strip()
+            )
+    # The same original source word cannot belong to two different
+    # physical rooms. Detect aliasing across the entire sealed label universe.
+    source_word_faces: dict[str, set[str]] = {}
+    for label in candidates:
+        for observation_id in label.observation_ids:
+            if isinstance(observation_id, str) and observation_id.strip():
+                source_word_faces.setdefault(observation_id, set()).add(
+                    str(label.face_id or "").strip()
+                )
     owned: dict[str, SourceRoomLabelRecord] = {}
-    conflicted: set[str] = set()
-    for label in labels:
+    conflicted: set[str] = {
+        face
+        for faces in (*source_receipt_faces.values(), *source_word_faces.values())
+        if len(faces) > 1
+        for face in faces
+    }
+    for label in candidates:
         if type(label) is not SourceRoomLabelRecord:
             continue
         face_id = str(label.face_id or "").strip()
@@ -351,18 +401,49 @@ def _verified_source_room_label_for_face(
         return None
     if label.status is not EvidenceResolutionStatus.CORROBORATED:
         return None
-    if any(
-        str(getattr(record, attr, "") or "") != str(getattr(label, attr, "") or "")
-        for attr in (
-            "document_id", "revision_id", "source_sha256", "snapshot_id",
-            "page_id", "decision_scope_id", "face_id",
-        )
+    # Missing, padded, or non-string scope values must not become a
+    # superficially matching pair via str(None) or whitespace coercion.
+    for attr in (
+        "document_id", "revision_id", "source_sha256", "snapshot_id",
+        "page_id", "decision_scope_id", "face_id",
+    ):
+        expected = getattr(record, attr, None)
+        actual = getattr(label, attr, None)
+        if (
+            not isinstance(expected, str) or not expected
+            or expected != expected.strip() or actual != expected
+        ):
+            return None
+    source_receipt = getattr(record, "record_id", None)
+    if (
+        not isinstance(source_receipt, str) or not source_receipt
+        or source_receipt != source_receipt.strip()
+        or label.source_room_face_record_id != source_receipt
     ):
         return None
-    if str(getattr(record, "record_id", "") or "") != str(label.source_room_face_record_id or ""):
+    if (
+        not isinstance(label.record_id, str) or not label.record_id
+        or label.record_id != label.record_id.strip()
+        or not label.observation_ids or not label.word_evidence
+        or len(label.observation_ids) != len(label.word_evidence)
+        or len(set(label.observation_ids)) != len(label.observation_ids)
+    ):
         return None
-    if not str(label.record_id or "").strip() or not label.observation_ids or not label.word_evidence:
-        return None
+    for observation_id, word in zip(label.observation_ids, label.word_evidence):
+        if (
+            type(word) is not SourceRoomLabelWordEvidence
+            or not isinstance(observation_id, str) or not observation_id.strip()
+            or observation_id != observation_id.strip()
+            or word.observation_id != observation_id
+            or not isinstance(word.receipt_id, str) or not word.receipt_id.strip()
+            or not isinstance(word.authority_record_id, str)
+            or not word.authority_record_id.strip()
+            or not isinstance(word.trusted_text, str) or not word.trusted_text.strip()
+            or word.authority_kind not in {
+                "native_text_integrity", "raster_text_corroboration"
+            }
+        ):
+            return None
     return label
 
 
@@ -439,6 +520,108 @@ def _room_object_from_record(
         ),
         room_label_evidence_ids=label_evidence_ids,
         room_label_reason_codes=label_reason_codes,
+    )
+
+
+def _canonical_composite_supersedence(
+    source_room_face_records,
+    composite_records,
+):
+    """Project non-overlapping authenticated room composites, never their cells.
+
+    Original producer-owned SourceRoomFace records remain available for audit.
+    The canonical projection must not expose the same physical area as both
+    its component cells and a larger authenticated composite room: doing so
+    would duplicate canonical floors and downstream takeoff candidates.
+    Any unexpected missing or duplicate constituent reference fails closed
+    for the affected composite, preserving its original source-room cells.
+    """
+    originals = tuple(source_room_face_records)
+    composites = tuple(composite_records)
+    # The original physical face universe must itself be unique. Otherwise
+    # retiring an identity could erase multiple source faces with one claim.
+    # Eight independent fail-closed source-identity gates. Do not stringify
+    # malformed IDs (None, numbers or whitespace) into plausible face IDs.
+    def source_id(value):
+        return value if isinstance(value, str) and value and value == value.strip() else None
+
+    valid_originals = tuple(
+        (source_id(getattr(record, "face_id", None)),
+         source_id(getattr(record, "record_id", None)))
+        for record in originals
+    )
+    face_counts = Counter(face for face, _ in valid_originals if face is not None)
+    receipt_counts = Counter(receipt for _, receipt in valid_originals if receipt is not None)
+    originals_by_face = {
+        face: record
+        for record, (face, _) in zip(originals, valid_originals)
+        if face is not None
+    }
+    # A duplicate composite identity cannot be a deterministic projection.
+    # Composite physical face IDs may not alias source cells or one another.
+    composite_face_ids = Counter(
+        source_id(getattr(composite, "face_id", None))
+        for composite in composites
+        if getattr(composite, "face_id", None) is not None
+    )
+    composite_ids = Counter(
+        source_id(getattr(composite, "record_id", None))
+        for composite in composites
+    )
+    claimed = Counter(
+        face
+        for composite in composites
+        for values in (getattr(composite, "constituent_face_ids", None),)
+        if isinstance(values, (tuple, list))
+        for value in values
+        if (face := source_id(value)) is not None
+    )
+    accepted = []
+    suppressed = set()
+    for composite in composites:
+        composite_id = source_id(getattr(composite, "record_id", None))
+        raw_ids = getattr(composite, "constituent_face_ids", ()) or ()
+        raw_receipts = getattr(
+            composite, "constituent_source_room_face_record_ids", ()
+        ) or ()
+        # Protect against malformed scalar strings and non-sequence claims.
+        if (
+            composite_id is None
+            or composite_ids[composite_id] != 1
+            or (getattr(composite, "face_id", None) is not None and (
+                source_id(composite.face_id) is None
+                or composite_face_ids[source_id(composite.face_id)] != 1
+                or source_id(composite.face_id) in face_counts
+            ))
+            or not isinstance(raw_ids, (tuple, list))
+            or not isinstance(raw_receipts, (tuple, list))
+        ):
+            continue
+        ids = tuple(source_id(value) for value in raw_ids)
+        receipts = tuple(source_id(value) for value in raw_receipts)
+        if (
+            len(ids) < 2
+            or len(ids) != len(receipts)
+            or any(value is None for value in ids + receipts)
+            or len(ids) != len(set(ids))
+            or len(receipts) != len(set(receipts))
+            or any(
+                face_counts[face] != 1
+                or claimed[face] != 1
+                or receipt_counts[receipt] != 1
+                or originals_by_face[face].record_id != receipt
+                for face, receipt in zip(ids, receipts)
+            )
+        ):
+            continue
+        accepted.append(composite)
+        suppressed.update(ids)
+    return (
+        tuple(
+            record for record in originals
+            if source_id(getattr(record, "face_id", None)) not in suppressed
+        ),
+        tuple(accepted),
     )
 
 
@@ -629,6 +812,9 @@ def compose_live_canonical_rooms(
             if binding is not None:
                 authority_bindings.append(binding)
 
+            canonical_source_records, composite_records = (
+                _canonical_composite_supersedence(result.records, composite_records)
+            )
             rooms.extend(
                 _room_object_from_record(
                     record,
@@ -637,7 +823,7 @@ def compose_live_canonical_rooms(
                     unresolved_wall_candidate_ids=unresolved_wall_candidate_ids,
                     room_label_record=label_records_by_face.get(str(record.face_id)),
                 )
-                for record in result.records
+                for record in canonical_source_records
             )
             rooms.extend(
                 _room_object_from_composite_record(
@@ -789,14 +975,20 @@ def compose_live_canonical_rooms(
                     if binding is not None:
                         authority_bindings.append(binding)
 
+                    canonical_source_records, composite_records = (
+                        _canonical_composite_supersedence(
+                            room_result.records, composite_records
+                        )
+                    )
                     rooms.extend(
-                        _room_object_from_record(                            record,
+                        _room_object_from_record(
+                            record,
                             viewport_id=wall_scope.viewport_id,
                             canonical_wall_ids_by_candidate=canonical_wall_ids_by_candidate,
                             unresolved_wall_candidate_ids=unresolved_wall_candidate_ids,
                             room_label_record=label_records_by_face.get(str(record.face_id)),
                         )
-                        for record in room_result.records
+                        for record in canonical_source_records
                     )
                     rooms.extend(
                         _room_object_from_composite_record(

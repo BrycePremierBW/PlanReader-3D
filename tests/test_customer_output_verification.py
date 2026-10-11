@@ -465,3 +465,80 @@ def test_manual_caption_without_machine_quantity_receipt_stays_manual() -> None:
     report = verify_sealed_customer_output(sealed, [*rows, manual])
     assert report.verified_quantity_ids == ("qty-1", "qty-2")
     assert report.customer_row_count == 2
+
+
+
+@pytest.mark.parametrize(("section", "field"), (
+    ("quantity", "input_entity_ids"),
+    ("quantity", "evidence_ids"),
+    ("source_trace", "canonical_entity_ids"),
+    ("source_trace", "evidence_ids"),
+))
+@pytest.mark.parametrize("forged", ("mapping", "string"))
+def test_customer_source_lineage_never_coerces_non_array_identity_receipts(
+    section: str, field: str, forged: str,
+) -> None:
+    import copy
+    import json
+
+    sealed, rows = sealed_and_rows()
+    corrupt = dict(rows[0])
+    provenance = copy.deepcopy(corrupt["commercial_projection_provenance"])
+    genuine = provenance[section][field]
+    assert type(genuine) is list and genuine
+    if forged == "mapping":
+        provenance[section][field] = {str(value): None for value in genuine}
+    else:
+        if len(genuine) > 1:
+            # Use a one-element clone to trigger the shape gate; the verifier
+            # must reject the wire format before using identity correspondence.
+            provenance[section][field] = str(genuine[0])
+        else:
+            provenance[section][field] = str(genuine[0])
+    corrupt["commercial_projection_provenance"] = provenance
+    corrupt["notes"] = json.dumps(provenance)
+    with pytest.raises(CustomerOutputVerificationError, match="array of canonical strings"):
+        verify_sealed_customer_output(sealed, [corrupt, rows[1]])
+
+
+@pytest.mark.parametrize("field", ("canonical_entity_ids", "evidence_ids"))
+def test_customer_projection_top_level_lineage_requires_arrays(field: str) -> None:
+    sealed, rows = sealed_and_rows()
+    corrupt = dict(rows[0])
+    genuine = corrupt[field]
+    assert type(genuine) in (list, tuple)
+    corrupt[field] = {str(item): None for item in genuine}
+    with pytest.raises(CustomerOutputVerificationError, match="array of canonical strings"):
+        verify_sealed_customer_output(sealed, [corrupt, rows[1]])
+
+
+def test_valid_producer_array_receipts_remain_verified_after_wire_shape_guard() -> None:
+    sealed, rows = sealed_and_rows()
+    result = verify_sealed_customer_output(sealed, rows)
+    assert result.verified_quantity_ids == ("qty-1", "qty-2")
+    assert result.customer_row_count == 2
+
+
+
+@pytest.mark.parametrize("alteration", ("blank", "leading-space", "trailing-space"))
+def test_customer_source_lineage_cannot_hide_noncanonical_extra_id(
+    alteration: str,
+) -> None:
+    import copy
+    import json
+
+    sealed, rows = sealed_and_rows()
+    modified = dict(rows[0])
+    provenance = copy.deepcopy(modified["commercial_projection_provenance"])
+    source_ids = provenance["quantity"]["input_entity_ids"]
+    assert type(source_ids) is list and len(source_ids) == 1
+    if alteration == "blank":
+        source_ids.append("")
+    elif alteration == "leading-space":
+        source_ids[0] = " " + source_ids[0]
+    else:
+        source_ids[0] += " "
+    modified["commercial_projection_provenance"] = provenance
+    modified["notes"] = json.dumps(provenance)
+    with pytest.raises(CustomerOutputVerificationError, match="array of canonical strings"):
+        verify_sealed_customer_output(sealed, [modified, rows[1]])

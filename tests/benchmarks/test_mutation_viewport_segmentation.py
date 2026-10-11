@@ -1155,3 +1155,28 @@ def test_native_horizontal_lines_keep_expected_glyph_height() -> None:
         assert calibration.minimum_frame_span_pt < 160.0
     finally:
         doc.close()
+
+
+def test_rotated_band_coordinate_roundtrip_preserves_native_source_bbox() -> None:
+    """Native page geometry must round-trip through rotated page coordinates.
+
+    A rotated viewport's source PDF page-space dimensions and extent remain
+    authoritative. Visual rotation is never a license to move the source face
+    or generate a measurement scale.
+    """
+    from pb_viewport_segmentation import _to_native_bbox, _to_visual_bbox
+
+    doc = fitz.open()
+    page = doc.new_page(width=720, height=420)
+    native = (64.0, 52.0, 300.0, 280.0)
+    try:
+        for rotation in (0, 90, 270):
+            page.set_rotation(rotation)
+            visual = _to_visual_bbox(page, native)
+            restored = _to_native_bbox(page, visual)
+            assert restored == pytest.approx(native)
+        assert _to_native_bbox(
+            page, (float("nan"), 0.0, 10.0, 20.0)
+        ) is None
+    finally:
+        doc.close()

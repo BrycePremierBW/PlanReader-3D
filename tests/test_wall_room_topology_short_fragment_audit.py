@@ -30,7 +30,10 @@ def graph(fid="split_1", *, a=(10.,10.), b=(11.22,10.), raw=True, merged=False):
         "nodes":[{"id":0,"x":a[0],"y":a[1]},
                  {"id":1,"x":b[0],"y":b[1]}],
         "edges":[{"id":fid,"a":0,"b":1}] if raw else [],
+        "endpoint_snap_assignments": {fid: (0, 1) if raw else (0, 0)},
     }
+    if merged:
+        snapped["edges"].append({"id":"split_2","a":0,"b":1})
     merged_graph={"edges":[
         {"id":"merged_split_1_split_2",
          "collinear_merge_leaf_edge_ids":[fid,"split_2"]}
@@ -60,9 +63,10 @@ def test_true_w2_snap_collapse_retains_source_proof_but_never_restores_edge():
     f=fragment(coords=(10.,10.,11.9,10.))
     s,m=graph(raw=False)
     result=audit([f],s,m)
-    assert result["w2_retention_reason_counts"]=={"EDGE_ABSENT_UNRESOLVED":1}
+    assert result["w2_retention_reason_counts"]=={"SNAP_COLLAPSED":1}
     witness=result["original_positive_source_short_fragments"][0]
-    assert witness["max_endpoint_snap_displacement_pt"] is None
+    assert witness["snapped_endpoint_node_ids"] == [0, 0]
+    assert witness["max_endpoint_snap_displacement_pt"] == pytest.approx(1.9)
     assert witness["original_source_geometry_pt"]==[10.,10.,11.9,10.]
     assert witness["wall_host_authority"]=="NOT_PROVEN_BY_THIS_AUDIT"
     assert not s["edges"]
@@ -187,6 +191,7 @@ def test_w2_opt_in_trace_never_changes_existing_graph_authority(monkeypatch):
 def test_producer_reported_disappearance_is_not_proven_snap_collapse():
     f=fragment(coords=(10.,10.,11.9,10.))
     s,m=graph(raw=False)
+    del s["endpoint_snap_assignments"]
     r=audit_short_source_fragments([f],s,m,max_length_pt=2.5,
         producer_reported_collapsed_fragments=[{"id":"split_1","reason":"snap_collapsed"}])
     assert r["w2_retention_reason_counts"]=={"PRODUCER_REPORTED_EDGE_ABSENT":1}
@@ -207,3 +212,120 @@ def test_disappearance_receipt_must_reference_an_absent_original_split_edge():
     with pytest.raises(ValueError, match="conflicts"):
         audit_short_source_fragments([f],absent,empty,max_length_pt=2.5,
             producer_reported_collapsed_fragments=[{"id":"unrelated_split"}])
+
+
+def test_absent_edge_without_actual_endpoint_trace_is_unresolved():
+    s, m = graph(raw=False)
+    del s["endpoint_snap_assignments"]
+    result = audit([fragment()], s, m)
+    witness = result["original_positive_source_short_fragments"][0]
+    assert witness["w2_observation"] == "EDGE_ABSENT_UNRESOLVED"
+    assert witness["snapped_endpoint_node_ids"] is None
+    assert witness["max_endpoint_snap_displacement_pt"] is None
+    assert not result["physical_host_publication_allowed"]
+
+
+@pytest.mark.parametrize("change", [
+    "duplicate_node", "duplicate_edge", "missing_collapsed_node",
+    "distinct_missing_endpoints", "retained_trace_disagrees", "bool_node",
+    "nonfinite_node", "duplicate_merge_leaf", "foreign_merge_leaf",
+    "shared_merge_leaf", "invalid_assignments", "foreign_assignment",
+])
+def test_invalid_endpoint_trace_never_claims_positive_collapse(change):
+    s, m = graph(raw=False)
+    if change == "duplicate_node":
+        s["nodes"].append(deepcopy(s["nodes"][0]))
+    elif change == "duplicate_edge":
+        s, m = graph()
+        s["edges"].append(deepcopy(s["edges"][0]))
+    elif change == "missing_collapsed_node":
+        s["endpoint_snap_assignments"]["split_1"] = (9, 9)
+    elif change == "distinct_missing_endpoints":
+        s["endpoint_snap_assignments"]["split_1"] = (0, 1)
+    elif change == "retained_trace_disagrees":
+        s, m = graph()
+        s["endpoint_snap_assignments"]["split_1"] = (1, 0)
+    elif change == "bool_node":
+        s["nodes"][0]["id"] = False
+    elif change == "nonfinite_node":
+        s["nodes"][0]["x"] = math.inf
+    elif change == "duplicate_merge_leaf":
+        s, m = graph(merged=True)
+        m["edges"][0]["collinear_merge_leaf_edge_ids"].append("split_1")
+    elif change == "foreign_merge_leaf":
+        s, m = graph(merged=True)
+        m["edges"][0]["collinear_merge_leaf_edge_ids"].append("foreign")
+    elif change == "shared_merge_leaf":
+        s, m = graph(merged=True)
+        m["edges"].append({"id":"another", "collinear_merge_leaf_edge_ids":["split_1"]})
+    elif change == "invalid_assignments":
+        s["endpoint_snap_assignments"] = []
+    else:
+        s["endpoint_snap_assignments"]["foreign"] = (0, 0)
+    with pytest.raises(ValueError):
+        audit([fragment()], s, m)
+
+
+def test_real_snap_operation_records_the_discarded_endpoint_association():
+    from pb_wall_room_topology_stage_a import _snap_geometry_indexed
+
+    f = fragment()
+    plain = _snap_geometry_indexed([f])
+    traced = _snap_geometry_indexed([f], include_endpoint_assignments=True)
+    assignments = traced.pop("endpoint_snap_assignments")
+    assert traced == plain
+    assert assignments == {"split_1": (0, 0)}
+    result = audit([f], {**traced, "endpoint_snap_assignments":assignments}, {"edges":[]})
+    witness = result["original_positive_source_short_fragments"][0]
+    assert witness["snapped_endpoint_node_ids"] == [0, 0]
+    assert witness["max_endpoint_snap_displacement_pt"] == pytest.approx(.61)
+
+
+def test_zero_tolerance_trace_does_not_change_historical_snapper():
+    from pb_wall_room_topology_stage_a import _snap_geometry_indexed
+
+    f = fragment()
+    traced = _snap_geometry_indexed([f], tolerance_pt=0, include_endpoint_assignments=True)
+    assert "endpoint_snap_assignments" not in traced
+    assert traced == _snap_geometry_indexed([f], tolerance_pt=0)
+
+
+@pytest.mark.parametrize("angle, scale, offset", [
+    (0., 1., (0., 0.)), (90., 1., (200., -50.)),
+    (17., 2., (-100., 250.)), (45., .5, (0., 0.)),
+])
+def test_endpoint_trace_is_transformed_without_inventing_geometry(angle, scale, offset):
+    from pb_wall_room_topology_stage_a import _snap_geometry_indexed
+
+    radians = math.radians(angle)
+    def transform(x, y):
+        return (offset[0] + scale*(x*math.cos(radians)-y*math.sin(radians)),
+                offset[1] + scale*(x*math.sin(radians)+y*math.cos(radians)))
+    a, b = transform(10., 10.), transform(11.22, 10.)
+    c, d = transform(10., 10.), transform(30., 10.)
+    f = fragment(coords=(*a, *b), parent=(*c, *d))
+    s = _snap_geometry_indexed([f], tolerance_pt=2.5*scale,
+                               include_endpoint_assignments=True)
+    r = audit_short_source_fragments([f], s, {"edges":[]}, max_length_pt=2.5*scale)
+    w = r["original_positive_source_short_fragments"][0]
+    assert w["w2_observation"] == "SNAP_COLLAPSED"
+    assert w["max_endpoint_snap_displacement_pt"] == pytest.approx(.61*scale)
+    assert w["original_source_geometry_pt"] == [*a, *b]
+
+
+def test_replay_input_order_and_unrelated_content_preserve_source_observations():
+    from pb_wall_room_topology_stage_a import _snap_geometry_indexed
+
+    f = fragment()
+    unrelated = fragment("far", (200., 200., 201., 200.), parent=(200., 200., 220., 200.))
+    original = deepcopy((f, unrelated))
+    observations = []
+    for inventory in ([f], [f, unrelated], [unrelated, f], [f, unrelated]):
+        s = _snap_geometry_indexed(inventory, include_endpoint_assignments=True)
+        result = audit(inventory, s, {"edges":[]})
+        w = next(v for v in result["original_positive_source_short_fragments"]
+                 if v["source_split_fragment_id"] == f["id"])
+        observations.append((w["w2_observation"], w["original_source_geometry_pt"],
+                             w["max_endpoint_snap_displacement_pt"]))
+    assert all(v == observations[0] for v in observations)
+    assert (f, unrelated) == original

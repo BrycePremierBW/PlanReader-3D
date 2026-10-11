@@ -1,0 +1,30 @@
+name: GPT2 Source Room Identity Eight Fixes
+on:
+  pull_request:
+    paths:
+      - pb_live_canonical_room_composition.py
+      - tests/test_gpt2_source_room_identity_eight_fixes.py
+      - .github/workflows/test-gpt2-source-room-identity-eight.yml
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      matrix:
+        python-version: ["3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - run: python -m pip install -r requirements.txt -r requirements-ci-v1228.txt
+      - name: Source identity and exact label receipt regressions
+        run: |
+          PYTHONPATH=. python -m pytest -q tests/test_gpt2_source_room_identity_eight_fixes.py tests/test_gpt2_canonical_room_label_lineage.py tests/test_live_canonical_room_composition.py
+      - name: Verify frozen V2 benchmark and provider gold isolation
+        run: |
+          PYTHONPATH=. python scripts/check_full_plan_v2_integrity.py
+          PYTHONPATH=. python scripts/check_provider_gold_isolation.py

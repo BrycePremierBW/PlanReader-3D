@@ -122,8 +122,18 @@ def test_duplicate_identical_receipt_is_idempotent_but_distinct_competitor_absta
 def test_distinct_faces_keep_independent_receipts_on_competition():
     face = _face()
     first = _label(face)
-    second = replace(first, face_id="face-8", source_room_face_record_id="source-face-record-8",
-                     record_id="source-label-8")
+    # A distinct physical face needs an independent native word observation,
+    # not merely a different label record ID. Reusing native-word-7 would
+    # correctly quarantine both faces under the cross-face replay guard.
+    second_word = replace(
+        first.word_evidence[0], observation_id="native-word-8",
+        receipt_id="text-receipt-8", authority_record_id="text-receipt-8",
+    )
+    second = replace(
+        first, face_id="face-8", source_room_face_record_id="source-face-record-8",
+        record_id="source-label-8", observation_ids=("native-word-8",),
+        word_evidence=(second_word,),
+    )
     competitor = replace(first, record_id="competing-face-7-receipt")
     assert _unique_source_room_labels_by_face((first, second, competitor)) == {
         "face-8": second

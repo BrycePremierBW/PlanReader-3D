@@ -84,6 +84,18 @@ def _strict_customer_notes(notes: str) -> Mapping[str, Any]:
     return payload
 
 
+def _canonical_source_id_array(name: str, values: Any) -> tuple[str, ...]:
+    """Require source-authenticated array receipts, not coerced keys/chars."""
+    if type(values) not in (list, tuple) or any(
+        type(item) is not str or not item or item != item.strip()
+        for item in values
+    ):
+        raise CustomerOutputVerificationError(
+            f"customer source provenance {name} must be an array of canonical strings"
+        )
+    return _string_tuple(values)
+
+
 def _projection_provenance(row: Mapping[str, Any]) -> Mapping[str, Any]:
     direct = row.get("commercial_projection_provenance")
     if isinstance(direct, Mapping):
@@ -222,13 +234,13 @@ def _verify_row_lineage(
     )
     _require_equal(
         "provenance.input_entity_ids",
-        _string_tuple(qprov.get("input_entity_ids")),
+        _canonical_source_id_array("input_entity_ids", qprov.get("input_entity_ids")),
         tuple(sorted(sealed.object_identity_refs)),
         quantity_id,
     )
     _require_equal(
         "provenance.quantity_evidence_ids",
-        _string_tuple(qprov.get("evidence_ids")),
+        _canonical_source_id_array("evidence_ids", qprov.get("evidence_ids")),
         tuple(sorted(sealed.evidence_ids)),
         quantity_id,
     )
@@ -270,13 +282,13 @@ def _verify_row_lineage(
     )
     _require_equal(
         "provenance.canonical_entity_ids",
-        _string_tuple(tprov.get("canonical_entity_ids")),
+        _canonical_source_id_array("canonical_entity_ids", tprov.get("canonical_entity_ids")),
         tuple(sorted(sealed.trace_canonical_entity_ids)),
         quantity_id,
     )
     _require_equal(
         "provenance.trace_evidence_ids",
-        _string_tuple(tprov.get("evidence_ids")),
+        _canonical_source_id_array("trace_evidence_ids", tprov.get("evidence_ids")),
         tuple(sorted(sealed.trace_evidence_ids)),
         quantity_id,
     )
@@ -331,14 +343,14 @@ def _verify_row_lineage(
     if row.get("canonical_entity_ids") is not None:
         _require_equal(
             "canonical_entity_ids",
-            _string_tuple(row.get("canonical_entity_ids")),
+            _canonical_source_id_array("canonical_entity_ids", row.get("canonical_entity_ids")),
             tuple(sorted(sealed.trace_canonical_entity_ids)),
             quantity_id,
         )
     if row.get("evidence_ids") is not None:
         _require_equal(
             "evidence_ids",
-            _string_tuple(row.get("evidence_ids")),
+            _canonical_source_id_array("trace_evidence_ids", row.get("evidence_ids")),
             tuple(sorted(sealed.trace_evidence_ids)),
             quantity_id,
         )

@@ -728,3 +728,365 @@ def test_physical_room_identity_keeps_distinct_rooms_and_documents_distinct() ->
             other_view.physical_room_id,
         }
     ) == 4
+
+
+def test_canonical_grid_composite_supersedes_only_its_original_face_cells():
+    """Do not publish both component cells and their canonical room union."""
+    from types import SimpleNamespace
+    from pb_live_canonical_room_composition import _canonical_composite_supersedence
+
+    originals = tuple(
+        SimpleNamespace(face_id=face_id, record_id="source_" + face_id)
+        for face_id in ("left", "right", "unrelated")
+    )
+    composite = SimpleNamespace(
+        record_id="composite_real",
+        constituent_face_ids=("left", "right"),
+        constituent_source_room_face_record_ids=("source_left", "source_right"),
+    )
+    remaining, published = _canonical_composite_supersedence(
+        originals, (composite,)
+    )
+    assert tuple(face.face_id for face in remaining) == ("unrelated",)
+    assert published == (composite,)
+    # The producer-owned SourceRoomFace receipt universe is not mutated.
+    assert len(originals) == 3
+
+
+def test_canonical_composite_unknown_or_competing_cell_abstains():
+    from types import SimpleNamespace
+    from pb_live_canonical_room_composition import _canonical_composite_supersedence
+
+    originals = tuple(
+        SimpleNamespace(face_id=x, record_id="source_" + x)
+        for x in ("a", "b", "c")
+    )
+    valid = SimpleNamespace(
+        record_id="valid", constituent_face_ids=("a", "b"),
+        constituent_source_room_face_record_ids=("source_a", "source_b"),
+    )
+    unknown = SimpleNamespace(
+        record_id="unknown", constituent_face_ids=("a", "missing"),
+        constituent_source_room_face_record_ids=("source_a", "source_missing"),
+    )
+    duplicate = SimpleNamespace(
+        record_id="duplicate", constituent_face_ids=("b", "b"),
+        constituent_source_room_face_record_ids=("source_b", "source_b"),
+    )
+    overlapping = SimpleNamespace(
+        record_id="other", constituent_face_ids=("b", "c"),
+        constituent_source_room_face_record_ids=("source_b", "source_c"),
+    )
+
+    for composite in (unknown, duplicate):
+        remaining, published = _canonical_composite_supersedence(
+            originals, (composite,)
+        )
+        assert remaining == originals
+        assert published == ()
+
+    remaining, published = _canonical_composite_supersedence(
+        originals, (valid, overlapping)
+    )
+    # An overlapping candidate cannot quietly retire any component cell.
+    assert remaining == originals
+    assert published == ()
+
+    remaining, published = _canonical_composite_supersedence(originals, ())
+    assert remaining == originals
+    assert published == ()
+
+
+def test_canonical_composite_abstains_when_original_face_identity_is_duplicated():
+    from types import SimpleNamespace
+    from pb_live_canonical_room_composition import _canonical_composite_supersedence
+
+    # A duplicate physical SourceRoomFace identity cannot be retired twice by
+    # one composite witness, even when the composite lists each ID once.
+    originals = (
+        SimpleNamespace(face_id="a", record_id="a1"),
+        SimpleNamespace(face_id="a", record_id="a2"),
+        SimpleNamespace(face_id="b", record_id="b1"),
+        SimpleNamespace(face_id="c", record_id="c1"),
+    )
+    composite = SimpleNamespace(
+        record_id="candidate",
+        constituent_face_ids=("a", "b"),
+        constituent_source_room_face_record_ids=("a1", "b1"),
+    )
+    remaining, accepted = _canonical_composite_supersedence(originals, (composite,))
+    assert remaining == originals
+    assert accepted == ()
+
+    # A separate genuine two-face composite can still publish independently.
+    independent = SimpleNamespace(
+        record_id="independent",
+        constituent_face_ids=("b", "c"),
+        constituent_source_room_face_record_ids=("b1", "c1"),
+    )
+    remaining, accepted = _canonical_composite_supersedence(
+        originals, (independent,)
+    )
+    assert accepted == (independent,)
+    assert tuple(v.record_id for v in remaining) == ("a1", "a2")
+
+    # One-face replacements are not room compositions and cannot retire cells.
+    singleton = SimpleNamespace(
+        record_id="singleton",
+        constituent_face_ids=("b",),
+        constituent_source_room_face_record_ids=("b1",),
+    )
+    remaining, accepted = _canonical_composite_supersedence(
+        originals, (singleton,)
+    )
+    assert remaining == originals
+    assert accepted == ()
+
+
+def test_canonical_composite_requires_exact_original_source_receipt_lineage():
+    from types import SimpleNamespace
+    from pb_live_canonical_room_composition import _canonical_composite_supersedence
+
+    originals = (
+        SimpleNamespace(face_id="a", record_id="original_a"),
+        SimpleNamespace(face_id="b", record_id="original_b"),
+    )
+    missing = SimpleNamespace(
+        record_id="composite_missing",
+        constituent_face_ids=("a", "b"),
+    )
+    stale = SimpleNamespace(
+        record_id="composite_stale",
+        constituent_face_ids=("a", "b"),
+        constituent_source_room_face_record_ids=("old_a", "original_b"),
+    )
+    reversed_receipts = SimpleNamespace(
+        record_id="composite_reversed",
+        constituent_face_ids=("a", "b"),
+        constituent_source_room_face_record_ids=("original_b", "original_a"),
+    )
+    for composite in (missing, stale, reversed_receipts):
+        remaining, accepted = _canonical_composite_supersedence(
+            originals, (composite,)
+        )
+        assert remaining == originals
+        assert accepted == ()
+
+    valid = SimpleNamespace(
+        record_id="composite_valid",
+        constituent_face_ids=("a", "b"),
+        constituent_source_room_face_record_ids=("original_a", "original_b"),
+    )
+    remaining, accepted = _canonical_composite_supersedence(
+        originals, (valid,)
+    )
+    assert remaining == ()
+    assert accepted == (valid,)
+
+
+def test_canonical_composite_rejects_duplicate_producer_receipts_on_distinct_faces():
+    from types import SimpleNamespace
+    from pb_live_canonical_room_composition import _canonical_composite_supersedence
+
+    originals = (
+        SimpleNamespace(face_id="left", record_id="receipt_shared"),
+        SimpleNamespace(face_id="right", record_id="receipt_shared"),
+        SimpleNamespace(face_id="top", record_id="receipt_top"),
+        SimpleNamespace(face_id="bottom", record_id="receipt_bottom"),
+    )
+    ambiguous = SimpleNamespace(
+        record_id="invalid_composite",
+        constituent_face_ids=("left", "right"),
+        constituent_source_room_face_record_ids=("receipt_shared", "receipt_shared"),
+    )
+    remaining, accepted = _canonical_composite_supersedence(
+        originals, (ambiguous,)
+    )
+    assert remaining == originals
+    assert accepted == ()
+    # A separate unique producer-owned pair can still retire *its own* cells.
+    genuine = SimpleNamespace(
+        record_id="valid_composite",
+        constituent_face_ids=("top", "bottom"),
+        constituent_source_room_face_record_ids=("receipt_top", "receipt_bottom"),
+    )
+    remaining, accepted = _canonical_composite_supersedence(
+        originals, (genuine,)
+    )
+    assert accepted == (genuine,)
+    assert remaining == originals[:2]
+
+
+def test_canonical_composite_requires_nonblank_source_receipts():
+    from types import SimpleNamespace
+    from pb_live_canonical_room_composition import _canonical_composite_supersedence
+
+    for bad_id in ("", "   ", None):
+        originals = (
+            SimpleNamespace(face_id="left", record_id=bad_id),
+            SimpleNamespace(face_id="right", record_id="receipt_right"),
+        )
+        invalid = SimpleNamespace(
+            record_id="invalid_composite",
+            constituent_face_ids=("left", "right"),
+            constituent_source_room_face_record_ids=(
+                "None" if bad_id is None else str(bad_id), "receipt_right"
+            ),
+        )
+        remaining, accepted = _canonical_composite_supersedence(
+            originals, (invalid,)
+        )
+        assert remaining == originals
+        assert accepted == ()
+    # Missing attributes are not producer-owned source receipts either.
+    missing = (
+        SimpleNamespace(face_id="left"),
+        SimpleNamespace(face_id="right", record_id="receipt_right"),
+    )
+    invalid = SimpleNamespace(
+        constituent_face_ids=("left", "right"),
+        constituent_source_room_face_record_ids=("", "receipt_right"),
+    )
+    remaining, accepted = _canonical_composite_supersedence(
+        missing, (invalid,)
+    )
+    assert remaining == missing
+    assert accepted == ()
+
+def test_gpt2_composite_eight_source_identity_negative_gates():
+    """Never retire physical source faces from malformed or aliased receipts."""
+    from types import SimpleNamespace
+    from pb_live_canonical_room_composition import _canonical_composite_supersedence
+
+    def face(face_id, record_id):
+        return SimpleNamespace(face_id=face_id, record_id=record_id)
+
+    def composite(ids=("a", "b"), receipts=("ra", "rb"), record_id="composite"):
+        return SimpleNamespace(
+            record_id=record_id,
+            constituent_face_ids=ids,
+            constituent_source_room_face_record_ids=receipts,
+        )
+
+    originals = (face("a", "ra"), face("b", "rb"), face("c", "rc"))
+    cases = (
+        # 1. Original producer face identity must be a nonblank string.
+        ((face(None, "ra"), originals[1]), (composite(),)),
+        # 2. Original source receipt may not be missing.
+        ((face("a", None), originals[1]), (composite(("a", "b"), ("None", "rb")),)),
+        # 3. Different original physical faces cannot share one source receipt.
+        ((face("a", "shared"), face("b", "shared")), (composite(("a", "b"), ("shared", "shared")),)),
+        # 4. The composite itself must have a proper source-owned identity.
+        (originals, (composite(record_id=None),)),
+        # 5. Composite constituent IDs cannot be blank or padded.
+        (originals, (composite(ids=("a", " b")),)),
+        # 6. Numeric face IDs may not stringify into genuine faces.
+        ((face("1", "ra"), face("b", "rb")), (composite(ids=(1, "b")),)),
+        # 7. A scalar text sequence is not a constituent list.
+        (originals, (composite(ids="ab"),)),
+        # 8. Two composites with the same producer ID cannot retire separate rooms.
+        (originals + (face("d", "rd"),), (
+            composite(("a", "b"), ("ra", "rb"), "duplicate"),
+            composite(("c", "d"), ("rc", "rd"), "duplicate"),
+        )),
+    )
+    for source, candidates in cases:
+        remaining, accepted = _canonical_composite_supersedence(source, candidates)
+        assert remaining == source
+        assert accepted == ()
+
+    # Fail-closed candidates must not block unrelated authentic compositions.
+    remaining, accepted = _canonical_composite_supersedence(
+        originals + (face("d", "rd"),),
+        (composite(("a", "b"), ("ra", "rb"), record_id=None),
+         composite(("c", "d"), ("rc", "rd"), "authentic")),
+    )
+    assert accepted[0].record_id == "authentic"
+    assert len(accepted) == 1
+    assert remaining == originals[:2]
+
+
+def test_gpt2_composite_physical_identity_cannot_alias_source_or_sibling():
+    from types import SimpleNamespace
+    from pb_live_canonical_room_composition import _canonical_composite_supersedence
+
+    originals = (
+        SimpleNamespace(face_id="a", record_id="ra"),
+        SimpleNamespace(face_id="b", record_id="rb"),
+    )
+
+    def candidate(composite_id, face_id):
+        return SimpleNamespace(
+            record_id=composite_id, face_id=face_id,
+            constituent_face_ids=("a", "b"),
+            constituent_source_room_face_record_ids=("ra", "rb"),
+        )
+
+    # Composite must not claim a physical identity still owned by an
+    # authenticated original source face.
+    for invalid in (candidate("c", "a"), candidate("c", "  "), candidate("c", 1)):
+        remaining, accepted = _canonical_composite_supersedence(originals, (invalid,))
+        assert remaining == originals
+        assert accepted == ()
+
+    # Repeated composite physical IDs cannot silently choose a winner,
+    # including when the second candidate has unrelated constituents.
+    other = (
+        SimpleNamespace(face_id="c", record_id="rc"),
+        SimpleNamespace(face_id="d", record_id="rd"),
+    )
+    sibling = SimpleNamespace(
+        record_id="other", face_id="new-face",
+        constituent_face_ids=("c", "d"),
+        constituent_source_room_face_record_ids=("rc", "rd"),
+    )
+    remaining, accepted = _canonical_composite_supersedence(
+        originals + other, (candidate("first", "new-face"), sibling)
+    )
+    assert remaining == originals + other
+    assert accepted == ()
+
+    valid = candidate("composite", "new-face")
+    remaining, accepted = _canonical_composite_supersedence(originals, (valid,))
+    assert remaining == ()
+    assert accepted == (valid,)
+
+
+def test_gpt2_malformed_composite_membership_does_not_break_independent_room():
+    from types import SimpleNamespace
+    from pb_live_canonical_room_composition import _canonical_composite_supersedence
+
+    originals = tuple(SimpleNamespace(face_id=id, record_id="receipt_" + id)
+                      for id in ("a", "b", "c", "d"))
+    valid = SimpleNamespace(record_id="valid", face_id="new-cd",
+                            constituent_face_ids=("c", "d"),
+                            constituent_source_room_face_record_ids=("receipt_c", "receipt_d"))
+    malformed = (
+        SimpleNamespace(record_id="bad_integer", constituent_face_ids=42),
+        SimpleNamespace(record_id="bad_none", constituent_face_ids=None),
+        SimpleNamespace(record_id="bad_dictionary", constituent_face_ids={"a": True}),
+        SimpleNamespace(record_id="bad_generator", constituent_face_ids=iter(("a", "b"))),
+    )
+    remaining, accepted = _canonical_composite_supersedence(
+        originals, (*malformed, valid)
+    )
+    assert accepted == (valid,)
+    assert remaining == originals[:2]
+
+
+def test_gpt2_invalid_original_face_identity_is_not_stringified_on_retirement():
+    from types import SimpleNamespace
+    from pb_live_canonical_room_composition import _canonical_composite_supersedence
+    originals = (
+        SimpleNamespace(face_id=None, record_id="null"),
+        SimpleNamespace(face_id="a", record_id="ra"),
+        SimpleNamespace(face_id="b", record_id="rb"),
+    )
+    composite = SimpleNamespace(
+        record_id="ab", face_id="physical-ab",
+        constituent_face_ids=("a", "b"),
+        constituent_source_room_face_record_ids=("ra", "rb"),
+    )
+    remaining, accepted = _canonical_composite_supersedence(originals, (composite,))
+    assert accepted == (composite,)
+    assert remaining == originals[:1]

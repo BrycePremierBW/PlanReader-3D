@@ -41,6 +41,46 @@ def _positive_single_parent(fragment: Mapping[str, Any]):
     return ids[0]
 
 
+def _snapped_trace(snapped_graph):
+    """Validate the actual node/edge trace instead of treating absence as proof."""
+    nodes = {}
+    for node in snapped_graph["nodes"]:
+        nid = node.get("id")
+        if type(nid) is not int or nid in nodes:
+            raise ValueError("invalid or duplicate W2 snapped node id")
+        try:
+            position = (float(node["x"]), float(node["y"]))
+        except (KeyError, TypeError, ValueError, OverflowError):
+            raise ValueError("invalid W2 snapped node geometry") from None
+        if not all(math.isfinite(v) for v in position):
+            raise ValueError("nonfinite W2 snapped node geometry")
+        nodes[nid] = position
+    edges = {}
+    for edge in snapped_graph["edges"]:
+        eid = edge.get("id")
+        pair = (edge.get("a"), edge.get("b"))
+        if not isinstance(eid, str) or not eid or eid in edges:
+            raise ValueError("invalid or duplicate W2 snapped edge id")
+        if (any(type(nid) is not int or nid not in nodes for nid in pair)
+                or pair[0] == pair[1]):
+            raise ValueError("invalid W2 snapped edge endpoints")
+        edges[eid] = pair
+    assignments = snapped_graph.get("endpoint_snap_assignments", {})
+    if not isinstance(assignments, Mapping):
+        raise ValueError("invalid W2 endpoint assignment trace")
+    for fid, pair in assignments.items():
+        if (not isinstance(fid, str) or not fid
+                or not isinstance(pair, (tuple, list)) or len(pair) != 2
+                or any(type(nid) is not int or nid not in nodes for nid in pair)):
+            raise ValueError("invalid W2 endpoint assignment")
+        if fid in edges:
+            if tuple(pair) != edges[fid]:
+                raise ValueError("W2 endpoint trace disagrees with surviving edge")
+        elif pair[0] != pair[1]:
+            raise ValueError("missing W2 edge has distinct traced endpoints")
+    return nodes, edges, assignments
+
+
 def audit_short_source_fragments(
     split_fragments: Sequence[Mapping[str, Any]],
     snapped_graph: Mapping[str, Any],
@@ -51,8 +91,10 @@ def audit_short_source_fragments(
 ) -> dict[str, Any]:
     """Account for each *positive-source* short split fragment exactly once.
 
-    "PRODUCER_REPORTED_EDGE_ABSENT" means the W2 producer reported an
-    absent edge, not that endpoint collapse has been independently proven. "COLLINEAR_MERGED" means the original split-edge id is
+    "SNAP_COLLAPSED" requires W2's actual endpoint trace to assign both
+    endpoints to one node. Absence without that trace remains unresolved.
+    Collapse is not evidence of a missing physical wall or permission to
+    extend geometry. "COLLINEAR_MERGED" means the original split-edge id is
     retained in the later edge's leaf ancestry, not that its raw length was
     metrically preserved. A displacement is observational only.
     """
@@ -62,18 +104,17 @@ def audit_short_source_fragments(
         raise ValueError("invalid observational source fragment length")
     if not isinstance(split_fragments,(tuple,list)):
         raise ValueError("source split inventory must be a sequence")
+    nodes, snapped_edges, assignments = _snapped_trace(snapped_graph)
     if not isinstance(producer_reported_collapsed_fragments, (tuple, list)):
         raise ValueError("invalid producer disappearance ledger")
     reported = set()
     for row in producer_reported_collapsed_fragments:
-        if not isinstance(row, Mapping) or not isinstance(row.get("id"), str) or not row["id"] or row["id"] in reported:
+        if (not isinstance(row, Mapping) or not isinstance(row.get("id"), str)
+                or not row["id"] or row["id"] in reported):
             raise ValueError("invalid or duplicated producer disappearance receipt")
         reported.add(row["id"])
-    nodes = {n["id"]:n for n in snapped_graph["nodes"]}
-    snapped_edges = {e["id"]:e for e in snapped_graph["edges"]}
-    original_ids = {fragment.get("id") for fragment in split_fragments}
-    if not reported.issubset(original_ids) or reported.intersection(snapped_edges):
-        raise ValueError("producer disappearance ledger conflicts with source or surviving graph")
+    if reported.intersection(snapped_edges):
+        raise ValueError("producer disappearance ledger conflicts with surviving graph")
     merged_edges = merged_graph["edges"]
     final_leaf_ids=set()
     direct_ids=set()
@@ -89,6 +130,10 @@ def audit_short_source_fragments(
             not isinstance(k,str) or not k for k in leaves
         ):
             raise ValueError("invalid W2 merge leaf provenance")
+        if (len(set(leaves)) != len(leaves)
+                or any(k not in snapped_edges for k in leaves)
+                or final_leaf_ids.intersection(leaves)):
+            raise ValueError("duplicate or foreign W2 merge leaf provenance")
         final_leaf_ids.update(leaves)
     out=[]
     seen=set()
@@ -114,11 +159,12 @@ def audit_short_source_fragments(
         if primitive_id is None:
             counts["UNPROVEN_SOURCE_PARENT_SKIPPED"]+=1
             continue
-        edge=snapped_edges.get(fid)
-        if edge is None:
-            status=("PRODUCER_REPORTED_EDGE_ABSENT" if fid in reported
-                    else "EDGE_ABSENT_UNRESOLVED")
-            displacement=None
+        pair = snapped_edges.get(fid)
+        if pair is None:
+            pair = assignments.get(fid)
+            status = ("SNAP_COLLAPSED" if pair is not None
+                      else "PRODUCER_REPORTED_EDGE_ABSENT" if fid in reported
+                      else "EDGE_ABSENT_UNRESOLVED")
             if fid in final_leaf_ids:
                 raise ValueError("absent W2 fragment appears in final merge ancestry")
         else:
@@ -128,17 +174,9 @@ def audit_short_source_fragments(
                 status="COLLINEAR_MERGED"
             else:
                 status="UNRESOLVED_MERGE_ANCESTRY"
-            try:
-                node_a=nodes[edge["a"]]
-                node_b=nodes[edge["b"]]
-                displacement=max(
-                    math.dist(a,(float(node_a["x"]),float(node_a["y"]))),
-                    math.dist(b,(float(node_b["x"]),float(node_b["y"]))),
-                )
-            except (KeyError,TypeError,ValueError,OverflowError):
-                raise ValueError("W2 snapped node missing for original split source") from None
-            if not math.isfinite(displacement):
-                raise ValueError("nonfinite W2 endpoint displacement")
+        positions = [nodes[pair[0]], nodes[pair[1]]] if pair is not None else None
+        displacement = (max(math.dist(a, positions[0]), math.dist(b, positions[1]))
+                        if positions is not None else None)
         counts[status]+=1
         out.append({
             "source_split_fragment_id":fid,
@@ -146,11 +184,17 @@ def audit_short_source_fragments(
             "original_source_geometry_pt":[*a,*b],
             "original_source_length_pt":length,
             "w2_observation":status,
+            "snapped_endpoint_node_ids":list(pair) if pair is not None else None,
+            "snapped_endpoint_geometry_pt":positions,
             "max_endpoint_snap_displacement_pt":displacement,
             "wall_host_authority":"NOT_PROVEN_BY_THIS_AUDIT",
             "source_gap_closure":"NOT_PROVEN_BY_THIS_AUDIT",
             "count_and_quantity_authority":"NOT_PROVEN_BY_THIS_AUDIT",
         })
+    if set(assignments) - seen:
+        raise ValueError("W2 endpoint assignment lacks original split fragment")
+    if reported - seen:
+        raise ValueError("producer disappearance ledger conflicts with source inventory")
     return {
         "observational_max_raw_fragment_length_pt":float(max_length_pt),
         "observed_positive_source_short_fragment_count":len(out),

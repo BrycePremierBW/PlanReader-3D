@@ -1238,6 +1238,25 @@ def _source_segments_intersect(
     left: tuple[float, float, float, float],
     right: tuple[float, float, float, float],
 ) -> bool:
+    # A source witness line must have TWO distinct finite endpoints. Without
+    # this an all-zero segment can masquerade as a physical junction simply
+    # because its point lies on an unrelated crossing line. Infinity/NaN and
+    # overflow-length spans are equally non-authentic geometry.
+    if len(left) != 4 or len(right) != 4:
+        return False
+    try:
+        coordinates = (*left, *right)
+        if any(type(value) not in (int, float) or not math.isfinite(value)
+               for value in coordinates):
+            return False
+        for segment in (left, right):
+            length = math.hypot(
+                segment[2] - segment[0], segment[3] - segment[1]
+            )
+            if not math.isfinite(length) or length <= 0:
+                return False
+    except (TypeError, ValueError, OverflowError):
+        return False
     a = (left[0], left[1])
     b = (left[2], left[3])
     c = (right[0], right[1])

@@ -316,6 +316,39 @@ def _point_in_polygon(
     return inside
 
 
+def _source_face_polygon_bbox(
+    polygon: Sequence[Sequence[float]],
+) -> Optional[tuple[float, float, float, float]]:
+    """Only an acceleration bound; a bbox never authorizes a room label."""
+    try:
+        points = tuple((float(point[0]), float(point[1])) for point in polygon)
+        if len(points) < 3 or any(
+            not math.isfinite(value) for point in points for value in point
+        ):
+            return None
+        return (
+            min(point[0] for point in points),
+            min(point[1] for point in points),
+            max(point[0] for point in points),
+            max(point[1] for point in points),
+        )
+    except (TypeError, IndexError, ValueError, OverflowError):
+        return None
+
+
+def _point_may_belong_to_face_bbox(
+    point: tuple[float, float],
+    bbox: Optional[tuple[float, float, float, float]],
+) -> bool:
+    """Reject only provably outside points; retain 1e-6 boundary tolerance."""
+    if bbox is None:
+        return True  # Never prune a face with an unproven bounding box.
+    x, y = point
+    x0, y0, x1, y1 = bbox
+    eps = 1e-6
+    return x0 - eps <= x <= x1 + eps and y0 - eps <= y <= y1 + eps
+
+
 def _line_groups(words: Sequence[_Word]) -> tuple[tuple[_Word, ...], ...]:
     grouped: dict[tuple[str, int, int], list[_Word]] = {}
     for word in words:
@@ -441,6 +474,9 @@ class SourceRoomLabelProducer:
         self._source = source
         self._room_faces = room_faces
         self._raster = raster
+        # Preserve the producer-owned complete native text universe while
+        # reusing its sealed immutable read-only resolver across each word.
+        self._text_integrity_authority = source.text_integrity_authority()
         self._results: dict[
             tuple[str, str, str, str, str, str],
             SourceRoomLabelScopeResult,
@@ -510,7 +546,7 @@ class SourceRoomLabelProducer:
             snapshot_id=published.snapshot.snapshot_id,
             observation_id=word.observation_id,
         )
-        native = self._source.text_integrity_authority().resolve_text(selector)
+        native = self._text_integrity_authority.resolve_text(selector)
         if (
             native.status is EvidenceResolutionStatus.CORROBORATED
             and native.receipt is not None
@@ -594,7 +630,7 @@ class SourceRoomLabelProducer:
                 snapshot_id=published.snapshot.snapshot_id,
                 observation_id=word.observation_id,
             )
-            text_result = self._source.text_integrity_authority().resolve_text(
+            text_result = self._text_integrity_authority.resolve_text(
                 selector
             )
             receipt = text_result.receipt
@@ -791,7 +827,7 @@ class SourceRoomLabelProducer:
         if page_ids is not None and not selected:
             raise ValueError("page_ids must contain at least one page")
 
-        text_authority = self._source.text_integrity_authority()
+        text_authority = self._text_integrity_authority
         words_by_lineage: dict[
             tuple[str, str, str, str, str],
             list[_Word],
@@ -899,6 +935,10 @@ class SourceRoomLabelProducer:
             room_by_face = {
                 record.face_id: record for record in scope.records
             }
+            source_face_bounds = tuple(
+                (record, _source_face_polygon_bbox(record.polygon_pdf_pts))
+                for record in scope.records
+            )
 
             for line in _line_groups(words):
                 raw_line = " ".join(
@@ -945,8 +985,9 @@ class SourceRoomLabelProducer:
                     point = ((x0 + x1) / 2.0, (y0 + y1) / 2.0)
                     matches = [
                         record.face_id
-                        for record in scope.records
-                        if _point_in_polygon(
+                        for record, bbox in source_face_bounds
+                        if _point_may_belong_to_face_bbox(point, bbox)
+                        and _point_in_polygon(
                             point,
                             record.polygon_pdf_pts,
                         )

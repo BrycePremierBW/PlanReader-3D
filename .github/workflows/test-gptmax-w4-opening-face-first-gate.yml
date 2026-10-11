@@ -1,0 +1,70 @@
+name: GPT MAX W4 Opening Face First Gate Audit
+on:
+  pull_request:
+    paths:
+      - tools/diag_gptmax_w4_opening_face_first_gate.py
+      - tests/test_gptmax_w4_opening_face_first_gate.py
+      - docs/engineering/gptmax_w4_opening_face_first_gate_audit.md
+      - .github/workflows/test-gptmax-w4-opening-face-first-gate.yml
+jobs:
+  pure-read-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      matrix:
+        python-version: ["3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - run: python -m pip install -r requirements.txt -r requirements-ci-v1228.txt
+      - name: Read-only source first-gate regression
+        run: |
+          PYTHONPATH=. python -m pytest -q tests/test_gptmax_w4_opening_face_first_gate.py
+          PYTHONPATH=. python scripts/check_provider_gold_isolation.py
+          PYTHONPATH=. python scripts/check_full_plan_v2_integrity.py
+  original-source-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: python -m pip install -r requirements.txt -r requirements-ci-v1228.txt
+      - name: Original source W4 first gate with SHA proof
+        run: |
+          PYTHONPATH=. python -u tools/diag_gptmax_w4_opening_face_first_gate.py \
+            --pdf 'documents/sources/1. Construction Plans - Lot 16 Power (REV E).pdf' \
+            --page-id 3 \
+            --expected-source-sha '10109b4b6e85e6e27af81f6399ce4b92abfdba80f87dc69dd5887bd6f3a65844' \
+            --output source-w4-first-gates.json
+      - name: Confirm stage output cannot publish hosts or quantities
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("source-w4-first-gates.json").read_text())
+          assert r["source_sha256"] == "10109b4b6e85e6e27af81f6399ce4b92abfdba80f87dc69dd5887bd6f3a65844"
+          assert r["source_evidence_only"] is True
+          assert r["production_graph_modified_by_audit"] is False
+          for flag in ("physical_host_publication_allowed", "opening_count_publication_allowed", "metric_quantity_publication_allowed"):
+              assert r[flag] is False
+          assert r["benchmark_accuracy"] is None
+          assert r["two_face_opening_count"] == len(r["opening_rows"])
+          assert r["interrupted_face_primitive_count"] == sum(len(o["face_rows"]) for o in r["opening_rows"])
+          print({"authenticated_source_sha":r["source_sha256"], "first_failure_stages":r["face_stage_counts"]})
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gptmax-w4-source-first-failure
+          path: source-w4-first-gates.json
+          retention-days: 30

@@ -8,15 +8,18 @@ from types import SimpleNamespace
 import pytest
 
 from tools.diag_lot16_room_face_scope import _has_firm_metric_floor_receipt
+from pb_geometry_takeoff_model import MeasurementAuthorityType
 
 
 def _floor(**overrides):
     fields = {
         "metric_area_m2": 8.64,
         "metric_area_quantity_id": "source-room-area-q1",
-        "metric_area_authority": "authenticated_documented_dimension",
+        "metric_area_authority": MeasurementAuthorityType.DOCUMENTED_DIMENSION.value,
         "geometry_complete": True,
         "metric_geometry_complete": False,
+        "source_room_face_record_id": "face-1",
+        "evidence_ids": ("source-dimension-h", "source-dimension-v"),
     }
     fields.update(overrides)
     return SimpleNamespace(**fields)

@@ -710,3 +710,85 @@ def test_all_four_frozen_reconciliation_buckets_are_unknown_until_evaluated(
     assert produced["produced_count"] == 1
     assert produced["matched_within_tolerance"] is None
     assert produced["missed"] is None
+
+
+def test_unreadable_original_source_is_local_sha_blocker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import hashlib
+    from scripts.report_full_plan_v2_readiness import _source_sha_proof
+
+    project_id = "au_qld_lot16_power"
+    folder = tmp_path / project_id
+    folder.mkdir()
+    failing_source = folder / "OriginalLot16.pdf"
+    passing_source = folder / "RealOtherSource.pdf"
+    failing_bytes = b"true-original-source-frozen-data"
+    passing_bytes = b"independent-source-bytes"
+    failing_source.write_bytes(failing_bytes)
+    passing_source.write_bytes(passing_bytes)
+    docs = [
+        {
+            "name": name,
+            "sha256": hashlib.sha256(payload).hexdigest(),
+            "size_bytes": len(payload),
+        }
+        for name, payload in (
+            ("OriginalLot16.pdf", failing_bytes),
+            ("RealOtherSource.pdf", passing_bytes),
+        )
+    ]
+    original_open = Path.open
+
+    def interrupted_original_open(self: Path, *args, **kwargs):
+        if self == failing_source:
+            raise PermissionError("original source temporarily unavailable")
+        return original_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", interrupted_original_open)
+    result, blockers = _source_sha_proof(
+        {"source_documents": docs}, tmp_path, project_id
+    )
+    assert result is False
+    assert blockers == ["source_file_unreadable:OriginalLot16.pdf"]
+
+    # A subsequent unchanged original-source read is still verified by its
+    # exact frozen SHA, never a guessed size or user-entered value.
+    monkeypatch.setattr(Path, "open", original_open)
+    assert _source_sha_proof(
+        {"source_documents": docs}, tmp_path, project_id
+    ) == (True, [])
+
+
+def test_disappearing_original_source_is_local_sha_blocker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import hashlib
+    from scripts.report_full_plan_v2_readiness import _source_sha_proof
+
+    project_id = "au_qld_maryborough_service_station"
+    original_pdf = tmp_path / project_id / "MaryboroughOriginal.pdf"
+    original_pdf.parent.mkdir()
+    payload = b"real-hashed-source"
+    original_pdf.write_bytes(payload)
+    original_stat = Path.stat
+
+    def interrupted_stat(self: Path, *args, **kwargs):
+        if self == original_pdf:
+            raise FileNotFoundError("source vanished during stat")
+        return original_stat(self, *args, **kwargs)
+
+    # The first source.is_file check itself can reject a missing source.
+    monkeypatch.setattr(Path, "stat", interrupted_stat)
+    valid, blockers = _source_sha_proof(
+        {"source_documents": [{
+            "name": original_pdf.name,
+            "sha256": hashlib.sha256(payload).hexdigest(),
+            "size_bytes": len(payload),
+        }]}, tmp_path, project_id,
+    )
+    assert valid is False
+    assert blockers in (
+        ["source_file_missing:MaryboroughOriginal.pdf"],
+        ["source_file_unreadable:MaryboroughOriginal.pdf"],
+    )

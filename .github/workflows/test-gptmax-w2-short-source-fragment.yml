@@ -5,6 +5,8 @@ on:
       - pb_wall_room_topology_short_fragment_audit.py
       - pb_wall_room_topology_stage_a.py
       - tests/test_wall_room_topology_short_fragment_audit.py
+      - tests/test_gptmax_w2_short_fragment_source_diagnostic.py
+      - tools/diag_gptmax_w2_short_fragment_retention.py
       - .github/workflows/test-gptmax-w2-short-source-fragment.yml
 jobs:
   positive-short-source-lineage:
@@ -23,8 +25,94 @@ jobs:
         run: |
           PYTHONPATH=. python -m pytest -q \
             tests/test_wall_room_topology_short_fragment_audit.py \
+            tests/test_gptmax_w2_short_fragment_source_diagnostic.py \
             tests/test_wall_room_topology_stage_a.py
       - name: Preserve frozen truth and provider isolation
         run: |
           PYTHONPATH=. python scripts/check_provider_gold_isolation.py
           PYTHONPATH=. python scripts/check_full_plan_v2_integrity.py
+  original-source-trace-parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    strategy:
+      matrix:
+        include:
+          - name: lot16
+            pdf: "documents/sources/1. Construction Plans - Lot 16 Power (REV E).pdf"
+            pages: "--page-id 3"
+            sha: "10109b4b6e85e6e27af81f6399ce4b92abfdba80f87dc69dd5887bd6f3a65844"
+          - name: maryborough
+            pdf: "documents/sources/Arch_Combined_Maryborough_Service_Station.pdf"
+            pages: "--page-id 7 --page-id 30 --page-id 31"
+            sha: "b1be53531412005f42937c89d0cfce66fbbe608315016bbb56731029ffc9e007"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: python -m pip install -r requirements.txt -r requirements-ci-v1228.txt
+      - name: Actual original source with default graph and endpoint trace
+        env:
+          SOURCE_PDF: "${{ matrix.pdf }}"
+          SOURCE_PAGES: "${{ matrix.pages }}"
+        run: |
+          PYTHONPATH=. python -u tools/diag_opening_wall_face_preservation.py \
+            --pdf "$SOURCE_PDF" $SOURCE_PAGES --output source-default.json
+          PYTHONPATH=. python -u tools/diag_gptmax_w2_short_fragment_retention.py \
+            --pdf "$SOURCE_PDF" $SOURCE_PAGES --output source-endpoint-trace.json
+      - name: Exact-base original source authority prerequisite
+        env:
+          SOURCE_PDF: "${{ matrix.pdf }}"
+          SOURCE_PAGES: "${{ matrix.pages }}"
+        run: |
+          git worktree add /tmp/gptmax-w2-original-source-base "${{ github.event.pull_request.base.sha }}"
+          (
+            cd /tmp/gptmax-w2-original-source-base
+            PYTHONPATH=. python -u tools/diag_opening_wall_face_preservation.py \
+              --pdf "$SOURCE_PDF" $SOURCE_PAGES \
+              --output "$GITHUB_WORKSPACE/source-original-pr-base.json"
+          )
+      - name: Reject changed original host and frame identities against exact base
+        run: |
+          PYTHONPATH=. python tools/gptmax_compare_source_face_retention.py \
+            --baseline source-original-pr-base.json \
+            --candidate source-default.json \
+            --output original-source-identity-retention.json
+      - name: Endpoint observability cannot change original host or frame authority
+        env:
+          EXPECTED_SOURCE_SHA: "${{ matrix.sha }}"
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          old = json.loads(Path('source-default.json').read_text())
+          traced = json.loads(Path('source-endpoint-trace.json').read_text())
+          assert old['source_sha256'] == traced['source_sha256'] == os.environ['EXPECTED_SOURCE_SHA']
+          assert old['primitive_safety_cap'] == traced['source_report']['primitive_safety_cap'] == 20_000
+          assert old == traced['source_report'], 'endpoint trace changed original source authority'
+          assert traced['w2_graph_audits'], 'source graph trace is unavailable'
+          for graph in traced['w2_graph_audits']:
+              audit = graph['short_source_fragment_retention_audit']
+              assert not audit['physical_host_publication_allowed']
+              assert not audit['opening_count_publication_allowed']
+              assert not audit['metric_quantity_publication_allowed']
+              for row in audit['original_positive_source_short_fragments']:
+                  if row['w2_observation'] == 'SNAP_COLLAPSED':
+                      a, b = row['snapped_endpoint_node_ids']
+                      assert a == b
+                      assert row['max_endpoint_snap_displacement_pt'] is not None
+          assert traced['benchmark_accuracy'] is None
+          assert not traced['host_count_quantity_publication_allowed']
+          print({'source_host_frame_report_identical': True, 'summary': old['summary']})
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gptmax-endpoint-trace-${{ matrix.name }}
+          path: |
+            source-*.json
+            original-source-identity-retention.json
+          retention-days: 30

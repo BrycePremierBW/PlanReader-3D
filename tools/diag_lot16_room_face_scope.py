@@ -15,6 +15,8 @@ from pathlib import Path
 import pb_source_room_face_authority as face_authority
 import pb_source_room_label_authority as label_authority
 import pb_same_view_room_area_authority as same_view_authority
+from pb_geometry_takeoff_model import MeasurementAuthorityType
+from pb_live_floor_area_quantity_publication import publish_live_floor_area_quantities
 from pb_live_physical_net_wall_integration import collect_live_physical_net_wall_claim
 
 
@@ -33,7 +35,12 @@ def _has_firm_metric_floor_receipt(floor) -> bool:
         math.isfinite(area)
         and area > 0.0
         and bool(str(floor.metric_area_quantity_id or "").strip())
-        and bool(str(floor.metric_area_authority or "").strip())
+        and str(floor.metric_area_authority or "").strip() in {
+            MeasurementAuthorityType.DOCUMENTED_DIMENSION.value,
+            MeasurementAuthorityType.PDF_SCALED.value,
+        }
+        and bool(str(floor.source_room_face_record_id or "").strip())
+        and bool(floor.evidence_ids)
     )
 
 
@@ -71,14 +78,19 @@ def _floor_quantity_diagnostic(claim) -> dict:
         str(room.canonical_room_id): room
         for room in claim.canonical_rooms
     }
+    # The raw room-area source universe is NOT proof of a publishable floor
+    # quantity. Reuse the exact production floor publisher, which validates
+    # physical face, canonical/physical floor uniqueness, area, units, source
+    # SHA/revision, room snapshot and evidence lineage. This read-only
+    # diagnostic can only mark a floor as ready when that gate really passes.
+    try:
+        approved_floor_quantities = publish_live_floor_area_quantities(claim)
+    except (TypeError, ValueError):
+        approved_floor_quantities = ()
     areas = {
-        str(quantity.quantity_id)
-        for quantity in claim.room_area_quantity_evidence
-        if str(quantity.quantity_id)
-        and not quantity.abstained
-        and quantity.value is not None
-        and quantity.unit == "m2"
-        and quantity.status == "firm"
+        str(quantity.metadata.get("upstream_room_area_quantity_id"))
+        for quantity in approved_floor_quantities
+        if quantity.metadata.get("upstream_room_area_quantity_id")
     }
     finishes: dict[str, list[str]] = {}
     for quantity in claim.floor_finish_quantity_evidence:
@@ -111,6 +123,7 @@ def _floor_quantity_diagnostic(claim) -> dict:
             row["first_missing_prerequisite"] for row in rows
         )),
         "area_quantity_count": len(claim.room_area_quantity_evidence),
+        "source_closed_floor_quantity_count": len(approved_floor_quantities),
         "finish_quantity_count": len(claim.floor_finish_quantity_evidence),
         "per_floor": rows,
     }

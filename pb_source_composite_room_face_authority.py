@@ -128,10 +128,29 @@ def _fully_grid_opposed_wall_evidence(
         if edge_id and evidence_id:
             grid_evidence_by_edge[edge_id].add(evidence_id)
 
+    # W4 addresses are not inherently unique physical identities. If a
+    # producer scope contains two candidates with the same wall ID, neither
+    # can authorize a grid separator until W4 source identity is resolved.
+    # This preserves independent wall evidence while preventing ambiguous
+    # source edge ancestry from silently connecting physical room cells.
+    # Do not convert invalid producer keys into plausible literal wall IDs
+    # (for example None -> "None", or 42 -> "42").
+    def authentic_wall_id(value):
+        return (
+            value if isinstance(value, str) and value
+            and value == value.strip() else None
+        )
+
+    wall_ids = Counter(
+        authentic_wall_id(getattr(record, "wall_candidate_id", None))
+        for record in wall_scope.records
+    )
     fully: set[str] = set()
     evidence_by_wall: dict[str, tuple[str, ...]] = {}
     for record in wall_scope.records:
-        wall_id = str(record.wall_candidate_id)
+        wall_id = authentic_wall_id(getattr(record, "wall_candidate_id", None))
+        if wall_id is None or wall_ids[wall_id] != 1:
+            continue
         edge_ids = _wall_edge_ids(record)
         if not edge_ids or not all(edge_id in grid_evidence_by_edge for edge_id in edge_ids):
             continue
@@ -165,6 +184,87 @@ def _edge_key(value) -> tuple[tuple[float, float], tuple[float, float]] | None:
     return (first, second) if first <= second else (second, first)
 
 
+def _atomic_source_wall_edge_counts(
+    room_scope: SourceRoomFaceScopeResult,
+    fully_grid_wall_ids: set[str],
+) -> Mapping[
+    tuple[str, tuple[tuple[float, float], tuple[float, float]]],
+    Counter[str],
+]:
+    """Node only axis-aligned, producer-owned W4 grid edges at source endpoints.
+
+    RoomFace boundary edges can end at different source-authenticated grid
+    intersections although the same physical W4 wall owns their overlap.
+    The existing exact-edge owner map then sees no two-sided local separator.
+
+    This function *only subdivides* the source's original collinear edges.
+    It never snaps offset lines, extends a wall, connects at point contacts,
+    substitutes a different W4 wall, or authorizes any room. Non-grid and
+    non-axis-aligned edges retain their exact producer-owned edge identity.
+    Duplicate same-face edge claims remain duplicated and cannot be used as
+    two distinct physical owners by the caller.
+    """
+    counts: dict[
+        tuple[str, tuple[tuple[float, float], tuple[float, float]]],
+        Counter[str],
+    ] = defaultdict(Counter)
+    grid_intervals: dict[
+        tuple[str, str, float],
+        list[tuple[float, float, str]],
+    ] = defaultdict(list)
+
+    for record in room_scope.records:
+        face_id = str(record.face_id)
+        for item in tuple(getattr(record, "boundary_wall_edges", ()) or ()):
+            try:
+                wall_id = str(item[0] or "").strip()
+                edge = _edge_key(item[1])
+            except (IndexError, TypeError):
+                continue
+            if not wall_id or edge is None:
+                continue
+            (ax, ay), (bx, by) = edge
+            if wall_id in fully_grid_wall_ids and ax == bx:
+                grid_intervals[(wall_id, "vertical", ax)].append(
+                    (min(ay, by), max(ay, by), face_id)
+                )
+            elif wall_id in fully_grid_wall_ids and ay == by:
+                grid_intervals[(wall_id, "horizontal", ay)].append(
+                    (min(ax, bx), max(ax, bx), face_id)
+                )
+            else:
+                counts[(wall_id, edge)][face_id] += 1
+
+    for (wall_id, axis, fixed), spans in grid_intervals.items():
+        # Sweep exact source endpoints instead of scanning every source
+        # interval for every atomic edge. This preserves per-face multiplicity:
+        # overlapping duplicate receipts count twice and never authenticate
+        # an apparent two-sided W4 separator.
+        events: dict[float, Counter[str]] = defaultdict(Counter)
+        for start, end, face_id in spans:
+            events[start][face_id] += 1
+            events[end][face_id] -= 1
+        cuts = sorted(events)
+        active: Counter[str] = Counter()
+        for index, start in enumerate(cuts[:-1]):
+            for face_id, delta in events[start].items():
+                new_count = active[face_id] + delta
+                if new_count > 0:
+                    active[face_id] = new_count
+                else:
+                    active.pop(face_id, None)
+            end = cuts[index + 1]
+            if end <= start or not active:
+                continue
+            atomic_edge = (
+                ((fixed, start), (fixed, end))
+                if axis == "vertical"
+                else ((start, fixed), (end, fixed))
+            )
+            counts[(wall_id, atomic_edge)].update(active)
+    return counts
+
+
 def _local_edge_owners(
     room_scope: SourceRoomFaceScopeResult,
 ) -> Mapping[
@@ -196,6 +296,8 @@ def _local_edge_owners(
 def _grid_local_adjacency(
     room_scope: SourceRoomFaceScopeResult,
     fully_grid_wall_ids: set[str],
+    *,
+    local_counts=None,
 ) -> Mapping[
     str,
     tuple[
@@ -225,10 +327,16 @@ def _grid_local_adjacency(
             ]
         ],
     ] = defaultdict(set)
-    for (wall_id, edge), face_ids in _local_edge_owners(room_scope).items():
-        if wall_id not in fully_grid_wall_ids or len(face_ids) != 2:
+    if local_counts is None:
+        local_counts = _atomic_source_wall_edge_counts(room_scope, fully_grid_wall_ids)
+    for (wall_id, edge), face_counts in local_counts.items():
+        if (
+            wall_id not in fully_grid_wall_ids
+            or len(face_counts) != 2
+            or any(count != 1 for count in face_counts.values())
+        ):
             continue
-        left_id, right_id = face_ids
+        left_id, right_id = sorted(face_counts)
         adjacency[left_id].add((right_id, wall_id, edge))
         adjacency[right_id].add((left_id, wall_id, edge))
     return {
@@ -242,6 +350,7 @@ def _grid_connected_component(
     *,
     room_scope: SourceRoomFaceScopeResult,
     fully_grid_wall_ids: set[str],
+    adjacency=None,
 ) -> tuple[str, ...] | None:
     """Complete one room through exact two-sided grid-owned subedges."""
 
@@ -250,7 +359,8 @@ def _grid_connected_component(
     if len(seeds) < 2 or any(face_id not in room_by_face for face_id in seeds):
         return None
 
-    adjacency = _grid_local_adjacency(room_scope, fully_grid_wall_ids)
+    if adjacency is None:
+        adjacency = _grid_local_adjacency(room_scope, fully_grid_wall_ids)
     visited: set[str] = {seeds[0]}
     pending = [seeds[0]]
     while pending:
@@ -296,15 +406,83 @@ def _candidate_record(
     label_scope: SourceRoomLabelScopeResult,
     fully_grid_wall_ids: set[str],
     grid_evidence_by_wall: Mapping[str, tuple[str, ...]],
+    local_counts=None,
+    grid_adjacency=None,
 ) -> CompositeSourceRoomFaceRecord | None:
-    room_by_face = {str(record.face_id): record for record in room_scope.records}
-    seed_face_ids = tuple(str(value) for value in candidate.word_face_ids)
+    # No dictionary overwrite of duplicate upstream source-face identities.
+    # A source receipt shared across two different physical face IDs also
+    # cannot authenticate a room union. Unrelated valid faces remain usable.
+    def authentic_source_id(value):
+        return (
+            isinstance(value, str) and bool(value)
+            and value == value.strip()
+        )
+
+    face_counts = Counter(
+        record.face_id for record in room_scope.records
+        if authentic_source_id(getattr(record, "face_id", None))
+    )
+    receipt_counts = Counter(
+        record.record_id for record in room_scope.records
+        if authentic_source_id(getattr(record, "record_id", None))
+    )
+    room_by_face = {
+        record.face_id: record for record in room_scope.records
+        if authentic_source_id(getattr(record, "face_id", None))
+    }
+    raw_word_face_ids = getattr(candidate, "word_face_ids", ()) or ()
+    if not isinstance(raw_word_face_ids, (tuple, list)):
+        return None
+    seed_face_ids = tuple(raw_word_face_ids)
+    if len(seed_face_ids) < 2 or any(
+        not authentic_source_id(value) for value in seed_face_ids
+    ):
+        return None
+    if any(
+        face_counts[face_id] != 1
+        or face_id not in room_by_face
+        or not authentic_source_id(room_by_face[face_id].record_id)
+        or receipt_counts[room_by_face[face_id].record_id] != 1
+        for face_id in seed_face_ids
+    ):
+        return None
+    # A split label producer seals the first-seen, distinct physical face
+    # receipt for each word owner. Never use word-facing geometry from one
+    # source face with record ancestry belonging to another or older face.
+    distinct_word_faces = tuple(dict.fromkeys(seed_face_ids))
+    actual_word_face_receipts = tuple(
+        getattr(candidate, "source_room_face_record_ids", ()) or ()
+    )
+    expected_word_face_receipts = tuple(
+        room_by_face[face_id].record_id for face_id in distinct_word_faces
+    )
+    if (
+        len(distinct_word_faces) < 2
+        or actual_word_face_receipts != expected_word_face_receipts
+        or any(not receipt.strip() for receipt in expected_word_face_receipts)
+        or any(
+            getattr(candidate, name, None) != getattr(room_scope, name, None)
+            for name in (
+                "document_id", "revision_id", "source_sha256",
+                "snapshot_id", "page_id", "decision_scope_id",
+            )
+        )
+    ):
+        return None
     constituent_face_ids = _grid_connected_component(
         seed_face_ids,
         room_scope=room_scope,
         fully_grid_wall_ids=fully_grid_wall_ids,
+        adjacency=grid_adjacency,
     )
     if constituent_face_ids is None:
+        return None
+    if any(
+        face_counts[face_id] != 1
+        or not authentic_source_id(room_by_face[face_id].record_id)
+        or receipt_counts[room_by_face[face_id].record_id] != 1
+        for face_id in constituent_face_ids
+    ):
         return None
     if _component_has_conflicting_label(
         constituent_face_ids,
@@ -324,7 +502,12 @@ def _candidate_record(
         or not merged.is_valid
         or merged.area <= 0.0
         or len(tuple(merged.interiors)) != 0
+        or abs(sum(poly.area for poly in polygons) - merged.area)
+        > max(1e-6, merged.length * 1e-6)
     ):
+        # Source faces must partition a physical room, never overlap in area.
+        # This is a fail-closed geometric conservation gate; it does not
+        # authenticate an internal source-grid separator on its own.
         return None
 
     polygon = tuple(
@@ -335,10 +518,8 @@ def _candidate_record(
         return None
 
     component_face_set = set(constituent_face_ids)
-    edge_owners = _local_edge_owners(room_scope)
-    component_edge_counts: Counter[
-        tuple[str, tuple[tuple[float, float], tuple[float, float]]]
-    ] = Counter()
+    # Validate every actual face-boundary receipt; invalid or missing source
+    # edges must not disappear simply because noding skips them.
     for record in constituent:
         for item in tuple(getattr(record, "boundary_wall_edges", ()) or ()):
             try:
@@ -348,7 +529,22 @@ def _candidate_record(
                 return None
             if not wall_id or edge is None:
                 return None
-            component_edge_counts[(wall_id, edge)] += 1
+
+    if local_counts is None:
+        local_counts = _atomic_source_wall_edge_counts(room_scope, fully_grid_wall_ids)
+    edge_owners = {
+        key: tuple(sorted(face_counts))
+        for key, face_counts in local_counts.items()
+        if all(count == 1 for count in face_counts.values())
+    }
+    component_edge_counts: Counter[
+        tuple[str, tuple[tuple[float, float], tuple[float, float]]]
+    ] = Counter({
+        key: sum(count for face_id, count in face_counts.items()
+                 if face_id in component_face_set)
+        for key, face_counts in local_counts.items()
+    })
+    component_edge_counts = +component_edge_counts
 
     if not component_edge_counts or any(count > 2 for count in component_edge_counts.values()):
         return None
@@ -516,6 +712,12 @@ def compose_grid_separated_room_faces(
         )
 
     fully_grid, evidence_by_wall = _fully_grid_opposed_wall_evidence(wall_scope)
+    # Source-wall node ownership and grid connectivity are scope-global.
+    # Build once, then preserve exactly the same candidate-local checks.
+    local_counts = _atomic_source_wall_edge_counts(room_scope, fully_grid)
+    grid_adjacency = _grid_local_adjacency(
+        room_scope, fully_grid, local_counts=local_counts
+    )
     records: list[CompositeSourceRoomFaceRecord] = []
     unresolved: list[str] = []
     for candidate in label_scope.split_face_candidates:
@@ -526,6 +728,8 @@ def compose_grid_separated_room_faces(
             label_scope=label_scope,
             fully_grid_wall_ids=fully_grid,
             grid_evidence_by_wall=evidence_by_wall,
+            local_counts=local_counts,
+            grid_adjacency=grid_adjacency,
         )
         if record is None:
             unresolved.append(candidate.record_id)
