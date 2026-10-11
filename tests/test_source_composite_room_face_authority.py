@@ -1129,3 +1129,63 @@ def test_gpt2_b01_precomputed_source_w4_grid_indexes_preserve_first_gate():
     )
     assert indexed==unindexed
     assert indexed["source_room_composite_published_by_diagnostic"] is False
+
+
+def test_gpt2_b01_original_grid_union_first_failure_preserves_real_boundary():
+    from tools.diag_gpt2_grid_component_first_failure import (
+        _physical_union_first_unclosed_gate,
+    )
+    from pb_source_composite_room_face_authority import (
+        _atomic_source_wall_edge_counts, _fully_grid_opposed_wall_evidence,
+    )
+    room=_room_scope()
+    wall=_wall_scope((_grid_atom("e_sep"),))
+    grid,evidence=_fully_grid_opposed_wall_evidence(wall)
+    indexed=_atomic_source_wall_edge_counts(room,grid)
+    ids=("face_left","face_right")
+    actual=_physical_union_first_unclosed_gate(
+        ids,room_scope=room,fully_grid_wall_ids=grid,
+        grid_evidence=evidence,local_counts=indexed,
+    )
+    assert actual["physical_union_first_unclosed_gate"]==(
+        "source_boundary_gates_passed_candidate_only"
+    )
+    assert actual["physical_union_internal_separator_edge_count"]>0
+    assert actual["physical_union_external_grid_edge_count"]==0
+    assert actual["new_room_geometry_published"] is False
+    assert actual["new_metric_area_published"] is False
+
+    invalid=_physical_union_first_unclosed_gate(
+        ids,room_scope=_room_scope(disconnected=True),
+        fully_grid_wall_ids=grid,grid_evidence=evidence,local_counts=None,
+    )
+    assert invalid["physical_union_first_unclosed_gate"]==(
+        "source_union_disconnected_overlapping_or_has_holes"
+    )
+    assert invalid["new_metric_area_published"] is False
+
+
+def test_gpt2_b01_source_atomic_wall_edge_multiplicity_remains_untrusted():
+    from tools.diag_gpt2_grid_component_first_failure import (
+        _physical_union_first_unclosed_gate,
+    )
+    from pb_source_composite_room_face_authority import (
+        _atomic_source_wall_edge_counts, _fully_grid_opposed_wall_evidence,
+    )
+    room=_room_scope()
+    grid,evidence=_fully_grid_opposed_wall_evidence(
+        _wall_scope((_grid_atom("e_sep"),))
+    )
+    local=_atomic_source_wall_edge_counts(room,grid)
+    edge=next(iter(local))
+    contaminated={**local,edge:{"face_left":3}}
+    invalid=_physical_union_first_unclosed_gate(
+        ("face_left","face_right"),
+        room_scope=room,fully_grid_wall_ids=grid,
+        grid_evidence=evidence,local_counts=contaminated,
+    )
+    assert invalid["physical_union_first_unclosed_gate"]==(
+        "source_atomic_wall_edge_multiplicity_invalid"
+    )
+    assert not invalid["new_room_geometry_published"]
+    assert not invalid["new_metric_area_published"]
