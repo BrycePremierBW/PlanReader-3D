@@ -226,6 +226,65 @@ def _verify_row_lineage(
             f"customer row {quantity_id!r} is missing measurement authority lineage"
         )
 
+    # A signed source-closed quantity also authenticates its evidence status,
+    # authority and confidence. A row that changes these claims while keeping
+    # its quantity ID and value must not pass commercial lineage verification.
+    _require_equal("provenance.status", _clean(qprov.get("status")), sealed.status, quantity_id)
+    _require_equal("provenance.authority", _clean(qprov.get("authority")), sealed.authority, quantity_id)
+    if type(qprov.get("abstained")) is not bool or qprov["abstained"] is not False:
+        raise CustomerOutputVerificationError(
+            f"customer row {quantity_id!r} has invalid provenance.abstained"
+        )
+    for name, actual, expected in (
+        ("provenance.value", qprov.get("value"), sealed.value),
+        ("provenance.confidence", qprov.get("confidence"), sealed.confidence),
+    ):
+        if type(actual) not in (int, float):
+            raise CustomerOutputVerificationError(
+                f"customer row {quantity_id!r} has nonnumeric {name}"
+            )
+        if not math.isfinite(actual):
+            raise CustomerOutputVerificationError(
+                f"customer row {quantity_id!r} has non-finite {name}"
+            )
+        _require_equal(name, float(actual), float(expected), quantity_id)
+    _require_equal(
+        "provenance.current_revision_id",
+        _clean(tprov.get("current_revision_id")),
+        sealed.revision_id,
+        quantity_id,
+    )
+    method = _clean(apro.get("method"))
+    if method not in {"direct_evidence", "figured_dimension", "scaled_geometry"}:
+        raise CustomerOutputVerificationError(
+            f"customer row {quantity_id!r} has unrecognized measurement authority method"
+        )
+    figured = _canonical_source_id_array(
+        "figured_dimension_ids", apro.get("figured_dimension_ids")
+    )
+    if method == "figured_dimension" and not figured:
+        raise CustomerOutputVerificationError(
+            f"customer row {quantity_id!r} has incomplete figured measurement authority"
+        )
+    if method == "scaled_geometry" and (
+        not _clean(apro.get("resolved_scale_id"))
+        or _clean(apro.get("scale_status")).lower() not in {"verified", "resolved"}
+        or apro.get("scale_conflicts")
+    ):
+        raise CustomerOutputVerificationError(
+            f"customer row {quantity_id!r} has unverified scaled measurement authority"
+        )
+    if row.get("measurement_method") is not None:
+        _require_equal("measurement_method", _clean(row.get("measurement_method")), method, quantity_id)
+    if row.get("figured_dimension_ids") is not None:
+        _require_equal(
+            "figured_dimension_ids",
+            _canonical_source_id_array("figured_dimension_ids", row.get("figured_dimension_ids")),
+            figured, quantity_id,
+        )
+    if row.get("quantity_authority") is not None:
+        _require_equal("quantity_authority", _clean(row.get("quantity_authority")), sealed.authority, quantity_id)
+
     _require_equal(
         "provenance.quantity_id",
         _clean(qprov.get("quantity_id")),
@@ -359,6 +418,20 @@ def _verify_row_lineage(
     if not math.isfinite(row_value):
         raise CustomerOutputVerificationError(f"customer row {quantity_id!r} has non-finite quantity")
     _require_equal("quantity", row_value, float(sealed.value), quantity_id)
+    if row.get("ai_baseline_quantity") is not None:
+        actual_baseline = row.get("ai_baseline_quantity")
+        if type(actual_baseline) not in (int, float) or not math.isfinite(actual_baseline):
+            raise CustomerOutputVerificationError(
+                f"customer row {quantity_id!r} has invalid ai_baseline_quantity"
+            )
+        _require_equal("ai_baseline_quantity", float(actual_baseline), float(sealed.value), quantity_id)
+    if row.get("confidence") is not None:
+        actual_confidence = row.get("confidence")
+        if type(actual_confidence) not in (int, float) or not math.isfinite(actual_confidence):
+            raise CustomerOutputVerificationError(
+                f"customer row {quantity_id!r} has invalid confidence"
+            )
+        _require_equal("confidence", float(actual_confidence), float(sealed.confidence), quantity_id)
 
     if row.get("canonical_entity_ids") is not None:
         _require_equal(
