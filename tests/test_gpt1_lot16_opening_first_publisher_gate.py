@@ -227,3 +227,43 @@ def test_lot16_floor_ledger_handles_source_closed_conflict_without_false_positiv
     assert result["source_trace_validated_finish_quantity_count"] == 0
     assert "source room face mismatch" in result["finish_source_trace_failure"]
     assert result["per_floor"][0]["source_trace_validated_finish_quantity_ids"] == []
+
+
+
+def test_lot16_opening_quantity_diagnostic_detects_rewritten_source_provenance():
+    opening = _opening()
+    authentic = _opening_quantity(opening)
+    assert authentic is not None
+    changed_metadata = replace(
+        authentic,
+        metadata={**dict(authentic.metadata), "source_sha256": "f" * 64},
+    )
+    claim = SimpleNamespace(
+        canonical_openings=(opening,),
+        opening_quantity_evidence=(changed_metadata,),
+        opening_count_quantity_evidence=(),
+    )
+    report = _opening_quantity_diagnostic(claim)
+    assert report["published_area_claim_drift_count"] == 1
+    assert report["production_matched_area_quantity_count"] == 0
+    assert report["per_opening"][0]["first_missing_prerequisite"] == (
+        "opening_area_published_claim_drift"
+    )
+
+
+def test_lot16_source_trace_validation_reports_missing_trace_without_crashing(monkeypatch):
+    from pb_source_closed_run_export import MissingSourceClosedRunTraceError
+    import pb_live_floor_finish_area_source_closed_export as finish_source
+    from tests.test_live_floor_finish_area_source_closed_export import _claim
+    from tools.diag_lot16_room_face_scope import _floor_quantity_diagnostic
+
+    def no_source_trace(*args, **kwargs):
+        raise MissingSourceClosedRunTraceError("fixture lacks source trace")
+
+    monkeypatch.setattr(
+        finish_source, "build_live_floor_finish_area_source_traces", no_source_trace,
+    )
+    result = _floor_quantity_diagnostic(_claim())
+    assert result["finish_quantity_count"] == 1
+    assert result["source_trace_validated_finish_quantity_count"] == 0
+    assert "fixture lacks source trace" in result["finish_source_trace_failure"]
