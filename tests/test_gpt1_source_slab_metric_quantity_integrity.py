@@ -100,3 +100,32 @@ def test_equivalent_polygon_start_vertex_preserves_source_quantity():
     qty = publish_live_slab_area_quantity(changed)
     assert qty is not None
     assert qty.value == 48.0
+
+
+
+@pytest.mark.parametrize("foreign_page", [7, True, 1.5, -1, "bad"])
+def test_canonical_slab_cannot_use_foreign_or_nonintegral_annotation_page(foreign_page):
+    resolved = _resolved_slab()
+    resolved.provenance["annotation_source_page"] = foreign_page
+    projection = project_resolved_slab_entity(
+        slab=resolved, boundary=_boundary(), **_lineage(),
+    )
+    assert projection.object is None
+
+
+@pytest.mark.parametrize("invalid_page", [True, 1.5, -1, "1"])
+def test_canonical_slab_rejects_untyped_metric_boundary_page(invalid_page):
+    projection = project_resolved_slab_entity(
+        slab=_resolved_slab(), boundary=_boundary(source_page=invalid_page),
+        **_lineage(),
+    )
+    assert projection.object is None
+
+
+def test_original_matching_source_annotation_page_is_kept():
+    projection = project_resolved_slab_entity(
+        slab=_resolved_slab(), boundary=_boundary(source_page=1),
+        **_lineage(),
+    )
+    assert projection.object is not None
+    assert projection.object.source_page == 1
