@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from copy import copy
 
 from pb_geometry_takeoff_model import AuthorityStatus, MeasurementAuthorityType
 import pb_live_ceiling_area_source_closed_export as ceiling_export
@@ -665,3 +666,56 @@ def test_sealed_ceiling_cannot_deduplicate_corrupted_source_receipts():
                 _result(ceiling=forged),
                 workspace_id=1, project_id="original-source",
             )
+
+
+def test_ceiling_area_rejects_missing_duplicate_or_blank_original_source_receipts():
+    shadow = _shadow_quantity()
+    ceiling = _ceiling()
+    for bad_receipts in (
+        ("ev-dim-h", "ev-dim-h", "ev-finish"),
+        ("ev-dim-h", "   ", "ev-finish"),
+        ("ev-dim-h", "", "ev-finish"),
+        (),
+    ):
+        bad_source = copy(shadow)
+        object.__setattr__(bad_source, "evidence_ids", bad_receipts)
+        assert publish_live_ceiling_area_quantities(_result(shadow=bad_source)) == ()
+        bad_ceiling = replace(ceiling, evidence_ids=bad_receipts)
+        assert publish_live_ceiling_area_quantities(_result(ceiling=bad_ceiling)) == ()
+    assert len(publish_live_ceiling_area_quantities(_result())) == 1
+
+
+def test_ceiling_area_rejects_foreign_original_source_document_or_room_snapshot():
+    shadow = _shadow_quantity()
+    for key, value in (
+        ("document_id", "foreign-document"),
+        ("room_snapshot_id", "foreign-room-snapshot"),
+    ):
+        foreign = replace(
+            shadow, metadata={**dict(shadow.metadata), key: value},
+        )
+        assert publish_live_ceiling_area_quantities(_result(shadow=foreign)) == ()
+
+    same_source = replace(
+        shadow,
+        metadata={
+            **dict(shadow.metadata),
+            "document_id": _ceiling().document_id,
+            "room_snapshot_id": _ceiling().snapshot_id,
+        },
+    )
+    assert len(publish_live_ceiling_area_quantities(_result(shadow=same_source))) == 1
+
+
+def test_ceiling_documented_metric_area_rejects_competing_dimension_systems():
+    # A third independent figured line does not validate the other two:
+    # original-source ownership of one orthogonal pair is required.
+    for bad_ids in (
+        ("dim-h", "dim-v", "unrelated-horizontal"),
+        ("dim-h", "dim-v", "unrelated-horizontal", "other-vertical"),
+        ("dim-h",),
+        (),
+    ):
+        candidate = replace(_ceiling(), figured_dimension_ids=bad_ids)
+        assert publish_live_ceiling_area_quantities(_result(ceiling=candidate)) == ()
+    assert len(publish_live_ceiling_area_quantities(_result())) == 1
