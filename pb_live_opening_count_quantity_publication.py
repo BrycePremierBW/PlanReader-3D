@@ -328,6 +328,14 @@ def publish_live_authenticated_opening_count_quantities(
         # out-of-scope or identity-mismatched customer row.
         member_ids = record.physical_instance_record_ids
         if (
+            not isinstance(quantity.evidence_ids, (tuple, list))
+            or not quantity.evidence_ids
+            or any(type(item) is not str or not item.strip()
+                   for item in quantity.evidence_ids)
+            or len(set(quantity.evidence_ids)) != len(quantity.evidence_ids)
+        ):
+            return ()
+        if (
             record.document_id != published.revision.document_id
             or record.revision_id != published.revision.revision_id
             or record.source_sha256 != published.revision.source_sha256
