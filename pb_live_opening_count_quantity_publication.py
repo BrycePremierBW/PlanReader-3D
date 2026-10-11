@@ -72,7 +72,7 @@ def publish_live_authenticated_opening_count_quantities(
         published is None
         or semantic.status is not EvidenceResolutionStatus.CORROBORATED
         or semantic_record is None
-        or not bool(semantic_record.physical_opening_universe_complete)
+        or semantic_record.physical_opening_universe_complete is not True
         or published.revision.document_id != semantic_record.document_id
         or published.revision.revision_id != semantic_record.revision_id
         or published.revision.source_sha256 != semantic_record.source_sha256
@@ -82,6 +82,41 @@ def publish_live_authenticated_opening_count_quantities(
 
     scope_id = str(semantic_record.decision_scope_id or "").strip()
     if not scope_id:
+        return ()
+
+    # The producer's representative universe must not silently lose blank
+    # members or duplicate source observations when later keyed by identity.
+    raw_representatives = semantic_record.representative_observation_ids
+    if not isinstance(raw_representatives, (tuple, list)):
+        return ()
+    representatives = tuple(
+        value.strip() if isinstance(value, str) else ""
+        for value in raw_representatives
+    )
+    if (
+        not representatives
+        or any(not value for value in representatives)
+        or len(set(representatives)) != len(representatives)
+    ):
+        return ()
+
+    # Semantic completeness must cover this exact original source page scope,
+    # with a one-to-one, nonempty inventory of physical opening identities.
+    # Do not derive a smaller complete universe from a subset of pages.
+    pages = semantic_record.page_ids
+    physical_ids = semantic_record.physical_opening_record_ids
+    if (
+        semantic_record.structural_enumeration_complete is not True
+        or not isinstance(pages, (tuple, list))
+        or not pages
+        or any(type(value) is not str or not value.strip() for value in pages)
+        or len(set(pages)) != len(pages)
+        or set(pages) != set(wall_opening_composition.page_ids)
+        or not isinstance(physical_ids, (tuple, list))
+        or len(physical_ids) != len(representatives)
+        or any(type(value) is not str or not value.strip() for value in physical_ids)
+        or len(set(physical_ids)) != len(physical_ids)
+    ):
         return ()
 
     binding_producer = (
@@ -96,7 +131,8 @@ def publish_live_authenticated_opening_count_quantities(
     # this bridge never narrows the universe to the convenient members.
     binding_selectors: dict[str, ScheduleOpeningInstanceBindingSelector] = {}
     binding_results = {}
-    for observation_id in semantic_record.representative_observation_ids:
+    physical_receipts: dict[str, tuple[str, ...]] = {}
+    for observation_id in representatives:
         opening_selector = ObservationSelector(
             document_id=published.revision.document_id,
             revision_id=published.revision.revision_id,
@@ -110,7 +146,20 @@ def publish_live_authenticated_opening_count_quantities(
             existence.status is not EvidenceResolutionStatus.CORROBORATED
             or opening is None
         ):
-            continue
+            # A claimed complete universe cannot silently discard a member
+            # merely because its physical existence is unresolved.
+            return ()
+        if (
+            opening.document_id != published.revision.document_id
+            or opening.revision_id != published.revision.revision_id
+            or opening.source_sha256 != published.revision.source_sha256
+            or opening.snapshot_id != published.snapshot.snapshot_id
+            or not isinstance(opening.record_id, str)
+            or not opening.record_id.strip()
+            or opening.page_id not in wall_opening_composition.page_ids
+            or observation_id not in opening.source_observation_ids
+        ):
+            return ()
         selector = ScheduleOpeningInstanceBindingSelector(
             document_id=opening.document_id,
             revision_id=opening.revision_id,
@@ -119,13 +168,46 @@ def publish_live_authenticated_opening_count_quantities(
             decision_scope_id=scope_id,
             opening_record_id=opening.record_id,
         )
+        if opening.record_id in binding_selectors:
+            # Two representatives resolving to one physical opening cannot
+            # silently overwrite a binding and certify complete count coverage.
+            return ()
+        if (
+            not isinstance(opening.source_observation_ids, (tuple, list))
+            or not opening.source_observation_ids
+            or any(type(receipt) is not str or not receipt.strip()
+                   for receipt in opening.source_observation_ids)
+            or len(set(opening.source_observation_ids))
+            != len(opening.source_observation_ids)
+        ):
+            return ()
         binding_selectors[opening.record_id] = selector
+        physical_receipts[opening.record_id] = tuple(opening.source_observation_ids)
         binding_results[opening.record_id] = binding_producer.publish_scope(
             opening_selector=opening_selector,
             decision_scope_id=scope_id,
         )
 
-    if not binding_selectors:
+    if (
+        not binding_selectors
+        or len(binding_selectors) != len(representatives)
+        or set(binding_selectors) != set(physical_ids)
+    ):
+        return ()
+    if any(
+        not isinstance(opening_id, str) or not opening_id.strip()
+        for opening_id in binding_results
+    ):
+        return ()
+
+    # Every physical instance in the closed semantic universe must receive
+    # a corroborated plan-to-schedule binding. Never publish a convenient
+    # subset of marks while another physical member has unresolved authority.
+    if any(
+        binding_results[opening_id].status is not EvidenceResolutionStatus.CORROBORATED
+        or binding_results[opening_id].record is None
+        for opening_id in binding_results
+    ):
         return ()
 
     binding_authority = binding_producer.authority()
@@ -142,16 +224,47 @@ def publish_live_authenticated_opening_count_quantities(
         if (
             result.status is not EvidenceResolutionStatus.CORROBORATED
             or record is None
-            or not record.schedule_row_count_explicit
-            or record.schedule_row_count is None
+            or record.schedule_row_count_explicit is not True
+            or type(record.schedule_row_count) is not int
+            or record.schedule_row_count <= 0
         ):
             continue
+        if (
+            record.document_id != published.revision.document_id
+            or record.revision_id != published.revision.revision_id
+            or record.source_sha256 != published.revision.source_sha256
+            or record.snapshot_id != published.snapshot.snapshot_id
+            or record.opening_record_id != opening_id
+            or record.decision_scope_id != scope_id
+            or record.page_id not in wall_opening_composition.page_ids
+            or not isinstance(record.tag_observation_id, str)
+            or not record.tag_observation_id.strip()
+            or not isinstance(record.tag_mark, str)
+            or not record.tag_mark.strip()
+        ):
+            return ()
 
         normalized = normalize_opening_tag(record.schedule_row_type_mark)
-        if normalized is None:
+        plan_tag = normalize_opening_tag(record.tag_mark)
+        if normalized is None or plan_tag is None:
+            continue
+        if normalized.tag != plan_tag.tag:
+            # Disagreement between plan tag and schedule type mark cannot
+            # identify which physical openings belong to this row.
+            return ()
+        if (
+            not isinstance(record.schedule_page_id, str)
+            or not record.schedule_page_id.strip()
+            or not isinstance(record.schedule_row_observation_ids, (tuple, list))
+            or not record.schedule_row_observation_ids
+            or any(not isinstance(value, str) or not value.strip()
+                   for value in record.schedule_row_observation_ids)
+            or len(set(record.schedule_row_observation_ids))
+            != len(record.schedule_row_observation_ids)
+        ):
             continue
         row_key = (
-            str(record.schedule_page_id),
+            record.schedule_page_id,
             tuple(sorted(record.schedule_row_observation_ids)),
         )
         if row_key not in published_rows:
@@ -210,8 +323,46 @@ def publish_live_authenticated_opening_count_quantities(
             or not quantity.input_entity_ids
         ):
             continue
+        # An authority-returned count must retain its original physical-member
+        # universe and exact published value; never project an altered,
+        # out-of-scope or identity-mismatched customer row.
+        member_ids = record.physical_instance_record_ids
+        if (
+            not isinstance(quantity.evidence_ids, (tuple, list))
+            or not quantity.evidence_ids
+            or any(type(item) is not str or not item.strip()
+                   for item in quantity.evidence_ids)
+            or len(set(quantity.evidence_ids)) != len(quantity.evidence_ids)
+        ):
+            return ()
+        if (
+            record.document_id != published.revision.document_id
+            or record.revision_id != published.revision.revision_id
+            or record.source_sha256 != published.revision.source_sha256
+            or record.snapshot_id != published.snapshot.snapshot_id
+            or record.decision_scope_id != scope_id
+            or record.opening_mark != mark
+            or type(record.count) is not int
+            or record.count <= 0
+            or not isinstance(member_ids, (tuple, list))
+            or len(member_ids) != record.count
+            or len(set(member_ids)) != len(member_ids)
+            or not set(member_ids).issubset(binding_selectors)
+            or quantity.family != "opening_count"
+            or quantity.unit != "ea"
+            or quantity.value != float(record.count)
+            or tuple(quantity.input_entity_ids) != tuple(member_ids)
+            or any(
+                not set(physical_receipts[opening_id]).issubset(set(quantity.evidence_ids))
+                for opening_id in member_ids
+            )
+            or quantity.metadata.get("schedule_corroborated") is not True
+            or quantity.metadata.get("commercial_projection_allowed") is not True
+        ):
+            return ()
         if quantity.quantity_id in seen_quantity_ids:
-            continue
+            # Never quietly discard a duplicated customer quantity identity.
+            return ()
         seen_quantity_ids.add(quantity.quantity_id)
         quantities.append(quantity)
 
