@@ -10,6 +10,7 @@ on:
       - "tools/diag_gpt2_split_label_wall_separators.py"
       - "tests/test_gpt2_split_label_wall_separators.py"
       - "tools/diag_gpt2_split_face_collinear_first_gates.py"
+      - "tools/diag_gpt2_grid_component_first_failure.py"
       - "tests/test_gpt2_split_face_collinear_first_gates.py"
       - ".github/workflows/diag-gpt2-page7-split-label-wall-separators.yml"
   workflow_dispatch:
@@ -378,6 +379,9 @@ jobs:
               _fully_grid_opposed_wall_evidence,
               _grid_local_adjacency,
           )
+          from tools.diag_gpt2_grid_component_first_failure import (
+              inspect_split_grid_component_first_failure,
+          )
           composite_scopes=[]
           for selector in selectors:
               wall_scope=wall_authority.resolve_scope(selector)
@@ -421,7 +425,20 @@ jobs:
                   not colliding_w4_ids.intersection(record.separator_wall_ids)
                   for record in composite.records
               )
+              split_component_gates=[
+                  inspect_split_grid_component_first_failure(
+                      candidate, wall_scope=wall_scope,
+                      room_scope=room_scope, label_scope=label_scope,
+                  )
+                  for candidate in label_scope.split_face_candidates
+              ]
+              assert all(
+                  not row["source_room_composite_published_by_diagnostic"]
+                  and not row["source_room_metric_area_published"]
+                  for row in split_component_gates
+              )
               composite_scopes.append({
+                  "source_split_candidate_first_failure_gates":split_component_gates,
                   "source_decision_scope_id":selector.decision_scope_id,
                   "original_wall_candidate_count":len(original_w4_ids),
                   "unique_wall_candidate_id_count":len(w4_counts),
