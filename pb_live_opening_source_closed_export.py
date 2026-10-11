@@ -138,8 +138,15 @@ def _build_opening_area_source_traces(
             ("source_sha256", opening.source_sha256),
             ("snapshot_id", opening.snapshot_id),
             ("viewport_id", opening.viewport_id),
+            ("page_no", opening.page_id),
             ("canonical_opening_id", canonical_id),
             ("physical_opening_id", opening.physical_opening_id),
+            ("host_wall_id", opening.host_wall_id),
+            ("host_binding_record_id", opening.host_binding_record_id),
+            ("host_frame_record_id", opening.host_frame_record_id),
+            ("opening_kind", opening.opening_kind),
+            ("area_basis", opening.area_basis),
+            ("measurement_record_id", authenticated.metadata.get("measurement_record_id")),
         ):
             if metadata.get(name) is not None and str(metadata[name]).strip() != str(source_value).strip():
                 raise SourceClosedRunConflictError(
