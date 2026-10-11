@@ -559,3 +559,50 @@ def test_room_label_producer_builds_one_sealed_text_authority_per_source(
     # authority's source universe.
     assert producer._authorize_word is not None
     assert len(created) == 2
+
+
+def test_gpt2_source_room_label_ownership_rejects_duplicate_face_ids():
+    from types import SimpleNamespace as R
+    from pb_source_room_label_authority import (
+        _unique_source_faces_for_label_ownership,
+    )
+    a=R(face_id="face-a",record_id="record-a")
+    b=R(face_id="face-b",record_id="record-b")
+    conflict=R(face_id="face-a",record_id="another-original-record")
+    assert _unique_source_faces_for_label_ownership((a,b,conflict))==(b,)
+    assert _unique_source_faces_for_label_ownership((a,b,b))==(a,)
+
+
+def test_gpt2_source_room_label_ownership_rejects_shared_source_receipt():
+    from types import SimpleNamespace as R
+    from pb_source_room_label_authority import (
+        _unique_source_faces_for_label_ownership,
+    )
+    a=R(face_id="face-a",record_id="shared")
+    b=R(face_id="face-b",record_id="shared")
+    independent=R(face_id="face-c",record_id="independent")
+    assert _unique_source_faces_for_label_ownership(
+        (a,b,independent)
+    )==(independent,)
+    assert _unique_source_faces_for_label_ownership(
+        (independent,b,a)
+    )==(independent,)
+
+
+def test_gpt2_source_room_label_ownership_rejects_string_coerced_ids():
+    from types import SimpleNamespace as R
+    from pb_source_room_label_authority import (
+        _unique_source_faces_for_label_ownership,
+    )
+    valid=R(face_id="a",record_id="ra")
+    malformed=(
+        R(face_id=None,record_id="bad1"),
+        R(face_id=7,record_id="bad2"),
+        R(face_id="b ",record_id="bad3"),
+        R(face_id="c",record_id=None),
+        R(face_id="d",record_id=73),
+        R(face_id="e",record_id="  "),
+    )
+    assert _unique_source_faces_for_label_ownership(
+        (*malformed,valid)
+    )==(valid,)
