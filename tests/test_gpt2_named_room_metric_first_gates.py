@@ -1,0 +1,207 @@
+"""Only real producer-owned room IDs can receive source measurement first gates."""
+from types import SimpleNamespace as N
+
+from tools.diag_gpt2_named_room_metric_first_gates import (
+    summarize_named_room_metric_first_gates as summarize,
+)
+
+
+def claim(rooms, *, same=(), cross=(), scale=()):
+    return N(
+        canonical_rooms=tuple(rooms),
+        same_view_room_area_first_failure_codes=tuple(same),
+        cross_view_room_area_first_failure_codes=tuple(cross),
+        physical_scale_first_failure_codes=tuple(scale),
+    )
+
+
+def room(owner, label):
+    return N(physical_room_id=owner, room_label=label)
+
+
+def test_named_room_gates_preserve_exact_source_owned_failure_codes():
+    got = summarize(claim(
+        (room("source-1", " Freezer "), room("source-2", "Pwd")),
+        same=(("source-1", "missing_figured_pair"), ("unlabelled", "reason")),
+        cross=(("source-2", "source_cross_view_unavailable"),),
+        scale=(("source-1", ("no_scale", "no_documented_dimensions")),),
+    ))
+    assert got["source_named_room_count"] == 2
+    assert got["uniquely_attributable_named_room_count"] == 2
+    assert got["named_room_metric_first_failure_codes"]["same_view"] == [{
+        "physical_room_id": "source-1", "label": "FREEZER",
+        "first_gate": "missing_figured_pair",
+    }]
+    assert got["named_room_metric_first_failure_codes"]["physical_scale"] == [{
+        "physical_room_id": "source-1", "label": "FREEZER",
+        "first_gates": ["no_scale", "no_documented_dimensions"],
+        "source_reason_receipt_valid": True,
+    }]
+    assert got["all_source_first_failure_receipt_counts"] == {
+        "same_view": 2, "cross_view": 1, "physical_scale": 1,
+    }
+    assert got["metric_quantity_published"] is False
+
+
+def test_named_room_gates_abstain_on_duplicate_or_missing_physical_owner():
+    got = summarize(claim(
+        (room("source-shared", "FREEZER"),
+         room("source-shared", "COLD ROOM"),
+         room("", "LAUNDRY"),
+         room("source-unique", "OFFICE")),
+        same=(("source-shared", "ambiguous"), ("source-unique", "source_ok")),
+    ))
+    assert got["ambiguous_named_physical_room_ids"] == ["", "source-shared"]
+    assert got["uniquely_attributable_named_room_count"] == 1
+    assert got["named_room_metric_first_failure_codes"]["same_view"] == [{
+        "physical_room_id": "source-unique", "label": "OFFICE",
+        "first_gate": "source_ok",
+    }]
+    assert got["all_source_first_failure_receipt_counts"]["same_view"] == 2
+
+
+def test_malformed_scale_reason_receipt_never_becomes_fake_individual_gates():
+    for raw in ("scale_unavailable", None, 0, (), ("",)):
+        report = summarize(claim(
+            (room("room-1", "FREEZER"),),
+            scale=(("room-1", raw),),
+        ))
+        entries = report["named_room_metric_first_failure_codes"]["physical_scale"]
+        assert len(entries) == 1
+        assert entries[0]["source_reason_receipt_valid"] is False
+        assert entries[0]["first_gates"] == []
+        assert report["metric_quantity_published"] is False
+
+
+def test_missing_producer_metric_first_gate_is_not_a_firm_measurement():
+    got = summarize(claim(
+        (room("source-freezer", "FREEZER"), room("source-pwd", "PWD")),
+        same=(("source-freezer", "needs_orthogonal_figured_pair"),),
+    ))
+    assert got["named_rooms_without_first_failure_receipts"] == [{
+        "physical_room_id": "source-pwd", "label": "PWD",
+    }]
+    assert got["named_room_metric_first_failure_codes"]["cross_view"] == []
+    assert got["metric_quantity_published"] is False
+
+
+def test_competing_or_duplicate_source_metric_first_failure_receipts_abstain():
+    row = summarize(claim(
+        (room("a", "FREEZER"), room("b", "SALES")),
+        same=(("a", "need_figure"), ("a", "scale_ambiguous"),
+              ("b", "no_dim"), ("b", "no_dim")),
+    ))
+    assert row["ambiguous_metric_first_failure_owner_ids"]["same_view"] == ["a"]
+    assert row["named_room_metric_first_failure_codes"]["same_view"] == [{
+        "physical_room_id": "b", "label": "SALES", "first_gate": "no_dim",
+    }]
+    assert row["named_rooms_without_first_failure_receipts"] == []
+    assert row["all_source_first_failure_receipt_counts"]["same_view"] == 4
+    assert row["metric_quantity_published"] is False
+
+
+def test_none_and_whitespace_metric_gate_reasons_never_become_source_truth():
+    for malformed in (None, "", "  ", 77):
+        report = summarize(claim(
+            (room("room-x", "FREEZER"),), cross=(("room-x", malformed),),
+        ))
+        assert report["named_room_metric_first_failure_codes"]["cross_view"] == [{
+            "physical_room_id": "room-x", "label": "FREEZER",
+            "first_gate": "", "source_reason_receipt_valid": False,
+        }]
+        assert report["metric_quantity_published"] is False
+
+
+def test_malformed_source_gate_tuple_keeps_count_but_cannot_crash_ledger():
+    malformed=(None, "orphan", ("room-a",), ("room-a", "gate", "extra"))
+    row=summarize(claim(
+        (room("room-a", "FREEZER"),),
+        same=(*malformed, ("room-a", "actual_source_gate")),
+    ))
+    assert row["malformed_source_first_failure_receipt_counts"]["same_view"] == 4
+    assert row["all_source_first_failure_receipt_counts"]["same_view"] == 5
+    assert row["named_room_metric_first_failure_codes"]["same_view"] == [{
+        "physical_room_id":"room-a", "label":"FREEZER",
+        "first_gate":"actual_source_gate",
+    }]
+    assert row["metric_quantity_published"] is False
+
+
+def test_nontext_source_room_label_and_id_do_not_invent_named_room():
+    report=summarize(claim(
+        (room(43, "FREEZER"), room("proper", "PWD"),
+         room("bad-label", {"untrusted":"ROOM"}),
+         room("null-label", None)),
+        same=(("43", "need_metric"), ("proper", "need_figured_measure")),
+    ))
+    assert report["source_named_room_count"] == 2
+    assert report["ambiguous_named_physical_room_ids"] == [""]
+    assert report["uniquely_attributable_named_room_count"] == 1
+    assert report["named_room_metric_first_failure_codes"]["same_view"] == [{
+        "physical_room_id":"proper", "label":"PWD",
+        "first_gate":"need_figured_measure",
+    }]
+    assert report["metric_quantity_published"] is False
+
+
+def test_nontext_failure_owner_cannot_alias_same_printed_source_id():
+    report=summarize(claim(
+        (room("43", "OFFICE"),),
+        same=((43, "fake_first_gate"), ("43", "real_first_gate")),
+    ))
+    assert report["all_source_first_failure_receipt_counts"]["same_view"] == 2
+    assert report["ambiguous_metric_first_failure_owner_ids"]["same_view"] == []
+    assert report["named_room_metric_first_failure_codes"]["same_view"] == [{
+        "physical_room_id":"43", "label":"OFFICE",
+        "first_gate":"real_first_gate",
+    }]
+    assert report["metric_quantity_published"] is False
+
+
+def test_partial_scale_gate_list_is_not_reported_as_proven_source():
+    report=summarize(claim(
+        (room("wall-room", "LAUNDRY"),),
+        scale=(("wall-room", ("valid_scale_candidate", None)),),
+    ))
+    entry=report["named_room_metric_first_failure_codes"]["physical_scale"][0]
+    assert entry["source_reason_receipt_valid"] is False
+    assert entry["first_gates"] == []
+    assert report["metric_quantity_published"] is False
+
+
+def test_only_valid_exact_owned_source_first_gates_remove_missing_receipt():
+    report=summarize(claim(
+        (room("source-freezer", "FREEZER"), room("source-office", "OFFICE")),
+        same=(("source-freezer ", "fake_padded_room_id"),
+              ("source-freezer", None), ("source-office", "valid_missing_dimension")),
+        scale=(("source-freezer", ("", "invalid_scale_reason")),),
+    ))
+    assert report["named_rooms_without_first_failure_receipts"] == [{
+        "physical_room_id": "source-freezer", "label": "FREEZER",
+    }]
+    assert report["named_room_metric_first_failure_codes"]["same_view"] == [
+        {"physical_room_id": "source-freezer", "label": "FREEZER",
+         "first_gate": "", "source_reason_receipt_valid": False},
+        {"physical_room_id": "source-office", "label": "OFFICE",
+         "first_gate": "valid_missing_dimension"},
+    ] or report["named_room_metric_first_failure_codes"]["same_view"] == [
+        {"physical_room_id": "source-office", "label": "OFFICE",
+         "first_gate": "valid_missing_dimension"},
+        {"physical_room_id": "source-freezer", "label": "FREEZER",
+         "first_gate": "", "source_reason_receipt_valid": False},
+    ]
+    assert report["metric_quantity_published"] is False
+
+
+def test_padded_physical_owner_is_never_rebound_to_valid_identity():
+    result=summarize(claim(
+        (room("source-freezer", "FREEZER"), room(" source-freezer", "SALES")),
+        same=((" source-freezer", "wrong_owner"),
+              ("source-freezer", "real_source_failure")),
+    ))
+    assert result["uniquely_attributable_named_room_count"] == 1
+    assert result["named_room_metric_first_failure_codes"]["same_view"] == [{
+        "physical_room_id":"source-freezer","label":"FREEZER",
+        "first_gate":"real_source_failure",
+    }]
+    assert result["metric_quantity_published"] is False
