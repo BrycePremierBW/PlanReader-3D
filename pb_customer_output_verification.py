@@ -427,11 +427,26 @@ def _verify_row_lineage(
         _require_equal("ai_baseline_quantity", float(actual_baseline), float(sealed.value), quantity_id)
     if row.get("confidence") is not None:
         actual_confidence = row.get("confidence")
-        if type(actual_confidence) not in (int, float) or not math.isfinite(actual_confidence):
+        # Persisted takeoff rows use text columns for numeric fields. Accept a
+        # finite decimal string just as we do for the persisted quantity, but
+        # never coerce booleans, empty strings or non-finite values.
+        if type(actual_confidence) not in (int, float, str) or (
+            type(actual_confidence) is str and not actual_confidence.strip()
+        ):
             raise CustomerOutputVerificationError(
                 f"customer row {quantity_id!r} has invalid confidence"
             )
-        _require_equal("confidence", float(actual_confidence), float(sealed.confidence), quantity_id)
+        try:
+            parsed_confidence = float(actual_confidence)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise CustomerOutputVerificationError(
+                f"customer row {quantity_id!r} has invalid confidence"
+            ) from exc
+        if not math.isfinite(parsed_confidence):
+            raise CustomerOutputVerificationError(
+                f"customer row {quantity_id!r} has invalid confidence"
+            )
+        _require_equal("confidence", parsed_confidence, float(sealed.confidence), quantity_id)
 
     if row.get("canonical_entity_ids") is not None:
         _require_equal(
