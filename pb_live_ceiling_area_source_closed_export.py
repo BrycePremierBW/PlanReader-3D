@@ -111,19 +111,29 @@ def build_live_ceiling_area_source_traces(
                 f"ceiling quantity page mismatch: {quantity.quantity_id}"
             )
 
-        evidence_ids = tuple(
-            dict.fromkeys(
-                _clean(value)
-                for value in ceiling.evidence_ids
-                if _clean(value)
-            )
-        )
+        # Source metadata is meaningful only with intact original receipts.
+        # Deduplication here must not conceal a malformed producer universe.
+        for receipts in (ceiling.evidence_ids, quantity.evidence_ids):
+            if (
+                not isinstance(receipts, (tuple, list))
+                or not receipts
+                or any(type(value) is not str or not value.strip() for value in receipts)
+                or len(set(receipts)) != len(receipts)
+            ):
+                raise SourceClosedRunConflictError(
+                    f"ceiling source evidence receipts are incomplete: {quantity.quantity_id}"
+                )
+        evidence_ids = tuple(ceiling.evidence_ids)
         if not set(quantity.evidence_ids).issubset(set(evidence_ids)):
             raise SourceClosedRunConflictError(
                 f"ceiling source trace does not cover quantity evidence: {quantity.quantity_id}"
             )
 
         points = tuple(ceiling.polygon_pdf_pts or ())
+        if not ceiling.geometry_complete or len(points) < 3:
+            raise SourceClosedRunConflictError(
+                f"ceiling source polygon is incomplete: {quantity.quantity_id}"
+            )
         source_bbox = None
         if points:
             try:
@@ -134,6 +144,14 @@ def build_live_ceiling_area_source_traces(
                     f"ceiling source polygon is invalid: {quantity.quantity_id}"
                 ) from exc
             if xs and ys:
+                if (
+                    not all(math.isfinite(v) for v in (*xs, *ys))
+                    or max(xs) <= min(xs)
+                    or max(ys) <= min(ys)
+                ):
+                    raise SourceClosedRunConflictError(
+                        f"ceiling source polygon is invalid: {quantity.quantity_id}"
+                    )
                 source_bbox = (min(xs), min(ys), max(xs), max(ys))
 
         trace = CommercialTakeoffSourceTrace(
