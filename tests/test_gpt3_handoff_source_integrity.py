@@ -186,3 +186,30 @@ def test_combined_source_envelope_conflict_never_writes_project_handoff(tmp_path
     summary=json.loads((output/"production_summary.json").read_text())
     assert summary["status"]=="source_envelope_conflict"
     assert "combined_source_envelope_conflict" in summary["claim_reason_codes"]
+
+
+def test_original_source_deleted_during_extraction_never_seals(tmp_path,monkeypatch):
+    from types import SimpleNamespace
+    source=tmp_path/"source.pdf"
+    source.write_bytes(b"genuine-original-source")
+    output=tmp_path/"out"
+    monkeypatch.setattr(handoff,"_source_page_scopes",lambda _:((0,),(),1))
+    def disappearing_source(*args,**kwargs):
+        source.unlink()
+        return SimpleNamespace(
+            status="unavailable",reason_codes=(),
+            canonical_walls=(),canonical_openings=(),canonical_rooms=(),
+            canonical_floors=(),canonical_ceilings=(),canonical_spaces=(),
+            opening_quantity_evidence=(),opening_count_quantity_evidence=(),
+        )
+    monkeypatch.setattr(handoff,"collect_live_physical_net_wall_claim",disappearing_source)
+    with pytest.raises(RuntimeError,match="source PDF unavailable"):
+        handoff.generate_project_handoff(
+            pdf_path=source,project_id="project-a",workspace_id=1,
+            output_dir=output,family_group="core",
+        )
+    assert not (output/"family_runs").exists()
+    assert not (output/"project-a.core.json").exists()
+    report=json.loads((output/"production_summary.json").read_text())
+    assert report["status"]=="source_unavailable_during_production"
+    assert "source_read_failed_during_production" in report["claim_reason_codes"]
