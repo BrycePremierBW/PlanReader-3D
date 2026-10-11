@@ -494,10 +494,10 @@ def test_floor_finish_cannot_seal_without_complete_original_physical_room_face()
 ))
 def test_floor_finish_seal_cannot_relabel_metric_measurement_authority(authority):
     claim = _claim()
-    forged = replace(
-        claim.floor_finish_quantity_evidence[0],
-        authority=authority,
-    )
+    # Replayed sealed evidence must be tested at the export boundary;
+    # a blank authority is already rejected by QuantityEvidence.__post_init__.
+    forged = copy(claim.floor_finish_quantity_evidence[0])
+    object.__setattr__(forged, "authority", authority)
     with pytest.raises(SourceClosedRunConflictError, match="metric authority disagrees"):
         build_live_floor_finish_area_source_traces(
             replace(claim, floor_finish_quantity_evidence=(forged,)),
