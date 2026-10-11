@@ -407,6 +407,11 @@ def _build_sealed_run(
         tuple[str, str, tuple[str, ...]],
         SealedSourceClosedQuantity,
     ] = {}
+    # A current commercial run may contain multiple different documents, but
+    # may not silently mix source snapshots or revisions for one document ID.
+    # Revision text is not an ordering authority: conflict requires a new
+    # source-supported handoff, never selection of a supposed latest value.
+    document_sources: dict[str, tuple[str, str]] = {}
     for row in rows:
         if not isinstance(row, SealedSourceClosedQuantity):
             raise TypeError(
@@ -416,6 +421,14 @@ def _build_sealed_run(
             raise SourceClosedRunConflictError(
                 f"quantity {row.quantity_id} belongs to project {row.project_id}"
             )
+        source_identity = (row.revision_id, row.source_sha256.lower())
+        prior_source = document_sources.get(row.document_id)
+        if prior_source is not None and prior_source != source_identity:
+            raise SourceClosedRunConflictError(
+                f"conflicting sealed source revisions or snapshots for "
+                f"document {row.document_id!r}"
+            )
+        document_sources[row.document_id] = source_identity
         if row.quantity_id in quantity_ids:
             raise SourceClosedRunConflictError(
                 f"duplicate sealed quantity id: {row.quantity_id}"
