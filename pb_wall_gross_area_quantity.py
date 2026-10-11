@@ -141,6 +141,15 @@ def build_gross_wall_area_quantity(
         blockers.append("invalid_wall_length_family")
     if wall_height.family != _HEIGHT_FAMILY:
         blockers.append("invalid_wall_height_family")
+    # The family name is insufficient: a replay of another wall's numeric
+    # source measurement can retain this object's input ID while carrying an
+    # unrelated semantic owner. Require full physical-wall identity parity.
+    if wall_length.semantic_key != f"wall_length:{wall_id}":
+        blockers.append("wall_length_semantic_identity_mismatch")
+    if wall_height.semantic_key != f"wall_height:{wall_id}":
+        blockers.append("wall_height_semantic_identity_mismatch")
+    if wall_length.quantity_id == wall_height.quantity_id:
+        blockers.append("wall_dimension_quantity_identity_collision")
     if wall_length.unit != "m":
         blockers.append("invalid_wall_length_unit")
     if wall_height.unit != "m":
@@ -244,10 +253,32 @@ def build_gross_wall_area_quantity(
         blockers.append("dependency_graph_snapshot_mismatch")
 
     for quantity, prefix in ((wall_length, "wall_length"), (wall_height, "wall_height")):
+        # Guard against imported mutable/replayed QuantityEvidence records:
+        # bool is not a measured length, and evidence IDs must not be silently
+        # normalized away during the FIRM gross-area quantity reissue.
+        if (
+            not isinstance(quantity.input_entity_ids, (tuple, list))
+            or len(quantity.input_entity_ids) != 1
+            or type(quantity.input_entity_ids[0]) is not str
+            or not quantity.input_entity_ids[0].strip()
+            or not isinstance(quantity.evidence_ids, (tuple, list))
+            or not quantity.evidence_ids
+            or any(type(v) is not str or not v.strip() for v in quantity.evidence_ids)
+            or len(set(quantity.evidence_ids)) != len(quantity.evidence_ids)
+        ):
+            blockers.append(f"{prefix}_source_receipts_invalid")
         if quantity.value is not None:
-            value = float(quantity.value)
-            if not math.isfinite(value) or value <= 0.0:
+            if type(quantity.value) not in (int, float):
                 blockers.append(f"{prefix}_value_invalid")
+            else:
+                value = float(quantity.value)
+                if not math.isfinite(value) or value <= 0.0:
+                    blockers.append(f"{prefix}_value_invalid")
+        if type(quantity.confidence) not in (int, float) or (
+            not math.isfinite(float(quantity.confidence))
+            or not 0.0 <= float(quantity.confidence) <= 1.0
+        ):
+            blockers.append(f"{prefix}_confidence_invalid")
 
     if blockers:
         return _abstain(
