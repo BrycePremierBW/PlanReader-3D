@@ -27,6 +27,20 @@ def quantity_evidence_fingerprint(quantity: QuantityEvidence) -> str:
     ).hexdigest()
 
 
+def _dependency_fingerprint_for_abstention(quantity: QuantityEvidence) -> str:
+    """Keep corrupt imported evidence in ABSTAIN without signing it as valid.
+
+    The normal canonical hash is mandatory for FIRM publication. An imported
+    NaN or foreign Python object is deliberately not canonical JSON, but should
+    not crash an otherwise fail-closed diagnostic/blocked quantity path.
+    """
+    try:
+        return quantity_evidence_fingerprint(quantity)
+    except (TypeError, ValueError, OverflowError):
+        token = f"invalid_quantity_receipt:{quantity.quantity_id}:{quantity.family}"
+        return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
 def _metadata(quantity: QuantityEvidence) -> Mapping[str, object]:
     return quantity.metadata if isinstance(quantity.metadata, Mapping) else {}
 
@@ -53,8 +67,8 @@ def _abstain(
     height: QuantityEvidence,
     blockers: tuple[str, ...],
 ) -> QuantityEvidence:
-    length_fp = quantity_evidence_fingerprint(length)
-    height_fp = quantity_evidence_fingerprint(height)
+    length_fp = _dependency_fingerprint_for_abstention(length)
+    height_fp = _dependency_fingerprint_for_abstention(height)
     payload = {
         "family": GROSS_WALL_AREA_FAMILY,
         "wall_id": wall_id,
