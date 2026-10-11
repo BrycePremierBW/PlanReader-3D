@@ -82,7 +82,7 @@ def _lineage_reasons(
     status = _clean(quantity.status).lower()
     if "conflict" in status:
         reasons.append("quantity_status_conflict")
-    if not quantity.abstained and quantity_status_not_publishable(status):
+    if not quantity.abstained and quantity_status_not_publishable(quantity.status):
         reasons.append("quantity_status_not_publishable")
     if any("conflict" in _clean(reason).lower() for reason in quantity.reason_codes):
         reasons.append("quantity_reason_conflict")
