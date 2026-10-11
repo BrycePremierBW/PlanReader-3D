@@ -106,13 +106,13 @@ def _floor_quantity_diagnostic(claim) -> dict:
     from pb_live_floor_finish_area_source_closed_export import (
         build_live_floor_finish_area_source_traces,
     )
-    from pb_source_closed_run_export import SourceClosedRunConflictError
+    from pb_source_closed_run_export import SourceClosedRunExportError
     try:
         finish_source_traces = build_live_floor_finish_area_source_traces(
             claim, workspace_id=1, project_id="gpt1-lot16-source-diagnostic",
         )
         finish_source_trace_failure = None
-    except (TypeError, ValueError, SourceClosedRunConflictError) as error:
+    except (TypeError, ValueError, SourceClosedRunExportError) as error:
         finish_source_traces = {}
         finish_source_trace_failure = str(error)
     finishes: dict[str, list[str]] = {}
@@ -321,6 +321,13 @@ def _opening_quantity_diagnostic(claim) -> dict:
             and candidate.semantic_key == authentic.semantic_key
             and candidate.input_entity_ids == authentic.input_entity_ids
             and candidate.evidence_ids == authentic.evidence_ids
+            and candidate.formula == authentic.formula
+            and candidate.formula_version == authentic.formula_version
+            and candidate.confidence == authentic.confidence
+            and candidate.abstained == authentic.abstained
+            and candidate.blocking_reasons == authentic.blocking_reasons
+            and candidate.reason_codes == authentic.reason_codes
+            and candidate.metadata == authentic.metadata
         )
         if readiness == "opening_area_quantity_prerequisites_resolved" and published and (
             len(signed_publication_matches) != 1 or len(published) != 1
