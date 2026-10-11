@@ -84,7 +84,7 @@ def _opening_quantity(
                for value in required_source_ids)
         or any(type(value) is not str or not value or value != value.strip()
                for value in (opening.host_binding_record_id, opening.host_frame_record_id)
-               if value is not None)
+               if value not in (None, ""))
         or not isinstance(opening.evidence_ids, (tuple, list))
         or not opening.evidence_ids
         or any(type(value) is not str or not value or value != value.strip()
