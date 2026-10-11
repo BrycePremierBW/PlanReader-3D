@@ -149,3 +149,26 @@ def test_exact_original_signed_receipt_arrays_preserve_sealed_run_fingerprint():
     loaded=sealed_source_closed_run_from_dict(original.to_dict())
     assert loaded.fingerprint==original.fingerprint
     assert loaded.to_dict()==original.to_dict()
+
+
+@pytest.mark.parametrize("new_ok,new_reasons", [
+    (True, ("source_conflict",)),
+    (False, ()),
+])
+def test_imported_seal_cannot_claim_contradictory_lineage_validity(new_ok,new_reasons):
+    from dataclasses import replace
+    original=source_run("qty-firm",("floor-a",))
+    bad=replace(original.quantities[0],lineage_ok=new_ok,
+                lineage_reason_codes=new_reasons)
+    changed=replace(original,quantities=(bad,))
+    with pytest.raises(SourceClosedRunConflictError,match="contradictory lineage validity receipt"):
+        combine_source_closed_runs([changed])
+
+
+def test_missing_physical_identity_cannot_be_resigned_as_complete_lineage():
+    from dataclasses import replace
+    original=source_run("qty-firm",("floor-a",))
+    bad=replace(original.quantities[0],object_identity_refs=(),lineage_ok=True)
+    changed=replace(original,quantities=(bad,))
+    with pytest.raises(SourceClosedRunConflictError,match="falsely authenticates a missing physical identity"):
+        combine_source_closed_runs([changed])
