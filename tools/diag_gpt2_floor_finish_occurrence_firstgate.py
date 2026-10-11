@@ -56,6 +56,10 @@ def inspect_floor_finish_occurrence_first_gates(scope: Any, viewport: Any, *, sh
         )
         if _owned_text(obs)
     )
+    evidence_counts=Counter(
+        rec.source_evidence_id for rec in records
+        if _owned_text(getattr(rec,"source_evidence_id",None))
+    )
     rows=[]
     for record in records:
         record_id=getattr(record,"record_id",None)
@@ -84,6 +88,8 @@ def inspect_floor_finish_occurrence_first_gates(scope: Any, viewport: Any, *, sh
             "material_occurrence_definition_receipt_unavailable"
             if not _owned_text(getattr(record,"definition_record_id",None))
             or not _owned_text(getattr(record,"source_evidence_id",None)) else
+            "material_occurrence_source_evidence_receipt_replayed"
+            if evidence_counts[getattr(record,"source_evidence_id",None)]!=1 else
             "material_occurrence_material_semantic_unavailable"
             if not _owned_text(getattr(record,"code",None))
             or not _owned_text(getattr(record,"semantic_finish",None)) else
@@ -109,6 +115,9 @@ def inspect_floor_finish_occurrence_first_gates(scope: Any, viewport: Any, *, sh
         "producer_occurrence_count":len(records),
         "ambiguous_source_receipt_ids":sorted(k for k,v in receipt_counts.items() if v>1),
         "ambiguous_source_text_observation_ids":sorted(k for k,v in observation_counts.items() if v>1),
+        "replayed_source_evidence_receipt_ids":sorted(
+            k for k,v in evidence_counts.items() if v>1
+        ),
         "first_failure_counts":dict(sorted(Counter(row["first_gate"] for row in rows).items())),
         "source_occurrence_first_gates":rows,
         "room_finish_ownership_published":False,
