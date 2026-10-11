@@ -89,6 +89,17 @@ def test_displaced_source_endpoints_are_observed_not_snapped_again():
     assert s==original
 
 
+@pytest.mark.parametrize("raw", [True, False])
+def test_finite_nodes_cannot_emit_overflowed_displacement(raw):
+    f = fragment()
+    s, m = graph(a=(1.7e308, 1.7e308), b=(1.6e308, 1.6e308), raw=raw)
+    assert all(math.isfinite(n[k]) for n in s["nodes"] for k in ("x", "y"))
+    original = deepcopy((f, s, m))
+    with pytest.raises(ValueError, match="nonfinite W2 endpoint displacement"):
+        audit([f], s, m)
+    assert (f, s, m) == original
+
+
 @pytest.mark.parametrize("change", [
     "unknown_parent", "multi_parent","different_parent","false_source_page",
     "uncorroborated_short_gap","source_off_axis","wrong_parent_end",
@@ -329,3 +340,36 @@ def test_replay_input_order_and_unrelated_content_preserve_source_observations()
                              w["max_endpoint_snap_displacement_pt"]))
     assert all(v == observations[0] for v in observations)
     assert (f, unrelated) == original
+
+
+@pytest.mark.parametrize("raw", [True, False])
+def test_finite_original_source_points_cannot_overflow_raw_fragment_length(raw):
+    f = fragment(coords=(1.7e308, 1.7e308, -1.7e308, -1.7e308))
+    s, m = graph(raw=raw)
+    original = deepcopy((f, s, m))
+    assert all(math.isfinite(f[key]) for key in ("x1", "y1", "x2", "y2"))
+    with pytest.raises(ValueError, match="nonfinite original split source length"):
+        audit([f], s, m)
+    assert (f, s, m) == original
+
+@pytest.mark.parametrize("which", [
+    "split_fragment", "surviving_edge", "merge_leaf", "disappearance_receipt",
+])
+def test_whitespace_only_w2_source_receipt_ids_fail_closed(which):
+    source = fragment()
+    snapped, merged = graph()
+    reported = []
+    if which == "split_fragment":
+        source["id"] = "   "
+    elif which == "surviving_edge":
+        snapped["edges"][0]["id"] = "   "
+    elif which == "merge_leaf":
+        merged["edges"][0]["collinear_merge_leaf_edge_ids"] = ["   "]
+    elif which == "disappearance_receipt":
+        reported = [{"id": "   "}]
+    with pytest.raises(ValueError):
+        audit_short_source_fragments(
+            [source], snapped, merged,
+            producer_reported_collapsed_fragments=reported,
+            max_length_pt=2.5,
+        )
