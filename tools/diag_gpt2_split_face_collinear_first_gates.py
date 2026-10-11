@@ -9,7 +9,11 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from tools.diag_gpt2_split_label_wall_separators import _finite_native_edge
+from tools.diag_gpt2_split_label_wall_separators import (
+    _finite_native_edge,
+    _opposite_collinear_positive_overlap,
+    _authentic_source_wall_id,
+)
 
 EPS = 1e-6
 
@@ -35,14 +39,21 @@ def _overlap(a: Any, b: Any) -> float:
 
 def audit_collinear_candidates(candidate: Any, faces_by_record_id: dict[str, Any]) -> dict[str, Any]:
     """Inspect only pairs already named by a source producer split candidate."""
-    ids = tuple(getattr(candidate, "source_room_face_record_ids", ()) or ())
-    result = {"label": str(getattr(candidate, "label", "")),
+    raw_ids = getattr(candidate, "source_room_face_record_ids", ()) or ()
+    ids = tuple(raw_ids) if isinstance(raw_ids, (tuple, list)) else ()
+    label = getattr(candidate, "label", None)
+    result = {"label": label if isinstance(label, str) else "",
               "source_face_record_ids": list(ids),
               "candidate_shared_spans": [],
               "source_room_label_published": False,
               "merge_source_faces_authorized": False,
               "metric_quantity_published": False}
-    if len(ids) < 2 or len(set(ids)) != len(ids) or not result["label"]:
+    if (
+        len(ids) < 2 or not result["label"].strip()
+        or any(not isinstance(value, str) or not value
+               or value != value.strip() for value in ids)
+        or len(set(ids)) != len(ids)
+    ):
         result["first_gate"] = "invalid_split_candidate"
         return result
     fields = ("document_id", "revision_id", "source_sha256", "snapshot_id",
@@ -53,8 +64,13 @@ def audit_collinear_candidates(candidate: Any, faces_by_record_id: dict[str, Any
         if face is None or str(getattr(face, "record_id", "")) != str(face_id):
             result["first_gate"] = "missing_source_face"
             return result
-        if any(getattr(face, key, None) != getattr(candidate, key, None)
-               for key in fields):
+        if any(
+            not isinstance(getattr(candidate, key, None), str)
+            or not getattr(candidate, key, None)
+            or getattr(candidate, key, None) != getattr(candidate, key, None).strip()
+            or getattr(face, key, None) != getattr(candidate, key, None)
+            for key in fields
+        ):
             result["first_gate"] = "source_lineage_conflict"
             return result
         faces.append(face)
@@ -66,7 +82,7 @@ def audit_collinear_candidates(candidate: Any, faces_by_record_id: dict[str, Any
                     result["candidate_shared_spans"] = []
                     return result
                 lid, ledge = left_row
-                if not str(lid).strip() or _finite_native_edge(ledge) is None:
+                if not _authentic_source_wall_id(lid) or _finite_native_edge(ledge) is None:
                     result["first_gate"] = "malformed_source_wall_edge"
                     result["candidate_shared_spans"] = []
                     return result
@@ -76,7 +92,7 @@ def audit_collinear_candidates(candidate: Any, faces_by_record_id: dict[str, Any
                         result["candidate_shared_spans"] = []
                         return result
                     rid, redge = right_row
-                    if not str(rid).strip() or _finite_native_edge(redge) is None:
+                    if not _authentic_source_wall_id(rid) or _finite_native_edge(redge) is None:
                         result["first_gate"] = "malformed_source_wall_edge"
                         result["candidate_shared_spans"] = []
                         return result
@@ -88,6 +104,9 @@ def audit_collinear_candidates(candidate: Any, faces_by_record_id: dict[str, Any
                         "wall_a": str(lid), "wall_b": str(rid),
                         "wall_id_agrees": bool(str(lid) and str(lid) == str(rid)),
                         "overlap_pdf_points": round(span, 9),
+                        "opposite_exact_source_stroke_observed": (
+                            _opposite_collinear_positive_overlap(ledge, redge)
+                        ),
                         "gate": "collinear_subedge_candidate_only",
                     })
     result["first_gate"] = ("collinear_candidates_untrusted"
