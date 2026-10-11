@@ -193,3 +193,37 @@ def test_lot16_opening_diagnostic_identifies_colliding_source_quantity_receipts(
     assert report["per_opening"][0]["first_missing_prerequisite"] == (
         "opening_area_published_claim_drift"
     )
+
+
+
+def test_lot16_floor_ledger_distinguishes_asserted_vs_source_trace_verified_finish():
+    from tests.test_live_floor_finish_area_source_closed_export import _claim
+    from tools.diag_lot16_room_face_scope import _floor_quantity_diagnostic
+
+    report = _floor_quantity_diagnostic(_claim())
+    assert report["finish_quantity_count"] == 1
+    assert report["source_trace_validated_finish_quantity_count"] == 1
+    assert report["finish_source_trace_failure"] is None
+    assert report["per_floor"][0]["published_finish_quantity_ids"] == ["floor-finish-q1"]
+    assert report["per_floor"][0]["source_trace_validated_finish_quantity_ids"] == [
+        "floor-finish-q1"
+    ]
+
+
+def test_lot16_floor_ledger_handles_source_closed_conflict_without_false_positive():
+    from tests.test_live_floor_finish_area_source_closed_export import _claim
+    from tools.diag_lot16_room_face_scope import _floor_quantity_diagnostic
+
+    source = _claim()
+    finished = source.floor_finish_quantity_evidence[0]
+    forged = replace(
+        finished,
+        metadata={**finished.metadata, "source_room_face_record_id": "foreign-source-face"},
+    )
+    result = _floor_quantity_diagnostic(
+        replace(source, floor_finish_quantity_evidence=(forged,))
+    )
+    assert result["finish_quantity_count"] == 1
+    assert result["source_trace_validated_finish_quantity_count"] == 0
+    assert "source room face mismatch" in result["finish_source_trace_failure"]
+    assert result["per_floor"][0]["source_trace_validated_finish_quantity_ids"] == []
