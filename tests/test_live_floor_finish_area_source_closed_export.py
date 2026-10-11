@@ -487,3 +487,19 @@ def test_floor_finish_cannot_seal_without_complete_original_physical_room_face()
             build_live_floor_finish_area_source_traces(
                 _claim(floor), workspace_id=1, project_id="project-1",
             )
+
+
+@pytest.mark.parametrize("authority", (
+    "pdf_scaled", "model_derived", "user_corrected", "",
+))
+def test_floor_finish_seal_cannot_relabel_metric_measurement_authority(authority):
+    claim = _claim()
+    forged = replace(
+        claim.floor_finish_quantity_evidence[0],
+        authority=authority,
+    )
+    with pytest.raises(SourceClosedRunConflictError, match="metric authority disagrees"):
+        build_live_floor_finish_area_source_traces(
+            replace(claim, floor_finish_quantity_evidence=(forged,)),
+            workspace_id=1, project_id="project-1",
+        )
