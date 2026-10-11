@@ -134,7 +134,7 @@ def _core_opening_claim():
         status=SimpleNamespace(value="corroborated"),reason_codes=(),
         canonical_walls=(),canonical_openings=(),canonical_rooms=(),
         canonical_floors=(),canonical_ceilings=(),canonical_spaces=(),
-        opening_quantity_evidence=(_q("firm"),),
+        opening_quantity_evidence=(_quantity("q-opening", "opening_area"),),
         opening_count_quantity_evidence=(),
     )
 
@@ -180,7 +180,7 @@ def test_combined_source_envelope_conflict_never_writes_project_handoff(tmp_path
                         lambda *_args,**_kwargs:claimed)
     run=SimpleNamespace(
         run_id="valid-family",source_sha256s=(sha,),
-        quantities=(_signed_row_for_fixture(_q("firm")),),to_json=lambda:"{}",
+        quantities=(_signed_row_for_fixture(_quantity("q-opening", "opening_area")),),to_json=lambda:"{}",
     )
     monkeypatch.setattr(handoff,"seal_live_opening_area_claim_run",
                         lambda *_args,**_kwargs:run)
@@ -254,7 +254,7 @@ def test_firm_status_with_stale_or_conflicting_reason_is_not_published(code):
 
 @pytest.mark.parametrize("sealed_ids", [
     ("qty-forged",),
-    ("q-floor","qty-extra-unpublished"),
+    ("q-opening","qty-extra-unpublished"),
     (),
 ])
 def test_source_publisher_to_family_seal_quantity_id_bijection(sealed_ids,tmp_path,monkeypatch):
@@ -304,7 +304,7 @@ def test_unpublishable_sealed_row_cannot_ride_firm_family_count(abstained,lineag
         lambda *_args,**_kwargs:SimpleNamespace(
             run_id="invalid-firm",source_sha256s=(sha,),to_json=lambda:"{}",
             quantities=(SimpleNamespace(
-                quantity_id="q-floor",abstained=abstained,lineage_ok=lineage_ok,
+                quantity_id="q-opening",abstained=abstained,lineage_ok=lineage_ok,
             ),),
         ))
     output=tmp_path/"out"
@@ -339,7 +339,7 @@ def test_sealed_quantity_content_cannot_change_under_same_publisher_id(
     monkeypatch.setattr(handoff,"_source_page_scopes",lambda _:((0,),(),1))
     monkeypatch.setattr(handoff,"collect_live_physical_net_wall_claim",
                         lambda *_args,**_kwargs:_core_opening_claim())
-    row=_signed_row_for_fixture(_q("firm"))
+    row=_signed_row_for_fixture(_quantity("q-opening", "opening_area"))
     setattr(row,field,different)
     monkeypatch.setattr(handoff,"seal_live_opening_area_claim_run",
         lambda *_args,**_kwargs:SimpleNamespace(
@@ -370,7 +370,7 @@ def test_combination_conflict_cannot_leave_partially_published_family_seals(tmp_
     monkeypatch.setattr(handoff,"seal_live_opening_area_claim_run",
         lambda *_args,**_kwargs:SimpleNamespace(
             run_id="individually-valid",source_sha256s=(sha,),
-            quantities=(_signed_row_for_fixture(_q("firm")),),
+            quantities=(_signed_row_for_fixture(_quantity("q-opening", "opening_area")),),
             to_json=lambda:"{}",
         ))
 
