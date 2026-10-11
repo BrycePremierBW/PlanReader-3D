@@ -102,3 +102,31 @@ def test_persisted_confidence_disagreement_with_signed_quantity_is_rejected():
     rows[0]["confidence"] = "0.98"
     with pytest.raises(CustomerOutputVerificationError, match="confidence mismatch"):
         verify_sealed_customer_output(sealed, rows)
+
+
+
+def test_legacy_documented_customer_confidence_display_remains_source_verified():
+    sealed, rows = sealed_and_rows()
+    rows = [dict(row) for row in rows]
+    rows[0]["confidence"] = "Documented"
+    assert verify_sealed_customer_output(sealed, rows).valid_quantity_count == 2
+
+
+def test_legacy_documented_label_does_not_override_wrong_signed_numeric_confidence():
+    sealed, rows = sealed_and_rows()
+    rows = deepcopy(rows)
+    rows[0]["confidence"] = "Documented"
+    provenance = rows[0]["commercial_projection_provenance"]
+    provenance["quantity"]["confidence"] = 0.01
+    rows[0]["notes"] = json.dumps(provenance)
+    with pytest.raises(CustomerOutputVerificationError, match="provenance.confidence"):
+        verify_sealed_customer_output(sealed, rows)
+
+
+@pytest.mark.parametrize("text_label", ["Verified", "High", "Provisional", "Documented ", "documented"])
+def test_unrecognized_customer_confidence_display_cannot_override_signed_receipt(text_label):
+    sealed, rows = sealed_and_rows()
+    rows = [dict(row) for row in rows]
+    rows[0]["confidence"] = text_label
+    with pytest.raises(CustomerOutputVerificationError, match="invalid confidence"):
+        verify_sealed_customer_output(sealed, rows)
