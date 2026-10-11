@@ -683,6 +683,7 @@ def test_room_area_sealing_rejects_unproven_metric_authority_and_source_receipts
     ("snapshot_id", "foreign-snapshot"),
     ("page_id", "other-page"),
     ("viewport_id", "other-viewport"),
+    ("viewport_id", None),
 ))
 def test_room_area_sealing_requires_same_original_canonical_room_face_lineage(
     live_claim, field, value,
