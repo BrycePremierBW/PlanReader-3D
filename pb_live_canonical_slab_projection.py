@@ -104,6 +104,26 @@ def _canonical_polygon_identity(
     return min(variants)
 
 
+def _verified_metric_slab_polygon_area(
+    polygon: Sequence[Sequence[float]] | None,
+) -> float | None:
+    """Area from genuine metric boundary vertices, never from PDF page points.
+
+    The original slab resolver has already authenticated metre units. This
+    re-check prevents imported/replayed area claims from diverging from their
+    source-owned metric footprint before the quantity boundary is reached.
+    """
+    if type(polygon) not in (tuple, list) or not validate_boundary_polygon(polygon):
+        return None
+    points = tuple((float(point[0]), float(point[1])) for point in polygon)
+    twice_area = math.fsum(
+        x0 * y1 - x1 * y0
+        for (x0, y0), (x1, y1) in zip(points, (*points[1:], points[0]))
+    )
+    area = abs(twice_area) / 2.0
+    return area if math.isfinite(area) and area > 0.0 else None
+
+
 def project_resolved_slab_entity(
     *,
     slab: ResolvedSlabEntity,
@@ -145,6 +165,22 @@ def project_resolved_slab_entity(
 
     provenance = dict(slab.provenance or {})
     provenance_boundary_id = str(provenance.get("boundary_id") or "").strip()
+    # These are real metre-space polygons. Source-reported area alone is not
+    # sufficient when the same source receipt can be replayed with changed
+    # coordinates or a stale value.
+    metric_area = _verified_metric_slab_polygon_area(boundary.polygon)
+    if (
+        type(boundary.area_m2) is bool
+        or type(slab.area_m2) is bool
+        or metric_area is None
+        or not math.isclose(
+            metric_area, float(boundary.area_m2), rel_tol=1e-9, abs_tol=1e-6
+        )
+    ):
+        return LiveCanonicalSlabProjection(
+            object=None,
+            reason_codes=(LIVE_CANONICAL_SLAB_BOUNDARY_MISMATCH,),
+        )
     if (
         not provenance_boundary_id
         or provenance_boundary_id != str(boundary.boundary_id)
