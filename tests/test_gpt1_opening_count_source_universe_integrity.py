@@ -5,6 +5,7 @@ import pytest
 
 from pb_live_opening_count_quantity_publication import (
     _authentic_source_id_universe,
+    _valid_explicit_source_count,
 )
 from pb_live_physical_net_wall_integration import collect_live_physical_net_wall_claim
 from tests.test_live_opening_count_quantity_publication import (
@@ -46,3 +47,17 @@ def test_missing_explicit_schedule_quantity_still_means_abstain(tmp_path):
     path.write_bytes(_floor_plan_with_schedule_quantity(quantity=None))
     claim = collect_live_physical_net_wall_claim(path, pages=(0,))
     assert claim.opening_count_quantity_evidence == ()
+
+
+
+@pytest.mark.parametrize("invalid_count", [
+    None, True, False, "1", "", -1, 0, 1.5, float("nan"),
+    float("inf"), -float("inf"), 10 ** 1000,
+])
+def test_schedule_count_cannot_convert_invalid_or_nonfinite_source_quantity(invalid_count):
+    assert _valid_explicit_source_count(invalid_count) is False
+
+
+@pytest.mark.parametrize("real_count", [1, 2, 1.0, 5.0])
+def test_exact_source_integer_counts_remain_supported(real_count):
+    assert _valid_explicit_source_count(real_count) is True
