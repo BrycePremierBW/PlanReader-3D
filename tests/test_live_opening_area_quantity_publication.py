@@ -612,3 +612,33 @@ def test_source_closed_opening_claim_cannot_hide_duplicate_physical_evidence():
         (quantity,), (opening,),
         workspace_id=1, project_id="source-project",
     )) == 1
+
+
+@pytest.mark.parametrize("corruption", (
+    ("value", 999.0),
+    ("value", True),
+    ("authority", "unproven_geometry"),
+    ("quantity_id", "forged-different-quantity-id"),
+    ("semantic_key", "window_area:foreign-opening"),
+    ("evidence_ids", ("opening-1", "figured-1", "host-binding-1", "host-frame-1")),
+))
+def test_source_closed_opening_area_rechecks_original_numeric_measurement(corruption):
+    from pb_live_opening_source_closed_export import _build_opening_area_source_traces
+    from pb_source_closed_run_export import SourceClosedRunConflictError
+    from copy import copy
+
+    opening = _opening()
+    original = _opening_quantity(opening)
+    assert original is not None
+    field, value = corruption
+    forged = copy(original)
+    object.__setattr__(forged, field, value)
+    with pytest.raises(SourceClosedRunConflictError, match="original source measurement"):
+        _build_opening_area_source_traces(
+            (forged,), (opening,),
+            workspace_id=1, project_id="source-project",
+        )
+    assert len(_build_opening_area_source_traces(
+        (original,), (opening,),
+        workspace_id=1, project_id="source-project",
+    )) == 1
