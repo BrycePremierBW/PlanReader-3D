@@ -951,9 +951,15 @@ def test_gpt2_invalid_source_room_area_id_never_becomes_finish_owner():
     from pb_cross_view_floor_finish_authority import (
         _unique_documented_area_owner_receipts,
     )
-    authentic = SimpleNamespace(source_room_face_record_id="source-face-1")
+    authentic = SimpleNamespace(
+        source_room_face_record_id="source-face-1",
+        area_evidence=SimpleNamespace(evidence_id="independent-source-area-1"),
+    )
     invalid = tuple(
-        SimpleNamespace(source_room_face_record_id=value)
+        SimpleNamespace(
+            source_room_face_record_id=value,
+            area_evidence=SimpleNamespace(evidence_id="foreign-source-area"),
+        )
         for value in (None, 17, "", " source-face-1", "source-face-1 ")
     )
     owners, disputed = _unique_documented_area_owner_receipts(
@@ -961,3 +967,48 @@ def test_gpt2_invalid_source_room_area_id_never_becomes_finish_owner():
     )
     assert owners == {"source-face-1": authentic}
     assert disputed == ()
+
+
+def test_gpt2_reused_source_area_evidence_cannot_quantify_two_room_finishes():
+    from types import SimpleNamespace as Record
+    from pb_cross_view_floor_finish_authority import (
+        _unique_documented_area_owner_receipts,
+    )
+    def source_room(room_id, receipt):
+        return Record(
+            source_room_face_record_id=room_id,
+            area_evidence=Record(evidence_id=receipt),
+        )
+    first=source_room("physical-source-room-one","same-figured-area-receipt")
+    second=source_room("physical-source-room-two","same-figured-area-receipt")
+    independent=source_room("physical-source-room-three","unique-source-area")
+    kept, disputed=_unique_documented_area_owner_receipts(
+        (), (first,second,independent)
+    )
+    assert kept=={"physical-source-room-three":independent}
+    assert disputed==(
+        "physical-source-room-one","physical-source-room-two"
+    )
+    assert "physical-source-room-one" not in kept
+    assert "physical-source-room-two" not in kept
+
+
+def test_gpt2_invalid_figured_area_receipt_quarantines_only_its_source_room():
+    from types import SimpleNamespace as Record
+    from pb_cross_view_floor_finish_authority import (
+        _unique_documented_area_owner_receipts,
+    )
+    good=Record(
+        source_room_face_record_id="room-valid",
+        area_evidence=Record(evidence_id="real-source-figured-area"),
+    )
+    for invalid in (None, 79, "", "  ", " source-area-receipt"):
+        untrusted=Record(
+            source_room_face_record_id="room-unsupported",
+            area_evidence=Record(evidence_id=invalid),
+        )
+        kept,disputed=_unique_documented_area_owner_receipts(
+            (), (good,untrusted)
+        )
+        assert kept=={"room-valid":good}
+        assert disputed==("room-unsupported",)
