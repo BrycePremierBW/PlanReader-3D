@@ -132,6 +132,27 @@ def _build_opening_area_source_traces(
         # An explicitly retained source owner cannot be replayed onto a
         # different document/revision/snapshot even when metric area matches.
         metadata = quantity.metadata if isinstance(quantity.metadata, Mapping) else {}
+        required_source_fields = (
+            "document_id", "revision_id", "source_sha256", "snapshot_id",
+            "page_no", "viewport_id", "canonical_opening_id",
+            "physical_opening_id", "host_wall_id", "opening_kind",
+            "area_basis", "measurement_record_id",
+        )
+        if any(
+            type(metadata.get(name)) is not str
+            or not metadata[name].strip()
+            for name in required_source_fields
+        ):
+            raise SourceClosedRunConflictError(
+                f"opening area claim is missing original source ownership: {canonical_id}"
+            )
+        if not (
+            metadata.get("host_binding_record_id")
+            or metadata.get("host_frame_record_id")
+        ):
+            raise SourceClosedRunConflictError(
+                f"opening area claim omits the authenticated physical host: {canonical_id}"
+            )
         for name, source_value in (
             ("document_id", opening.document_id),
             ("revision_id", opening.revision_id),
