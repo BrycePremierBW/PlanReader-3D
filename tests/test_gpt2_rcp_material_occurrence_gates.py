@@ -296,3 +296,33 @@ def test_gpt2_rcp_source_occurrence_receipt_ids_cannot_be_string_coerced():
             ),
         ))
         assert got["producer_authenticated_record_ids"]==[]
+
+
+def test_gpt2_rcp_viewport_first_failure_reasons_preserve_source_abstention():
+    # Diagnostic reason breakdown does not alter the canonical first gate
+    # or turn original/proposed RCP material into a room-owned quantity.
+    cases=(
+        (vp(status="unsupported"),
+         ["source_rcp_viewport_status_unresolved"]),
+        (vp(status="derived"),
+         ["source_derived_rcp_partition_unproven"]),
+        (vp(box=(1.,1.,1.,10.)),
+         ["source_rcp_viewport_native_bbox_invalid"]),
+        (vp(kind="schedule"),
+         ["source_viewport_not_rcp"]),
+    )
+    for viewport,reasons in cases:
+        row=gate(viewport,scope(complete=True,records=(
+            R(viewport_id="v9",record_id="source-occurrence",code="FPB"),
+        )))
+        assert row["source_rcp_viewport_first_failure_reasons"]==reasons
+        assert row["producer_authenticated_record_ids"]==[]
+        assert row["new_room_material_ownership_claim"] is False
+        assert row["new_metric_quantity_claim"] is False
+    good=gate(vp(),scope(complete=True,records=(
+        R(viewport_id="v9",record_id="source-occurrence",code="FPB"),
+    )))
+    assert good["source_rcp_viewport_first_failure_reasons"]==[]
+    assert good["first_unclosed_gate"]==(
+        "producer_authenticated_occurrences_require_room_owner_before_quantity"
+    )
