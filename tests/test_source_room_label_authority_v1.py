@@ -559,3 +559,90 @@ def test_room_label_producer_builds_one_sealed_text_authority_per_source(
     # authority's source universe.
     assert producer._authorize_word is not None
     assert len(created) == 2
+
+def test_gpt2_source_room_label_ownership_rejects_duplicate_face_ids():
+    from types import SimpleNamespace as R
+    from pb_source_room_label_authority import (
+        _unique_source_faces_for_label_ownership,
+    )
+    a=R(face_id="face-a",record_id="record-a")
+    b=R(face_id="face-b",record_id="record-b")
+    conflict=R(face_id="face-a",record_id="another-original-record")
+    assert _unique_source_faces_for_label_ownership((a,b,conflict))==(b,)
+    assert _unique_source_faces_for_label_ownership((a,b,b))==(a,)
+
+
+def test_gpt2_source_room_label_ownership_rejects_shared_source_receipt():
+    from types import SimpleNamespace as R
+    from pb_source_room_label_authority import (
+        _unique_source_faces_for_label_ownership,
+    )
+    a=R(face_id="face-a",record_id="shared")
+    b=R(face_id="face-b",record_id="shared")
+    independent=R(face_id="face-c",record_id="independent")
+    assert _unique_source_faces_for_label_ownership(
+        (a,b,independent)
+    )==(independent,)
+    assert _unique_source_faces_for_label_ownership(
+        (independent,b,a)
+    )==(independent,)
+
+
+def test_gpt2_source_room_label_ownership_rejects_string_coerced_ids():
+    from types import SimpleNamespace as R
+    from pb_source_room_label_authority import (
+        _unique_source_faces_for_label_ownership,
+    )
+    valid=R(face_id="a",record_id="ra")
+    malformed=(
+        R(face_id=None,record_id="bad1"),
+        R(face_id=7,record_id="bad2"),
+        R(face_id="b ",record_id="bad3"),
+        R(face_id="c",record_id=None),
+        R(face_id="d",record_id=73),
+        R(face_id="e",record_id="  "),
+    )
+    assert _unique_source_faces_for_label_ownership(
+        (*malformed,valid)
+    )==(valid,)
+
+
+def test_gpt2_one_source_word_receipt_cannot_own_multiple_rooms():
+    from types import SimpleNamespace as R
+    from pb_source_room_label_authority import (
+        _unique_source_label_observation_owners,
+    )
+    first=R(record_id="first",observation_ids=("word-a",))
+    conflicting=R(record_id="second",observation_ids=("word-a",))
+    unaffected=R(record_id="third",observation_ids=("word-c",))
+    direct,split,conflict=_unique_source_label_observation_owners(
+        (first,unaffected), (conflicting,)
+    )
+    assert direct==(unaffected,)
+    assert split==()
+    assert conflict is True
+    # Exact native observation receipt replay in one record is not valid.
+    replay=R(record_id="replayed",observation_ids=("same","same"))
+    direct,split,conflict=_unique_source_label_observation_owners(
+        (replay,unaffected),()
+    )
+    assert direct==(unaffected,)
+    assert conflict is True
+
+
+def test_gpt2_independent_sealed_room_text_receipts_survive_source_filter():
+    from types import SimpleNamespace as R
+    from pb_source_room_label_authority import (
+        _unique_source_label_observation_owners,
+    )
+    a=R(record_id="a",observation_ids=("native-ob-1","native-ob-2"))
+    b=R(record_id="b",observation_ids=("native-ob-3",))
+    positive,split,conflict=_unique_source_label_observation_owners((a,),(b,))
+    assert positive==(a,)
+    assert split==(b,)
+    assert conflict is False
+    for invalid in (None, "", " native-id", 25):
+        failed=R(record_id="invalid",observation_ids=(invalid,))
+        kept,_,conflict=_unique_source_label_observation_owners((a,failed),())
+        assert kept==(a,)
+        assert conflict is True
