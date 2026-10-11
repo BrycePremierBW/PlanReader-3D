@@ -592,7 +592,7 @@ def generate_project_handoff(
                 content_changed = True
         if (
             content_changed
-            or             len(set(expected_ids)) != len(expected_ids)
+            or len(set(expected_ids)) != len(expected_ids)
             or len(set(actual_ids)) != len(actual_ids)
             or set(expected_ids) != set(actual_ids)
             or any(q.abstained or not q.lineage_ok for q in run.quantities)
