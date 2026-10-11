@@ -145,6 +145,22 @@ def _source_bbox(
         raise SourceClosedRunConflictError(
             f"canonical floor polygon is degenerate: {floor.canonical_floor_id}"
         )
+    # A nonzero bounding rectangle is insufficient proof of an enclosed
+    # physical source room. Collinear and self-cancelling PDF-point rings can
+    # retain a figured metric quantity but must not be sealed as a floor.
+    try:
+        twice_area = math.fsum(
+            xs[i] * ys[(i + 1) % len(xs)] - xs[(i + 1) % len(xs)] * ys[i]
+            for i in range(len(xs))
+        )
+    except (ValueError, OverflowError) as exc:
+        raise SourceClosedRunConflictError(
+            f"canonical floor polygon is invalid: {floor.canonical_floor_id}"
+        ) from exc
+    if not math.isfinite(twice_area) or abs(twice_area) <= 2e-9:
+        raise SourceClosedRunConflictError(
+            f"canonical floor polygon is degenerate: {floor.canonical_floor_id}"
+        )
     return bbox
 
 
