@@ -539,3 +539,22 @@ def test_foreign_revision_unsupported_opening_cannot_hide_conflict() -> None:
     )
     with pytest.raises(ValueError, match="revision conflicts"):
         publish_live_opening_area_quantities(_composition(proven, stale))
+
+
+@pytest.mark.parametrize("untyped_metric", (True, False, "2.172", None))
+def test_opening_area_requires_typed_original_metric_m2(untyped_metric):
+    assert _opening_quantity(_opening(area_m2=untyped_metric)) is None
+    assert _opening_quantity(_opening()) is not None
+
+
+@pytest.mark.parametrize("receipts", (
+    (), ("source-observation-1", "source-observation-1"),
+    ("source-observation-1", ""),
+    ("source-observation-1", "  "),
+    ("source-observation-1", 42),
+    None,
+))
+def test_opening_area_never_normalizes_corrupted_original_source_receipts(receipts):
+    forged = replace(_opening(), evidence_ids=receipts)
+    assert _opening_quantity(forged) is None
+    assert _opening_quantity(_opening()) is not None
