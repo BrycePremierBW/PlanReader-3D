@@ -429,6 +429,8 @@ jobs:
                   inspect_split_grid_component_first_failure(
                       candidate, wall_scope=wall_scope,
                       room_scope=room_scope, label_scope=label_scope,
+                      grid_walls=fully_grid,grid_evidence=evidence_by_wall,
+                      grid_adjacency=adjacency,
                   )
                   for candidate in label_scope.split_face_candidates
               ]
