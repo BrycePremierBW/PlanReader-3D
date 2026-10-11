@@ -237,8 +237,16 @@ def diagnose_original_w4_address_collisions(records):
             "original_centerline_points_diagnostic_only": source_points[:16],
             "original_centerline_point_count": len(source_points),
             "source_edge_fragment_count": len(fragments),
-            "source_fragment_observation_ids_sample": [
-                str(getattr(frag, "source_observation_id", "") or "")
+            "source_fragment_edge_ids_sample": [
+                str(getattr(frag, "edge_id", "") or "")
+                for frag in fragments[:8]
+            ],
+            "source_fragment_primitive_ids_sample": [
+                [
+                    primitive_id for primitive_id
+                    in tuple(getattr(frag, "source_primitive_ids", ()) or ())
+                    if exact(primitive_id)
+                ][:16]
                 for frag in fragments[:8]
             ],
             "physical_wall_equivalence_proven": False,
