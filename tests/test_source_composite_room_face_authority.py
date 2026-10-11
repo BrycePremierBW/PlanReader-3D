@@ -1129,3 +1129,247 @@ def test_gpt2_b01_precomputed_source_w4_grid_indexes_preserve_first_gate():
     )
     assert indexed==unindexed
     assert indexed["source_room_composite_published_by_diagnostic"] is False
+
+def test_gpt2_grid_component_cannot_stringify_or_overwrite_native_source_faces():
+    from dataclasses import replace
+    from pb_source_composite_room_face_authority import (
+        _grid_connected_component, _fully_grid_opposed_wall_evidence,
+        _grid_local_adjacency,
+    )
+    walls = _wall_scope((_grid_atom("e_sep"),))
+    rooms = _room_scope()
+    grid, _ = _fully_grid_opposed_wall_evidence(walls)
+    adjacency = _grid_local_adjacency(rooms, grid)
+    candidate = ("face_left", "face_right")
+    authentic = _grid_connected_component(
+        candidate, room_scope=rooms,
+        fully_grid_wall_ids=grid, adjacency=adjacency
+    )
+    assert authentic is not None
+    for ids in (
+        "face_left", ("face_left", 9), ("face_left", None),
+        ("face_left", " face_right"), ("face_left",),
+    ):
+        assert _grid_connected_component(
+            ids, room_scope=rooms, fully_grid_wall_ids=grid,
+            adjacency=adjacency
+        ) is None
+    left,right = rooms.records
+    for invalid in (
+        replace(rooms, records=(left,right,replace(left,record_id="other"))),
+        replace(rooms, records=(left,replace(right,record_id=left.record_id))),
+        replace(rooms, records=(left,replace(right,face_id=None))),
+    ):
+        assert _grid_connected_component(
+            candidate, room_scope=invalid, fully_grid_wall_ids=grid,
+            adjacency=adjacency
+        ) is None
+
+
+
+def test_gpt2_duplicated_split_label_producer_id_cannot_evade_competing_label_gate():
+    from dataclasses import replace
+    from pb_source_composite_room_face_authority import (
+        _component_has_conflicting_label,
+    )
+    labels = _label_scope()
+    original = labels.split_face_candidates[0]
+    component = ("face_left", "face_right")
+    assert not _component_has_conflicting_label(
+        component,original,label_scope=labels
+    )
+    other = SimpleNamespace(**vars(original))
+    contaminated = replace(
+        labels,split_face_candidates=(original,other)
+    )
+    assert _component_has_conflicting_label(
+        component,original,label_scope=contaminated
+    )
+    actual = compose_grid_separated_room_faces(
+        wall_scope=_wall_scope((_grid_atom("e_sep"),)),
+        room_scope=_room_scope(),label_scope=contaminated,
+    )
+    assert actual.records == ()
+    assert actual.status is EvidenceResolutionStatus.ABSTAINED
+
+
+
+def test_gpt2_b01_repeated_exact_source_label_producer_receipt_is_not_unique():
+    from dataclasses import replace
+    from pb_source_composite_room_face_authority import (
+        _component_has_conflicting_label,
+    )
+    labels=_label_scope()
+    single=labels.split_face_candidates[0]
+    component=("face_left","face_right")
+    # One exact producer-sealed native line may be used once, but two
+    # occurrences in the same sealed scope cannot create two rooms.
+    assert not _component_has_conflicting_label(component,single,label_scope=labels)
+    duplicated=replace(labels,split_face_candidates=(single,single))
+    assert _component_has_conflicting_label(component,single,label_scope=duplicated)
+    published=compose_grid_separated_room_faces(
+        wall_scope=_wall_scope((_grid_atom("e_sep"),)),
+        room_scope=_room_scope(),label_scope=duplicated,
+    )
+    assert published.records==()
+    assert published.status is EvidenceResolutionStatus.ABSTAINED
+
+
+
+def test_gpt2_b01_original_composite_wall_receipt_requires_typed_exact_w4_id():
+    from dataclasses import replace
+    walls=_wall_scope((_grid_atom("e_sep"),))
+    faces=_room_scope()
+    labels=_label_scope()
+    assert len(compose_grid_separated_room_faces(
+        wall_scope=walls, room_scope=faces, label_scope=labels
+    ).records)==1
+    first,second=faces.records
+    old_wall,source_edge=first.boundary_wall_edges[0]
+    assert isinstance(old_wall,str)
+    for invalid in (None,27,"", "  ",old_wall+" "):
+        contaminated=replace(
+            first,boundary_wall_edges=((invalid,source_edge),*first.boundary_wall_edges[1:])
+        )
+        scope=replace(faces,records=(contaminated,second))
+        result=compose_grid_separated_room_faces(
+            wall_scope=walls,room_scope=scope,label_scope=labels
+        )
+        assert result.records==()
+        assert result.status is EvidenceResolutionStatus.ABSTAINED
+
+
+
+def test_gpt2_source_label_observation_and_word_authority_receipts_are_native():
+    from dataclasses import replace
+    import copy
+    walls=_wall_scope((_grid_atom("e_sep"),))
+    rooms=_room_scope()
+    original_scope=_label_scope()
+    assert len(compose_grid_separated_room_faces(
+        wall_scope=walls,room_scope=rooms,label_scope=original_scope
+    ).records)==1
+    original=original_scope.split_face_candidates[0]
+    for bad in (None,7,""," ", "native-receipt "):
+        label=copy.copy(original)
+        label.observation_ids=(bad,"obs_b")
+        withheld=compose_grid_separated_room_faces(
+            wall_scope=walls,room_scope=rooms,
+            label_scope=replace(original_scope,split_face_candidates=(label,))
+        )
+        assert withheld.records == ()
+        assert withheld.status is EvidenceResolutionStatus.ABSTAINED
+        label=copy.copy(original)
+        label.word_evidence=(
+            SimpleNamespace(authority_record_id=bad),
+            SimpleNamespace(authority_record_id="text_b"),
+        )
+        withheld=compose_grid_separated_room_faces(
+            wall_scope=walls,room_scope=rooms,
+            label_scope=replace(original_scope,split_face_candidates=(label,))
+        )
+        assert withheld.records == ()
+        assert withheld.status is EvidenceResolutionStatus.ABSTAINED
+
+
+
+def test_gpt2_original_split_label_candidate_identity_must_be_exact():
+    from dataclasses import replace
+    import copy
+    base=_label_scope()
+    original=base.split_face_candidates[0]
+    walls=_wall_scope((_grid_atom("e_sep"),))
+    rooms=_room_scope()
+    assert len(compose_grid_separated_room_faces(
+        wall_scope=walls,room_scope=rooms,label_scope=base
+    ).records)==1
+    for invalid in (None,37,""," "," split_label_1","split_label_1 "):
+        cand=copy.copy(original)
+        cand.record_id=invalid
+        result=compose_grid_separated_room_faces(
+            wall_scope=walls,room_scope=rooms,
+            label_scope=replace(base,split_face_candidates=(cand,))
+        )
+        assert result.records==()
+        assert result.status is EvidenceResolutionStatus.ABSTAINED
+    for invalid_label in (None,79,"","   "):
+        cand=copy.copy(original)
+        cand.label=invalid_label
+        result=compose_grid_separated_room_faces(
+            wall_scope=walls,room_scope=rooms,
+            label_scope=replace(base,split_face_candidates=(cand,))
+        )
+        assert result.records==()
+
+
+
+def test_gpt2_atomic_grid_index_rejects_non_native_source_wall_identifiers():
+    from dataclasses import replace
+    from pb_source_composite_room_face_authority import (
+        _atomic_source_wall_edge_counts,
+    )
+    source=_room_scope()
+    left,right=source.records
+    clean=_atomic_source_wall_edge_counts(source,{"w_sep"})
+    assert clean
+    bad_face=replace(source,records=(replace(left,face_id=73),right))
+    invalid=_atomic_source_wall_edge_counts(bad_face,{"w_sep"})
+    assert all("73" not in owners for owners in invalid.values())
+    for wall in (None,7,""," w_sep","w_sep "):
+        injected=replace(left,boundary_wall_edges=(
+            (wall,left.boundary_wall_edges[0][1]),
+            *left.boundary_wall_edges[1:],
+        ))
+        invalid=_atomic_source_wall_edge_counts(
+            replace(source,records=(injected,right)),{"w_sep"}
+        )
+        assert all(
+            key[0] not in ("None","7"," w_sep","w_sep ")
+            for key in invalid
+        )
+    assert _atomic_source_wall_edge_counts(source,{"w_sep"})==clean
+
+
+
+def test_gpt2_local_wall_edge_index_never_coerces_source_owner_ids():
+    from dataclasses import replace
+    from pb_source_composite_room_face_authority import _local_edge_owners
+    source=_room_scope()
+    left,right=source.records
+    clean=_local_edge_owners(source)
+    assert clean
+    for bad in (None,71,""," w_left","w_left "):
+        altered=replace(left,boundary_wall_edges=(
+            (bad,left.boundary_wall_edges[0][1]),
+            *left.boundary_wall_edges[1:],
+        ))
+        index=_local_edge_owners(replace(source,records=(altered,right)))
+        assert all(
+            key[0] not in ("None","71"," w_left","w_left ")
+            for key in index
+        )
+    bad_face=replace(source,records=(replace(left,face_id=None),right))
+    assert all("None" not in owners for owners in _local_edge_owners(bad_face).values())
+    assert _local_edge_owners(source)==clean
+
+
+def test_gpt2_original_source_face_receipt_collection_must_be_sequence():
+    from dataclasses import replace
+    import copy
+    labels=_label_scope()
+    first=labels.split_face_candidates[0]
+    for malformed in (7, {"record_left":"record_right"}, "record_left", True):
+        candidate=copy.copy(first)
+        candidate.source_room_face_record_ids=malformed
+        result=compose_grid_separated_room_faces(
+            wall_scope=_wall_scope((_grid_atom("e_sep"),)),
+            room_scope=_room_scope(),
+            label_scope=replace(labels,split_face_candidates=(candidate,)),
+        )
+        assert result.records==()
+        assert result.status is EvidenceResolutionStatus.ABSTAINED
+    positive=compose_grid_separated_room_faces(
+        wall_scope=_wall_scope((_grid_atom("e_sep"),)),
+        room_scope=_room_scope(),label_scope=labels,
+    )
+    assert len(positive.records)==1

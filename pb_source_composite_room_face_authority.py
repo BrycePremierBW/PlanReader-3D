@@ -184,6 +184,11 @@ def _edge_key(value) -> tuple[tuple[float, float], tuple[float, float]] | None:
     return (first, second) if first <= second else (second, first)
 
 
+def _authentic_original_owner_id(value: object) -> bool:
+    """Only exact native, nonblank producer IDs may own physical edges."""
+    return isinstance(value, str) and bool(value) and value == value.strip()
+
+
 def _atomic_source_wall_edge_counts(
     room_scope: SourceRoomFaceScopeResult,
     fully_grid_wall_ids: set[str],
@@ -214,14 +219,16 @@ def _atomic_source_wall_edge_counts(
     ] = defaultdict(list)
 
     for record in room_scope.records:
-        face_id = str(record.face_id)
+        face_id = getattr(record, "face_id", None)
+        if not _authentic_original_owner_id(face_id):
+            continue
         for item in tuple(getattr(record, "boundary_wall_edges", ()) or ()):
             try:
-                wall_id = str(item[0] or "").strip()
+                wall_id = item[0]
                 edge = _edge_key(item[1])
-            except (IndexError, TypeError):
+            except (IndexError, TypeError, ValueError, OverflowError):
                 continue
-            if not wall_id or edge is None:
+            if not _authentic_original_owner_id(wall_id) or edge is None:
                 continue
             (ax, ay), (bx, by) = edge
             if wall_id in fully_grid_wall_ids and ax == bx:
@@ -278,14 +285,16 @@ def _local_edge_owners(
         set[str],
     ] = defaultdict(set)
     for record in room_scope.records:
-        face_id = str(record.face_id)
+        face_id = getattr(record, "face_id", None)
+        if not _authentic_original_owner_id(face_id):
+            continue
         for item in tuple(getattr(record, "boundary_wall_edges", ()) or ()):
             try:
-                wall_id = str(item[0] or "").strip()
+                wall_id = item[0]
                 edge = _edge_key(item[1])
-            except (IndexError, TypeError):
+            except (IndexError, TypeError, ValueError, OverflowError):
                 continue
-            if wall_id and edge is not None:
+            if _authentic_original_owner_id(wall_id) and edge is not None:
                 owners[(wall_id, edge)].add(face_id)
     return {
         key: tuple(sorted(face_ids))
@@ -354,9 +363,32 @@ def _grid_connected_component(
 ) -> tuple[str, ...] | None:
     """Complete one room through exact two-sided grid-owned subedges."""
 
-    room_by_face = {str(record.face_id): record for record in room_scope.records}
-    seeds = tuple(dict.fromkeys(str(value) for value in seed_face_ids))
-    if len(seeds) < 2 or any(face_id not in room_by_face for face_id in seeds):
+    # The connected-component authority must not coerce, overwrite or
+    # choose between source face identities, even when called independently
+    # of the higher-level composite candidate guard.
+    def valid(value):
+        return isinstance(value, str) and bool(value) and value == value.strip()
+
+    raw_seeds = tuple(seed_face_ids) if isinstance(seed_face_ids, (tuple, list)) else ()
+    if len(raw_seeds) < 2 or any(not valid(value) for value in raw_seeds):
+        return None
+    face_counts = Counter(
+        rec.face_id for rec in room_scope.records if valid(getattr(rec, "face_id", None))
+    )
+    receipt_counts = Counter(
+        rec.record_id for rec in room_scope.records if valid(getattr(rec, "record_id", None))
+    )
+    room_by_face = {
+        rec.face_id: rec for rec in room_scope.records
+        if valid(getattr(rec, "face_id", None))
+    }
+    seeds = tuple(dict.fromkeys(raw_seeds))
+    if len(seeds) < 2 or any(
+        face_counts[face_id] != 1 or face_id not in room_by_face
+        or not valid(getattr(room_by_face[face_id], "record_id", None))
+        or receipt_counts[room_by_face[face_id].record_id] != 1
+        for face_id in seeds
+    ):
         return None
 
     if adjacency is None:
@@ -372,6 +404,15 @@ def _grid_connected_component(
 
     if any(seed not in visited for seed in seeds):
         return None
+    # All recovered intermediary faces must have exact single source owners;
+    # checking just the native label seed cells is not sufficient.
+    if any(
+        face_counts[face_id] != 1 or face_id not in room_by_face
+        or not valid(getattr(room_by_face[face_id], "record_id", None))
+        or receipt_counts[room_by_face[face_id].record_id] != 1
+        for face_id in visited
+    ):
+        return None
     return tuple(sorted(visited))
 
 
@@ -384,15 +425,30 @@ def _component_has_conflicting_label(
     """Block a completed grid component that contains another room identity."""
 
     component = set(component_face_ids)
+    # Another sealed source label cannot own the same cell, and malformed
+    # face IDs must not be stringified into a plausible physical identity.
     if any(
-        str(record.face_id) in component
+        isinstance(getattr(record, "face_id", None), str)
+        and record.face_id in component
         for record in tuple(label_scope.records or ())
     ):
         return True
 
-    for other in tuple(label_scope.split_face_candidates or ()):
-        if str(other.record_id) == str(candidate.record_id):
+    candidates = tuple(label_scope.split_face_candidates or ())
+    # Even a repeated reference to the exact same candidate is a second
+    # producer occurrence, not proof of a unique original room claim.
+    source_id = getattr(candidate, "record_id", None)
+    if (
+        not isinstance(source_id, str) or not source_id
+        or source_id != source_id.strip()
+        or sum(getattr(other, "record_id", None) == source_id for other in candidates) != 1
+    ):
+        return True
+    for other in candidates:
+        if other is candidate:
             continue
+        if getattr(other, "record_id", None) == source_id:
+            return True
         if component.intersection(str(value) for value in other.word_face_ids):
             return True
     return False
@@ -409,6 +465,17 @@ def _candidate_record(
     local_counts=None,
     grid_adjacency=None,
 ) -> CompositeSourceRoomFaceRecord | None:
+    # A missing, padded or numeric native split-label producer identity must
+    # never mint a physical room, even if source cell geometry is otherwise
+    # plausible. This guard runs before the expensive grid/union stages.
+    candidate_id = getattr(candidate, "record_id", None)
+    candidate_label = getattr(candidate, "label", None)
+    if (
+        not isinstance(candidate_id, str) or not candidate_id
+        or candidate_id != candidate_id.strip()
+        or not isinstance(candidate_label, str) or not candidate_label.strip()
+    ):
+        return None
     # No dictionary overwrite of duplicate upstream source-face identities.
     # A source receipt shared across two different physical face IDs also
     # cannot authenticate a room union. Unrelated valid faces remain usable.
@@ -450,9 +517,12 @@ def _candidate_record(
     # receipt for each word owner. Never use word-facing geometry from one
     # source face with record ancestry belonging to another or older face.
     distinct_word_faces = tuple(dict.fromkeys(seed_face_ids))
-    actual_word_face_receipts = tuple(
+    raw_source_face_receipts = (
         getattr(candidate, "source_room_face_record_ids", ()) or ()
     )
+    if not isinstance(raw_source_face_receipts, (tuple, list)):
+        return None
+    actual_word_face_receipts = tuple(raw_source_face_receipts)
     expected_word_face_receipts = tuple(
         room_by_face[face_id].record_id for face_id in distinct_word_faces
     )
@@ -523,11 +593,16 @@ def _candidate_record(
     for record in constituent:
         for item in tuple(getattr(record, "boundary_wall_edges", ()) or ()):
             try:
-                wall_id = str(item[0] or "").strip()
+                wall_id = item[0]
                 edge = _edge_key(item[1])
-            except (IndexError, TypeError):
+            except (IndexError, TypeError, ValueError, OverflowError):
                 return None
-            if not wall_id or edge is None:
+            # Never stringify numeric producer IDs, trim padded W4 addresses,
+            # or accept an original receipt with no native wall identity.
+            if (
+                not isinstance(wall_id, str) or not wall_id
+                or wall_id != wall_id.strip() or edge is None
+            ):
                 return None
 
     if local_counts is None:
@@ -620,13 +695,27 @@ def _candidate_record(
         },
         digest_chars=32,
     )
-    label_evidence_ids = tuple(
-        dict.fromkeys(
-            (
-                *candidate.observation_ids,
-                *(str(word.authority_record_id) for word in candidate.word_evidence),
-            )
+    # Source word/line receipts must remain exact producer identities,
+    # not stringified None/numeric placeholders. A fake receipt must not
+    # survive into an otherwise plausible polygon/quantity ancestry chain.
+    raw_observations = getattr(candidate, "observation_ids", ()) or ()
+    raw_words = getattr(candidate, "word_evidence", ()) or ()
+    if not isinstance(raw_observations, (tuple, list)) or not isinstance(raw_words, (tuple, list)):
+        return None
+    authority_ids = tuple(
+        getattr(word, "authority_record_id", None) for word in raw_words
+    )
+    if (
+        not raw_observations or len(authority_ids) < 2
+        or any(
+            not isinstance(receipt, str) or not receipt
+            or receipt != receipt.strip()
+            for receipt in (*raw_observations, *authority_ids)
         )
+    ):
+        return None
+    label_evidence_ids = tuple(
+        dict.fromkeys((*raw_observations, *authority_ids))
     )
     grid_ids = tuple(sorted(grid_evidence_ids))
     evidence_ids = tuple(
