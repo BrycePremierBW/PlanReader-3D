@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - "pb_viewport_segmentation.py"
+      - "pb_source_room_label_authority.py"
+      - "tests/test_source_room_label_authority_v1.py"
       - ".github/workflows/diag-gpt2-page7-source-room-label-owners.yml"
   workflow_dispatch:
 
@@ -24,6 +26,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y tesseract-ocr
       - name: Frozen V2 integrity
         run: PYTHONPATH=. python scripts/check_full_plan_v2_integrity.py
+      - name: Source room-label unique face receipt regression
+        run: PYTHONPATH=. python -m pytest -q tests/test_source_room_label_authority_v1.py
       - name: Prove source-owned floor plan wall and room faces
         shell: bash
         run: |
