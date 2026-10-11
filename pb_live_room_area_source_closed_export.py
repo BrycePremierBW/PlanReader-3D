@@ -234,6 +234,19 @@ def build_live_room_area_source_traces(
             )
 
         metadata = _quantity_metadata(quantity)
+        # A source room-area producer may carry additional original room
+        # identity. If supplied, it must describe this exact canonical face.
+        for metadata_key, original_owner in (
+            ("document_id", floor.document_id),
+            ("room_snapshot_id", floor.snapshot_id),
+            ("source_room_face_record_id", floor.source_room_face_record_id),
+        ):
+            if metadata.get(metadata_key) is not None and (
+                _clean(metadata[metadata_key]) != _clean(original_owner)
+            ):
+                raise SourceClosedRunConflictError(
+                    f"room-area original source {metadata_key} mismatch: {quantity_id}"
+                )
         if _clean(metadata.get("source_sha256")).lower() != floor.source_sha256.lower():
             raise SourceClosedRunConflictError(
                 f"room-area quantity source hash mismatch: {quantity_id}"
