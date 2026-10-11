@@ -79,3 +79,42 @@ def test_original_room_geometry_confidence_is_not_a_boolean_or_unbounded_number(
     )
     assert result.abstained is True
     assert "room_area_source_confidence_invalid" in result.blocking_reasons
+
+
+
+def test_oversized_source_area_integer_fails_closed_instead_of_raising_overflow():
+    atom = copy(_explicit_area(25.0))
+    object.__setattr__(atom, "normalized_value", 10 ** 400)
+    quantity = source_area(atom)
+    assert quantity.abstained is True
+    assert "explicit_area_invalid" in quantity.blocking_reasons
+
+
+@pytest.mark.parametrize("bad", [10 ** 400, -10 ** 400])
+def test_oversized_room_or_source_confidence_abstains_without_overflow(bad):
+    room = copy(_room())
+    object.__setattr__(room, "geometry_confidence", bad)
+    result = build_room_area_quantity(
+        room=room, context=_context(), document=_document(),
+        viewport=_viewport(), entity=_entity(), page_no=1,
+        explicit_area_evidence=_explicit_area(25.0),
+    )
+    assert result.abstained is True
+    assert "room_area_source_confidence_invalid" in result.blocking_reasons
+
+    atom = copy(_explicit_area(25.0))
+    object.__setattr__(atom, "confidence", bad)
+    other = source_area(atom)
+    assert other.abstained is True
+    assert "explicit_area_confidence_invalid" in other.blocking_reasons
+
+
+@pytest.mark.parametrize("bad", [
+    ("dim-h", " dim-v"), ("dim-h", "dim-v "), ("dim-h", "dim-h "),
+])
+def test_figured_dim_source_receipts_must_be_exact_original_tokens(bad):
+    quantity = source_area(_explicit_area(
+        25.0, metadata={"figured_dimension_ids": bad},
+    ))
+    assert quantity.abstained is True
+    assert "explicit_area_figured_receipts_invalid" in quantity.blocking_reasons
