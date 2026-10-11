@@ -110,3 +110,42 @@ def test_good_original_source_ids_remain_sealable_after_malformed_rejection():
     result=seal_source_closed_quantity(q,trace=trace())
     assert result.lineage_ok
     assert result.lineage_reason_codes==()
+
+
+@pytest.mark.parametrize("field", [
+    "object_identity_refs","trace_canonical_entity_ids",
+    "evidence_ids","trace_evidence_ids",
+])
+def test_resigned_duplicate_source_receipts_cannot_enter_combined_seal(field):
+    from dataclasses import replace
+    good=source_run("qty-good",("physical-a",))
+    row=good.quantities[0]
+    original=getattr(row,field)
+    bad=replace(row,**{field:(original[0],original[0])})
+    recomputed=replace(good,quantities=(bad,))
+    with pytest.raises(SourceClosedRunConflictError,match="noncanonical sealed source identity array"):
+        combine_source_closed_runs([recomputed])
+
+
+@pytest.mark.parametrize("field", [
+    "object_identity_refs","trace_canonical_entity_ids",
+    "evidence_ids","trace_evidence_ids",
+])
+def test_unsorted_recomputed_source_receipts_cannot_create_another_seal(field):
+    from dataclasses import replace
+    good=source_run("qty-good",("physical-a","physical-b"))
+    row=good.quantities[0]
+    values=getattr(row,field)
+    # Evidence may have a single member; add a second source ID to prove
+    # import-order canonicalization independently from the original producer.
+    bad=replace(row,**{field:("source-z","source-a")})
+    with pytest.raises(SourceClosedRunConflictError,match="noncanonical sealed source identity array"):
+        combine_source_closed_runs([replace(good,quantities=(bad,))])
+
+
+def test_exact_original_signed_receipt_arrays_preserve_sealed_run_fingerprint():
+    from pb_source_closed_run_export import sealed_source_closed_run_from_dict
+    original=source_run("qty-firm",("physical-a","physical-b"))
+    loaded=sealed_source_closed_run_from_dict(original.to_dict())
+    assert loaded.fingerprint==original.fingerprint
+    assert loaded.to_dict()==original.to_dict()
