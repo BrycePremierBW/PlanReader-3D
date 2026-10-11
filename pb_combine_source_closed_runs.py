@@ -13,9 +13,27 @@ from pb_source_closed_run_export import (
 )
 
 
+def _no_duplicate_source_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    """Do not allow a later JSON object field to replace a signed receipt."""
+    found: dict[str, object] = {}
+    for key, value in pairs:
+        if key in found:
+            raise ValueError(f"duplicate sealed JSON key: {key}")
+        found[key] = value
+    return found
+
+
+def _no_nonfinite_source_constant(token: str) -> None:
+    raise ValueError(f"non-finite sealed JSON number: {token}")
+
+
 def load_verified_sealed_run(path: Path | str) -> SealedSourceClosedRun:
     source = Path(path)
-    payload = json.loads(source.read_text(encoding="utf-8"))
+    payload = json.loads(
+        source.read_text(encoding="utf-8"),
+        object_pairs_hook=_no_duplicate_source_keys,
+        parse_constant=_no_nonfinite_source_constant,
+    )
     if not isinstance(payload, dict):
         raise TypeError(f"{source} must contain a JSON object")
     return sealed_source_closed_run_from_dict(payload)
