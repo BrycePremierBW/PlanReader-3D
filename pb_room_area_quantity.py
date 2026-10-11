@@ -40,13 +40,41 @@ ROOM_AREA_FORMULA_VERSION = "1.1.0"
 
 
 def _polygon_area(points: Sequence[tuple[float, float]]) -> float:
-    if len(points) < 3:
+    """Return source page-space area only for an actual finite polygon ring.
+
+    No coordinates are converted into metres here. Malformed vector primitives
+    must trigger the existing ABSTAIN path rather than overflow, crash, or
+    become a FIRM room quantity when a sheet scale happens to be present.
+    """
+    if not isinstance(points, (tuple, list)) or len(points) < 3:
         return 0.0
-    total = 0.0
-    for i, (x1, y1) in enumerate(points):
-        x2, y2 = points[(i + 1) % len(points)]
-        total += float(x1) * float(y2) - float(x2) * float(y1)
-    return abs(total) / 2.0
+    vertices: list[tuple[float, float]] = []
+    for item in points:
+        if (
+            not isinstance(item, (tuple, list)) or len(item) != 2
+            or any(type(value) not in (int, float) for value in item)
+        ):
+            return 0.0
+        point = (float(item[0]), float(item[1]))
+        if not all(math.isfinite(value) for value in point):
+            return 0.0
+        if vertices and point == vertices[-1]:
+            return 0.0
+        vertices.append(point)
+    if vertices[0] == vertices[-1]:
+        vertices.pop()
+    if len(vertices) < 3 or len(set(vertices)) < 3:
+        return 0.0
+    try:
+        twice_area = math.fsum(
+            x1 * vertices[(i + 1) % len(vertices)][1]
+            - vertices[(i + 1) % len(vertices)][0] * y1
+            for i, (x1, y1) in enumerate(vertices)
+        )
+    except (ValueError, OverflowError):
+        return 0.0
+    result = abs(twice_area) / 2.0
+    return result if math.isfinite(result) else 0.0
 
 
 def _canonical_ring(points: Sequence[tuple[float, float]]) -> tuple[tuple[float, float], ...]:
