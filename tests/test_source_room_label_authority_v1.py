@@ -606,3 +606,44 @@ def test_gpt2_source_room_label_ownership_rejects_string_coerced_ids():
     assert _unique_source_faces_for_label_ownership(
         (*malformed,valid)
     )==(valid,)
+
+
+def test_gpt2_one_source_word_receipt_cannot_own_multiple_rooms():
+    from types import SimpleNamespace as R
+    from pb_source_room_label_authority import (
+        _unique_source_label_observation_owners,
+    )
+    first=R(record_id="first",observation_ids=("word-a",))
+    conflicting=R(record_id="second",observation_ids=("word-a",))
+    unaffected=R(record_id="third",observation_ids=("word-c",))
+    direct,split,conflict=_unique_source_label_observation_owners(
+        (first,unaffected), (conflicting,)
+    )
+    assert direct==(unaffected,)
+    assert split==()
+    assert conflict is True
+    # Exact native observation receipt replay in one record is not valid.
+    replay=R(record_id="replayed",observation_ids=("same","same"))
+    direct,split,conflict=_unique_source_label_observation_owners(
+        (replay,unaffected),()
+    )
+    assert direct==(unaffected,)
+    assert conflict is True
+
+
+def test_gpt2_independent_sealed_room_text_receipts_survive_source_filter():
+    from types import SimpleNamespace as R
+    from pb_source_room_label_authority import (
+        _unique_source_label_observation_owners,
+    )
+    a=R(record_id="a",observation_ids=("native-ob-1","native-ob-2"))
+    b=R(record_id="b",observation_ids=("native-ob-3",))
+    positive,split,conflict=_unique_source_label_observation_owners((a,),(b,))
+    assert positive==(a,)
+    assert split==(b,)
+    assert conflict is False
+    for invalid in (None, "", " native-id", 25):
+        failed=R(record_id="invalid",observation_ids=(invalid,))
+        kept,_,conflict=_unique_source_label_observation_owners((a,failed),())
+        assert kept==(a,)
+        assert conflict is True
