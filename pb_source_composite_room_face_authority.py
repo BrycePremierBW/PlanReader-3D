@@ -412,14 +412,37 @@ def _candidate_record(
     # No dictionary overwrite of duplicate upstream source-face identities.
     # A source receipt shared across two different physical face IDs also
     # cannot authenticate a room union. Unrelated valid faces remain usable.
-    face_counts = Counter(str(record.face_id) for record in room_scope.records)
-    receipt_counts = Counter(str(record.record_id) for record in room_scope.records)
-    room_by_face = {str(record.face_id): record for record in room_scope.records}
-    seed_face_ids = tuple(str(value) for value in candidate.word_face_ids)
+    def authentic_source_id(value):
+        return (
+            isinstance(value, str) and bool(value)
+            and value == value.strip()
+        )
+
+    face_counts = Counter(
+        record.face_id for record in room_scope.records
+        if authentic_source_id(getattr(record, "face_id", None))
+    )
+    receipt_counts = Counter(
+        record.record_id for record in room_scope.records
+        if authentic_source_id(getattr(record, "record_id", None))
+    )
+    room_by_face = {
+        record.face_id: record for record in room_scope.records
+        if authentic_source_id(getattr(record, "face_id", None))
+    }
+    raw_word_face_ids = getattr(candidate, "word_face_ids", ()) or ()
+    if not isinstance(raw_word_face_ids, (tuple, list)):
+        return None
+    seed_face_ids = tuple(raw_word_face_ids)
+    if len(seed_face_ids) < 2 or any(
+        not authentic_source_id(value) for value in seed_face_ids
+    ):
+        return None
     if any(
         face_counts[face_id] != 1
         or face_id not in room_by_face
-        or receipt_counts[str(room_by_face[face_id].record_id)] != 1
+        or not authentic_source_id(room_by_face[face_id].record_id)
+        or receipt_counts[room_by_face[face_id].record_id] != 1
         for face_id in seed_face_ids
     ):
         return None
@@ -431,7 +454,7 @@ def _candidate_record(
         getattr(candidate, "source_room_face_record_ids", ()) or ()
     )
     expected_word_face_receipts = tuple(
-        str(room_by_face[face_id].record_id) for face_id in distinct_word_faces
+        room_by_face[face_id].record_id for face_id in distinct_word_faces
     )
     if (
         len(distinct_word_faces) < 2
@@ -456,7 +479,8 @@ def _candidate_record(
         return None
     if any(
         face_counts[face_id] != 1
-        or receipt_counts[str(room_by_face[face_id].record_id)] != 1
+        or not authentic_source_id(room_by_face[face_id].record_id)
+        or receipt_counts[room_by_face[face_id].record_id] != 1
         for face_id in constituent_face_ids
     ):
         return None
