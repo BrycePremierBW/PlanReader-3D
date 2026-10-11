@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from copy import copy
 import inspect
 
 import fitz
@@ -644,3 +645,87 @@ def test_missing_customer_authority_never_converts_seal_to_verified_row(
     assert proof["customer_review_row_count"] == 0
     assert proof["customer_projection_failure_type"] == "MissingCommercialAuthorityError"
     assert proof["benchmark_accuracy"] is None
+
+
+@pytest.mark.parametrize("change", (
+    {"authority": "model_derived"},
+    {"authority": "ai_detected"},
+    {"blocking_reasons": ("unverified_source_scale",)},
+    {"evidence_ids": ()},
+    {"evidence_ids": ("ev-source", "ev-source")},
+    {"evidence_ids": ("   ",)},
+    {"input_entity_ids": ()},
+    {"input_entity_ids": ("room-source", "room-source")},
+))
+def test_room_area_sealing_rejects_unproven_metric_authority_and_source_receipts(
+    live_claim, change,
+):
+    source = copy(_firm_quantity(live_claim))
+    for key, value in change.items():
+        object.__setattr__(source, key, value)
+    claim = replace(
+        live_claim,
+        room_area_quantity_evidence=tuple(
+            source if q.quantity_id == source.quantity_id else q
+            for q in live_claim.room_area_quantity_evidence
+        ),
+    )
+    with pytest.raises(SourceClosedRunConflictError):
+        export.build_live_room_area_source_traces(
+            claim, workspace_id=7, project_id="source-project",
+        )
+
+
+@pytest.mark.parametrize("field,value", (
+    ("document_id", "foreign-document"),
+    ("revision_id", "foreign-revision"),
+    ("source_sha256", "f" * 64),
+    ("snapshot_id", "foreign-snapshot"),
+    ("page_id", "other-page"),
+    ("viewport_id", "other-viewport"),
+))
+def test_room_area_sealing_requires_same_original_canonical_room_face_lineage(
+    live_claim, field, value,
+):
+    floor = _resolved_floor(live_claim)
+    original_room = next(
+        room for room in live_claim.canonical_rooms
+        if room.canonical_room_id == floor.room_entity_id
+    )
+    altered = replace(original_room, **{field: value})
+    claim = replace(
+        live_claim,
+        canonical_rooms=tuple(
+            altered if room.canonical_room_id == original_room.canonical_room_id
+            else room for room in live_claim.canonical_rooms
+        ),
+    )
+    with pytest.raises(SourceClosedRunConflictError, match="original source lineage"):
+        export.build_live_room_area_source_traces(
+            claim, workspace_id=7, project_id="source-project",
+        )
+
+
+@pytest.mark.parametrize("change", (
+    {"geometry_complete": False},
+    {"physical_floor_surface_identity_resolved": False},
+    {"physical_floor_surface_id": ""},
+    {"evidence_ids": ("ev-area", "ev-area")},
+    {"evidence_ids": ("   ",)},
+))
+def test_room_area_sealing_refuses_partial_physical_floor_or_invalid_receipts(
+    live_claim, change,
+):
+    floor = _resolved_floor(live_claim)
+    altered = replace(floor, **change)
+    claim = replace(
+        live_claim,
+        canonical_floors=tuple(
+            altered if row.canonical_floor_id == floor.canonical_floor_id
+            else row for row in live_claim.canonical_floors
+        ),
+    )
+    with pytest.raises(SourceClosedRunConflictError):
+        export.build_live_room_area_source_traces(
+            claim, workspace_id=7, project_id="source-project",
+        )
