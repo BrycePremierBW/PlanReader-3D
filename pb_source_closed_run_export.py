@@ -458,6 +458,14 @@ def _build_sealed_run(
                 raise SourceClosedRunConflictError(
                     f"noncanonical sealed source identity array: {field}"
                 )
+        if row.lineage_ok != (not row.lineage_reason_codes):
+            raise SourceClosedRunConflictError(
+                f"sealed quantity {row.quantity_id!r} has contradictory lineage validity receipt"
+            )
+        if not row.abstained and not row.object_identity_refs and row.lineage_ok:
+            raise SourceClosedRunConflictError(
+                f"sealed quantity {row.quantity_id!r} falsely authenticates a missing physical identity"
+            )
         if row.quantity_id in quantity_ids:
             raise SourceClosedRunConflictError(
                 f"duplicate sealed quantity id: {row.quantity_id}"
