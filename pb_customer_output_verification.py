@@ -13,6 +13,14 @@ import json
 import re
 from typing import Any
 
+from pb_migration_contracts import QuantityEvidence
+from pb_quantity_takeoff_adapter import (
+    CommercialMeasurementAuthority,
+    CommercialTakeoffProjectionError,
+    CommercialTakeoffSourceTrace,
+    compute_commercial_projection_fingerprint,
+)
+
 from pb_source_closed_run_export import (
     SealedSourceClosedRun,
     SealedSourceClosedQuantity,
@@ -360,6 +368,28 @@ def _verify_row_lineage(
         raise CustomerOutputVerificationError(
             f"customer row {quantity_id!r} has an invalid projection fingerprint"
         )
+    if fingerprint:
+        # Recompute the adapter's actual signed commercial row identity from
+        # the complete source-owned persisted provenance. A syntactically
+        # valid 64-character digest is not proof that this row belongs to the
+        # recorded revision, geometry or measurement method.
+        try:
+            produced_quantity = QuantityEvidence(**dict(qprov))
+            produced_trace = CommercialTakeoffSourceTrace(**dict(tprov))
+            produced_authority = CommercialMeasurementAuthority(**dict(apro))
+            expected_fingerprint = compute_commercial_projection_fingerprint(
+                produced_quantity,
+                trace=produced_trace,
+                authority=produced_authority,
+            )
+        except (TypeError, ValueError, OverflowError, CommercialTakeoffProjectionError) as exc:
+            raise CustomerOutputVerificationError(
+                f"customer row {quantity_id!r} has invalid signed projection provenance"
+            ) from exc
+        if fingerprint != expected_fingerprint:
+            raise CustomerOutputVerificationError(
+                f"customer row {quantity_id!r} projection fingerprint mismatch"
+            )
 
     source_reference = _clean(row.get("source_reference"))
     if not source_reference:
