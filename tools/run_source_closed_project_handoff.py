@@ -136,9 +136,14 @@ def _non_abstained(
         metadata = quantity.metadata if isinstance(quantity.metadata, Mapping) else {}
         if status not in {"firm", "corroborated"}:
             continue
-        if quantity.blocking_reasons or any("conflict" in str(code).lower() for code in quantity.reason_codes):
+        if quantity.blocking_reasons or any(
+            any(token in str(code).lower() for token in ("conflict", "stale", "superseded"))
+            for code in quantity.reason_codes
+        ):
             continue
-        if metadata.get("shadow_only") is True or metadata.get("commercial_projection_allowed") is False:
+        if "shadow_only" in metadata and metadata["shadow_only"] is not False:
+            continue
+        if "commercial_projection_allowed" in metadata and metadata["commercial_projection_allowed"] is not True:
             continue
         if metadata.get("is_stale") is not None and metadata.get("is_stale") is not False:
             continue
