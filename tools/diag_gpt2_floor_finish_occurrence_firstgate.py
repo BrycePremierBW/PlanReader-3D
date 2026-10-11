@@ -24,10 +24,10 @@ def _native_bbox(value: Any):
     return bbox if all(math.isfinite(v) for v in bbox) and bbox[2]>bbox[0] and bbox[3]>bbox[1] else None
 
 
-def inspect_floor_finish_occurrence_first_gates(scope: Any, viewport: Any, *, sha: str) -> dict[str, Any]:
+def inspect_floor_finish_occurrence_first_gates(scope: Any, viewport: Any, *, sha: str, page_id: str) -> dict[str, Any]:
     records=tuple(getattr(scope,"records",()) or ())
     expected_view=getattr(viewport,"view_id",None)
-    expected_page=getattr(scope,"page_id",None)
+    expected_page=page_id
     view_bbox=_native_bbox(getattr(viewport,"bounding_box",None))
     owner_valid=(
         _owned_text(expected_view) and _owned_text(expected_page)
