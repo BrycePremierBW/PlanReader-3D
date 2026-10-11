@@ -39,6 +39,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass, field, replace
 import math
+from numbers import Real
 from types import MappingProxyType
 from typing import Iterable, Mapping, Optional
 
@@ -273,6 +274,15 @@ def _finite_source_edge(value: Edge) -> bool:
     """Reject invalid endpoints and overflowed lengths on either source edge."""
     try:
         if len(value) != 2 or any(len(point) != 2 for point in value):
+            return False
+        # Downstream predicates operate on the ORIGINAL coordinates, not the
+        # float-converted copies below. Numeric strings and bools must not be
+        # laundered into seemingly valid source geometry by float().
+        if any(
+            not isinstance(coordinate, Real) or isinstance(coordinate, bool)
+            for point in value
+            for coordinate in point
+        ):
             return False
         first, second = (
             tuple(float(coordinate) for coordinate in point)
