@@ -1128,3 +1128,26 @@ def test_gpt2_b01_repeated_exact_source_label_producer_receipt_is_not_unique():
     )
     assert published.records==()
     assert published.status is EvidenceResolutionStatus.ABSTAINED
+
+
+def test_gpt2_b01_original_composite_wall_receipt_requires_typed_exact_w4_id():
+    from dataclasses import replace
+    walls=_wall_scope((_grid_atom("e_sep"),))
+    faces=_room_scope()
+    labels=_label_scope()
+    assert len(compose_grid_separated_room_faces(
+        wall_scope=walls, room_scope=faces, label_scope=labels
+    ).records)==1
+    first,second=faces.records
+    old_wall,source_edge=first.boundary_wall_edges[0]
+    assert isinstance(old_wall,str)
+    for invalid in (None,27,"", "  ",old_wall+" "):
+        contaminated=replace(
+            first,boundary_wall_edges=((invalid,source_edge),*first.boundary_wall_edges[1:])
+        )
+        scope=replace(faces,records=(contaminated,second))
+        result=compose_grid_separated_room_faces(
+            wall_scope=walls,room_scope=scope,label_scope=labels
+        )
+        assert result.records==()
+        assert result.status is EvidenceResolutionStatus.ABSTAINED
