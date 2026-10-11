@@ -181,3 +181,25 @@ def test_gpt2_two_material_rows_cannot_reuse_one_original_source_evidence_id():
     assert kept["first_failure_counts"]=={
         "material_occurrence_authenticated_room_owner_unresolved":2
     }
+
+
+def test_gpt2_empty_material_scope_never_looks_like_a_resolved_room_finish():
+    exact=inspect(S(
+        records=(),status=EvidenceResolutionStatus.CORROBORATED,
+        scope_complete=True
+    ),view(),sha="sha",page_id="7")
+    assert exact["source_scope_first_unclosed_gate"]=="source_occurrence_unavailable"
+    assert exact["producer_occurrence_count"]==0
+    assert exact["source_occurrence_first_gates"]==[]
+    assert not exact["room_finish_ownership_published"]
+    for status,complete in (
+        (EvidenceResolutionStatus.ABSTAINED,False),
+        (EvidenceResolutionStatus.CORROBORATED,False),
+    ):
+        withheld=inspect(S(
+            records=(),status=status,scope_complete=complete
+        ),view(),sha="sha",page_id="7")
+        assert withheld["source_scope_first_unclosed_gate"]==(
+            "material_occurrence_scope_unresolved"
+        )
+        assert not withheld["floor_finish_quantity_published"]
