@@ -116,10 +116,13 @@ def _verified_metric_slab_polygon_area(
     if type(polygon) not in (tuple, list) or not validate_boundary_polygon(polygon):
         return None
     points = tuple((float(point[0]), float(point[1])) for point in polygon)
-    twice_area = math.fsum(
-        x0 * y1 - x1 * y0
-        for (x0, y0), (x1, y1) in zip(points, (*points[1:], points[0]))
-    )
+    try:
+        twice_area = math.fsum(
+            x0 * y1 - x1 * y0
+            for (x0, y0), (x1, y1) in zip(points, (*points[1:], points[0]))
+        )
+    except (ValueError, OverflowError):
+        return None
     area = abs(twice_area) / 2.0
     return area if math.isfinite(area) and area > 0.0 else None
 
@@ -169,12 +172,19 @@ def project_resolved_slab_entity(
     # sufficient when the same source receipt can be replayed with changed
     # coordinates or a stale value.
     metric_area = _verified_metric_slab_polygon_area(boundary.polygon)
+    try:
+        boundary_value = float(boundary.area_m2)
+        resolved_value = float(slab.area_m2)
+    except (TypeError, ValueError, OverflowError):
+        boundary_value = resolved_value = float("nan")
     if (
         type(boundary.area_m2) is bool
         or type(slab.area_m2) is bool
         or metric_area is None
+        or not math.isfinite(boundary_value)
+        or not math.isfinite(resolved_value)
         or not math.isclose(
-            metric_area, float(boundary.area_m2), rel_tol=1e-9, abs_tol=1e-6
+            metric_area, boundary_value, rel_tol=1e-9, abs_tol=1e-6
         )
     ):
         return LiveCanonicalSlabProjection(
