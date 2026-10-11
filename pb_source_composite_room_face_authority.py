@@ -184,6 +184,11 @@ def _edge_key(value) -> tuple[tuple[float, float], tuple[float, float]] | None:
     return (first, second) if first <= second else (second, first)
 
 
+def _authentic_original_owner_id(value: object) -> bool:
+    """Only exact native, nonblank producer IDs may own physical edges."""
+    return isinstance(value, str) and bool(value) and value == value.strip()
+
+
 def _atomic_source_wall_edge_counts(
     room_scope: SourceRoomFaceScopeResult,
     fully_grid_wall_ids: set[str],
@@ -214,14 +219,16 @@ def _atomic_source_wall_edge_counts(
     ] = defaultdict(list)
 
     for record in room_scope.records:
-        face_id = str(record.face_id)
+        face_id = getattr(record, "face_id", None)
+        if not _authentic_original_owner_id(face_id):
+            continue
         for item in tuple(getattr(record, "boundary_wall_edges", ()) or ()):
             try:
-                wall_id = str(item[0] or "").strip()
+                wall_id = item[0]
                 edge = _edge_key(item[1])
-            except (IndexError, TypeError):
+            except (IndexError, TypeError, ValueError, OverflowError):
                 continue
-            if not wall_id or edge is None:
+            if not _authentic_original_owner_id(wall_id) or edge is None:
                 continue
             (ax, ay), (bx, by) = edge
             if wall_id in fully_grid_wall_ids and ax == bx:
@@ -278,14 +285,16 @@ def _local_edge_owners(
         set[str],
     ] = defaultdict(set)
     for record in room_scope.records:
-        face_id = str(record.face_id)
+        face_id = getattr(record, "face_id", None)
+        if not _authentic_original_owner_id(face_id):
+            continue
         for item in tuple(getattr(record, "boundary_wall_edges", ()) or ()):
             try:
-                wall_id = str(item[0] or "").strip()
+                wall_id = item[0]
                 edge = _edge_key(item[1])
-            except (IndexError, TypeError):
+            except (IndexError, TypeError, ValueError, OverflowError):
                 continue
-            if wall_id and edge is not None:
+            if _authentic_original_owner_id(wall_id) and edge is not None:
                 owners[(wall_id, edge)].add(face_id)
     return {
         key: tuple(sorted(face_ids))
