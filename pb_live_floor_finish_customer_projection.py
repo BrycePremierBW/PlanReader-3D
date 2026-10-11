@@ -87,11 +87,19 @@ def project_live_floor_finish_customer_rows(
         workspace_id=int(workspace_id),
         project_id=project_id,
     )
-    floors = {
-        _clean(floor.physical_floor_surface_id): floor
-        for floor in claim.canonical_floors
-        if _clean(floor.physical_floor_surface_id)
-    }
+    # Source-closed finish QuantityEvidence owns the canonical floor ID.
+    # Physical floor IDs can differ; resolving them here silently drops
+    # otherwise authenticated finish rows even though sealing uses canonical.
+    floors = {}
+    for floor in claim.canonical_floors:
+        canonical_id = _clean(floor.canonical_floor_id)
+        if not canonical_id:
+            continue
+        if canonical_id in floors:
+            # The upstream source trace builder rejects duplicates too,
+            # but never silently pick a last-writer-wins customer location.
+            raise ValueError("duplicate canonical floor identity in finish projection")
+        floors[canonical_id] = floor
     projected_quantities: list[QuantityEvidence] = []
     authorities: dict[str, CommercialMeasurementAuthority] = {}
     for quantity in quantities:
