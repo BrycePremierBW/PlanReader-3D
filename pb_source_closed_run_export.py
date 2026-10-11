@@ -63,6 +63,17 @@ def _lineage_reasons(
         if _clean(candidate).lower() != _clean(authoritative).lower():
             reasons.append(f"{key}_mismatch")
 
+    workspace = metadata.get("workspace_id")
+    if workspace is not None:
+        if type(workspace) is int and workspace > 0:
+            original_workspace = workspace
+        elif type(workspace) is str and workspace.isascii() and workspace.isdecimal():
+            original_workspace = int(workspace)
+        else:
+            original_workspace = None
+        if original_workspace != trace.workspace_id:
+            reasons.append("workspace_id_mismatch")
+
     # A whitespace-only parent ID can otherwise pass the set-membership test
     # when it is copied verbatim into both QuantityEvidence and its trace,
     # falsely authenticating a physical object which has no usable identity.
