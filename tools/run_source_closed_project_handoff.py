@@ -513,7 +513,16 @@ def generate_project_handoff(
 
     # The extractor may reread the file across page/source passes. Reject
     # replaced input PDFs before writing *any* family/customer seal artifact.
-    if _sha256(pdf_path) != source_sha256:
+    try:
+        current_source_sha = _sha256(pdf_path)
+    except OSError as exc:
+        summary["status"] = "source_unavailable_during_production"
+        summary["claim_reason_codes"] = [
+            *summary["claim_reason_codes"], "source_read_failed_during_production"
+        ]
+        _write_json(output_dir / "production_summary.json", summary)
+        raise RuntimeError("source PDF unavailable during production handoff") from exc
+    if current_source_sha != source_sha256:
         summary["status"] = "source_changed_during_production"
         summary["claim_reason_codes"] = [*summary["claim_reason_codes"], "source_sha_changed"]
         _write_json(output_dir / "production_summary.json", summary)
