@@ -661,3 +661,20 @@ def test_floor_customer_figured_authority_requires_two_distinct_typed_source_axe
             metadata={**dict(original.metadata), "figured_dimension_ids": ids},
         )
         assert floor_customer_projection._measurement_authority(replay) is None
+
+
+def test_room_customer_figured_measurement_requires_unique_horizontal_vertical_receipts(live_claim):
+    source = _firm_quantity(live_claim)
+    valid = tuple(source.metadata.get("figured_dimension_ids") or ())
+    assert len(valid) == 2
+    assert customer_projection._figured_measurement_authority(source) is not None
+    for invalid in (
+        (), (valid[0],), (valid[0], valid[0]),
+        (valid[0], valid[1], "foreign-dimension"),
+        "one-raw-string", (valid[0], None),
+    ):
+        damaged = replace(
+            source,
+            metadata={**dict(source.metadata), "figured_dimension_ids": invalid},
+        )
+        assert customer_projection._figured_measurement_authority(damaged) is None
