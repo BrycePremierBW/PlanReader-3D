@@ -567,8 +567,32 @@ def generate_project_handoff(
         expected_quantities = expected_by_family[family]
         expected_ids = tuple(q.quantity_id for q in expected_quantities)
         actual_ids = tuple(q.quantity_id for q in run.quantities)
+        by_producer_id = {q.quantity_id: q for q in expected_quantities}
+        content_changed = False
+        for sealed_row in run.quantities:
+            original = by_producer_id.get(sealed_row.quantity_id)
+            if original is None:
+                content_changed = True
+                continue
+            if any(
+                getattr(sealed_row, name, None) != getattr(original, name)
+                for name in (
+                    "family", "semantic_key", "value", "unit", "status",
+                    "authority", "confidence", "abstained",
+                )
+            ) or any(
+                getattr(sealed_row, field, None) != tuple(sorted(getattr(original, source_field)))
+                for field, source_field in (
+                    ("object_identity_refs", "input_entity_ids"),
+                    ("evidence_ids", "evidence_ids"),
+                    ("blocking_reasons", "blocking_reasons"),
+                    ("reason_codes", "reason_codes"),
+                )
+            ):
+                content_changed = True
         if (
-            len(set(expected_ids)) != len(expected_ids)
+            content_changed
+            or             len(set(expected_ids)) != len(expected_ids)
             or len(set(actual_ids)) != len(actual_ids)
             or set(expected_ids) != set(actual_ids)
             or any(q.abstained or not q.lineage_ok for q in run.quantities)
