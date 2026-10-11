@@ -176,6 +176,39 @@ def _physical_union_first_unclosed_gate(
     return result
 
 
+def _competing_original_label_receipts(component, candidate, label_scope):
+    """Source-face overlap only, never label-string similarity or room union."""
+    owned=set(component)
+    direct=[]
+    for record in tuple(getattr(label_scope,"records",()) or ()):
+        face=getattr(record,"face_id",None)
+        if isinstance(face,str) and face in owned:
+            direct.append({
+                "producer_receipt_id":getattr(record,"record_id",None),
+                "native_room_label":getattr(record,"label",None),
+                "competing_source_face_ids":[face],
+                "source_direct_room_label_record_only":True,
+            })
+    splits=[]
+    for record in tuple(getattr(label_scope,"split_face_candidates",()) or ()):
+        if record is candidate:
+            continue
+        raw=getattr(record,"word_face_ids",()) or ()
+        if not isinstance(raw,(tuple,list)):
+            continue
+        overlap=sorted({face for face in raw if isinstance(face,str) and face in owned})
+        if overlap:
+            splits.append({
+                "producer_receipt_id":getattr(record,"record_id",None),
+                "native_room_label":getattr(record,"label",None),
+                "competing_source_face_ids":overlap,
+                "source_direct_room_label_record_only":False,
+            })
+    return sorted(direct+splits,key=lambda row:(
+        str(row["producer_receipt_id"]),str(row["native_room_label"])
+    ))
+
+
 def inspect_split_grid_component_first_failure(
     candidate: Any,
     *,
@@ -282,6 +315,11 @@ def inspect_split_grid_component_first_failure(
         connected, candidate, label_scope=label_scope,
     ):
         output["first_unclosed_gate"] = "grid_connected_component_has_competing_room_label"
+        conflicts=_competing_original_label_receipts(
+            connected,candidate,label_scope
+        )
+        output["competing_original_label_receipt_count"]=len(conflicts)
+        output["competing_original_label_receipts_diagnostic_only"]=conflicts[:25]
         return output
     selected = _candidate_record(
         candidate, wall_scope=wall_scope, room_scope=room_scope,
