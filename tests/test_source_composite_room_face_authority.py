@@ -1006,3 +1006,42 @@ def test_gpt2_split_label_exact_word_face_source_receipts_required():
             ),
         )
         assert rejected.records == ()
+
+
+def test_gpt2_b02_composite_rejects_stringified_missing_source_receipts():
+    """None and numeric upstream identities are not physical room ancestry."""
+    from dataclasses import replace
+    import copy
+    wall=_wall_scope((_grid_atom("e_sep"),))
+    room=_room_scope()
+    labelled=_label_scope()
+    assert len(compose_grid_separated_room_faces(
+        wall_scope=wall,room_scope=room,label_scope=labelled
+    ).records)==1
+    left,right=room.records
+    for malformed in (None, 73, "", " record_right"):
+        contaminated=replace(room,records=(
+            left,replace(right,record_id=malformed)
+        ))
+        candidate=copy.copy(labelled.split_face_candidates[0])
+        candidate.source_room_face_record_ids=(
+            "record_left",str(malformed),
+        )
+        result=compose_grid_separated_room_faces(
+            wall_scope=wall,room_scope=contaminated,
+            label_scope=replace(labelled,split_face_candidates=(candidate,))
+        )
+        assert result.status is EvidenceResolutionStatus.ABSTAINED
+        assert result.records == ()
+
+    # A native producer face ID of integer 7 cannot be owned by the string
+    # "7" in word evidence, even with exactly matching source geometry.
+    numeric=replace(room,records=(left,replace(right,face_id=7)))
+    candidate=copy.copy(labelled.split_face_candidates[0])
+    candidate.word_face_ids=("face_left","7")
+    result=compose_grid_separated_room_faces(
+        wall_scope=wall,room_scope=numeric,
+        label_scope=replace(labelled,split_face_candidates=(candidate,))
+    )
+    assert result.records == ()
+    assert result.status is EvidenceResolutionStatus.ABSTAINED
