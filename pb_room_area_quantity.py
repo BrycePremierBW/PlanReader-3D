@@ -105,6 +105,16 @@ def _abstention(
     )
 
 
+def _valid_source_confidence(value: object) -> bool:
+    if type(value) not in (int, float):
+        return False
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return False
+    return math.isfinite(numeric) and 0.0 <= numeric <= 1.0
+
+
 def _validate_common(
     *,
     room: RoomCandidate,
@@ -154,12 +164,8 @@ def _validate_common(
     if room.evidence and not set(room.evidence).issubset(set(document.evidence_ids)):
         blockers.append("room_evidence_not_owned_by_document")
     if (
-        type(room.geometry_confidence) not in (int, float)
-        or not math.isfinite(float(room.geometry_confidence))
-        or not 0.0 <= float(room.geometry_confidence) <= 1.0
-        or type(entity.confidence) not in (int, float)
-        or not math.isfinite(float(entity.confidence))
-        or not 0.0 <= float(entity.confidence) <= 1.0
+        not _valid_source_confidence(room.geometry_confidence)
+        or not _valid_source_confidence(entity.confidence)
     ):
         blockers.append("room_area_source_confidence_invalid")
     if room.area_conflict:
@@ -188,9 +194,7 @@ def _validate_explicit_area(
     if evidence.status != EvidenceResolutionStatus.CORROBORATED:
         blockers.append("explicit_area_not_corroborated")
     if (
-        type(evidence.confidence) not in (int, float)
-        or not math.isfinite(float(evidence.confidence))
-        or not 0.0 <= float(evidence.confidence) <= 1.0
+        not _valid_source_confidence(evidence.confidence)
     ):
         blockers.append("explicit_area_confidence_invalid")
     if evidence.normalized_value is None:
@@ -198,9 +202,13 @@ def _validate_explicit_area(
     elif type(evidence.normalized_value) not in (int, float):
         blockers.append("explicit_area_invalid")
     else:
-        value = float(evidence.normalized_value)
-        if not math.isfinite(value) or value <= 0.0:
+        try:
+            value = float(evidence.normalized_value)
+        except (TypeError, ValueError, OverflowError):
             blockers.append("explicit_area_invalid")
+        else:
+            if not math.isfinite(value) or value <= 0.0:
+                blockers.append("explicit_area_invalid")
     # Figured-dimension receipts are optional for genuinely explicit printed
     # area labels, but when supplied may never be an iterable string that
     # masquerades as two independent source dimensions.
@@ -209,7 +217,7 @@ def _validate_explicit_area(
     if figured is not None and (
         not isinstance(figured, (tuple, list))
         or len(figured) != 2
-        or any(type(item) is not str or not item.strip() for item in figured)
+        or any(type(item) is not str or not item or item != item.strip() for item in figured)
         or len(set(figured)) != 2
     ):
         blockers.append("explicit_area_figured_receipts_invalid")
