@@ -1,0 +1,118 @@
+name: GPT MAX Original Positive Pixel Source Shadow
+on:
+  pull_request:
+    paths:
+      - tools/gptmax_raster_positive_pixel_source.py
+      - tools/diag_gptmax_raster_positive_pixel_source.py
+      - tests/test_gptmax_raster_positive_pixel_source.py
+      - docs/engineering/gptmax_raster_positive_pixel_source_shadow.md
+      - .github/workflows/test-gptmax-raster-positive-pixel-source.yml
+concurrency:
+  group: gptmax-positive-pixel-source-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      matrix:
+        python-version: ["3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - run: python -m pip install -r requirements.txt -r requirements-ci-v1228.txt
+      - name: Pixel source ownership, tampering, lineage and unchanged publication
+        run: |
+          PYTHONPATH=. python -m pytest -q tests/test_gptmax_raster_positive_pixel_source.py tests/test_g17_source_observation_lineage_v1.py tests/test_source_visibility_authority.py tests/test_raster_source_visibility_v1.py tests/test_source_visibility_raster_idempotency.py
+          PYTHONPATH=. python scripts/check_provider_gold_isolation.py
+          PYTHONPATH=. python scripts/check_full_plan_v2_integrity.py
+  original-lot16:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: python -m pip install -r requirements.txt -r requirements-ci-v1228.txt
+      - name: Independent original PR-base host and frame evidence
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git rev-parse HEAD > head_sha.txt
+          git worktree add --detach ../pixel-source-base "$BASE_SHA"
+          (cd ../pixel-source-base && PYTHONPATH=. python -u tools/diag_opening_wall_face_preservation.py --pdf "documents/sources/1. Construction Plans - Lot 16 Power (REV E).pdf" --page-id 3 --output ../pixel-source-before.json)
+          cp ../pixel-source-before.json pixel-source-before.json
+      - name: Source-owned nomination and all experimental W2/W4 ancestry
+        run: |
+          PYTHONPATH=. python -u tools/diag_gptmax_raster_positive_pixel_source.py \
+            --pdf "documents/sources/1. Construction Plans - Lot 16 Power (REV E).pdf" \
+            --page-id 3 \
+            --expected-source-sha 10109b4b6e85e6e27af81f6399ce4b92abfdba80f87dc69dd5887bd6f3a65844 \
+            --expected-render-sha 64e58ab817b1b89d3c83e0e04a972f5e4e48fa3816d346af9cc809b9b56357ab \
+            --output lot16-original-positive-pixel-source.json
+      - name: Default extraction and strict original host/frame retention
+        run: |
+          PYTHONPATH=. python -u tools/diag_opening_wall_face_preservation.py --pdf "documents/sources/1. Construction Plans - Lot 16 Power (REV E).pdf" --page-id 3 --output pixel-source-after.json
+          PYTHONPATH=. python tools/gptmax_compare_source_face_retention.py --baseline pixel-source-before.json --candidate pixel-source-after.json --output pixel-source-retention.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          x=json.loads(Path("lot16-original-positive-pixel-source.json").read_text())
+          assert x["source_sha256"]=="10109b4b6e85e6e27af81f6399ce4b92abfdba80f87dc69dd5887bd6f3a65844"
+          assert x["render_sha256"]=="64e58ab817b1b89d3c83e0e04a972f5e4e48fa3816d346af9cc809b9b56357ab"
+          assert x["primitive_safety_cap"]==20000
+          assert x["ordinary_source_snapshot_unchanged"] and x["ordinary_visibility_rejects_shadow_kind"]
+          assert x["original_source_render_reauthenticated"]
+          records=x["authenticated_pixel_source_records"]
+          assert records and len(records)==x["authenticated_pixel_source_count"]
+          assert len(records)==1952
+          addresses=[r["source_observation"]["observation_id"] for r in records]
+          assert len(addresses)==len(set(addresses))
+          assert all(r["source_pixels_authenticated"] and r["proposition"]=="source_observation_exists" for r in records)
+          assert all(not r["ordinary_visible_segment_authority"] and not r["physical_wall_authority"] and not r["host_publication_allowed"] for r in records)
+          pixel_runs={tuple(r["pixel_receipt"]["pixel_geometry"]) for r in records}
+          assert {(851,496,851,504),(852,491,852,505),(853,496,853,505),(854,496,854,504)} <= pixel_runs
+          trace=x["experimental_w2_w4"]
+          assert trace["input_source_count"] <= 20000
+          census={r["source_observation_id"] for r in trace["source_parent_census"]}
+          assert set(addresses) <= census and len(census)==trace["input_source_count"]
+          assert trace["w4_edge_map_consistent"]
+          ordinary_ids={r["observation_id"] for r in x["ordinary_visible_source_records"]}
+          assert len(ordinary_ids)==x["ordinary_source_record_count"]
+          all_ids=ordinary_ids | set(addresses)
+          assert len(all_ids)==trace["input_source_count"]
+          assert all(set(r["source_observation_ids"])<=all_ids and not r["physical_host_authority"] for r in trace["all_w2_edges"])
+          losses={r["fragment_id"]:r for r in trace["all_snap_collapsed_fragments"]}
+          for row in trace["source_parent_census"]:
+              assert all(row["source_observation_id"] in losses[f]["source_observation_ids"] for f in row["snap_collapsed_fragment_ids"])
+          for k in ("source_universe_completeness_proven","physical_equivalence_proven","host_publication_allowed","opening_count_publication_allowed","metric_quantity_publication_allowed"):
+              assert x[k] is False
+          assert x["benchmark_accuracy"] is None and not trace["host_publication_allowed"]
+          before=Path("pixel-source-before.json").read_bytes()
+          after=Path("pixel-source-after.json").read_bytes()
+          assert before==after, "default original source report changed"
+          report=json.loads(after)
+          assert report["summary"]=={"physical_existence_claims":23,"host_bindings":14,"host_frames":9}
+          print({"authenticated_pixel_sources":len(records),"unchanged_original_host_frames":True})
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gptmax-original-positive-pixel-source-lot16
+          path: |
+            head_sha.txt
+            pixel-source-before.json
+            pixel-source-after.json
+            pixel-source-retention.json
+            lot16-original-positive-pixel-source.json
+          retention-days: 30
