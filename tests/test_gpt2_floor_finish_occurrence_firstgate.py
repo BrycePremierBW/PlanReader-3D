@@ -96,3 +96,40 @@ def test_incomplete_material_scope_first_fails_even_with_valid_occurrence():
         }
         assert not row["room_finish_ownership_published"]
         assert not row["floor_finish_quantity_published"]
+
+
+def test_gpt2_source_floor_material_viewport_supports_native_enum_values():
+    from enum import Enum
+    from tools.diag_gpt2_floor_finish_occurrence_firstgate import (
+        _source_token,
+    )
+    class Status(Enum):
+        RESOLVED="resolved"
+        UNSUPPORTED="unsupported"
+    class View(Enum):
+        FLOOR="floor_plan"
+        RCP="reflected_ceiling_plan"
+    assert _source_token(Status.RESOLVED)=="resolved"
+    assert _source_token(View.FLOOR)=="floor_plan"
+    assert _source_token(13) is None
+    source=S(
+        records=(rec(),),status=EvidenceResolutionStatus.CORROBORATED,
+        scope_complete=True,
+    )
+    accepted=inspect(source,S(
+        view_id="view_p7_2",view_type=View.FLOOR,status=Status.RESOLVED,
+        bounding_box=(0.,0.,100.,100.),
+    ),sha="sha",page_id="7")
+    assert accepted["first_failure_counts"]=={
+        "material_occurrence_authenticated_room_owner_unresolved":1
+    }
+    assert not accepted["room_finish_ownership_published"]
+    for kind,status in ((View.RCP,Status.RESOLVED),(View.FLOOR,Status.UNSUPPORTED)):
+        invalid=inspect(source,S(
+            view_id="view_p7_2",view_type=kind,status=status,
+            bounding_box=(0.,0.,100.,100.),
+        ),sha="sha",page_id="7")
+        assert invalid["first_failure_counts"]=={
+            "source_floor_plan_viewport_unresolved":1
+        }
+        assert not invalid["floor_finish_quantity_published"]
