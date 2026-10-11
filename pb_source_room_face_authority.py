@@ -228,6 +228,16 @@ def _publication_boundary_ownership(
             return None
 
         owner = edge_owner.get(face_edge)
+        if owner is not None:
+            # Exact index ownership is strong only when the claimed W4
+            # owner still has an actual original source wall subedge. A
+            # dangling/stale index key is not physical wall evidence.
+            original_source_edges = wall_edges.get(owner, ())
+            if not any(
+                _edge_contains_edge(source_edge, face_edge)
+                for source_edge in original_source_edges
+            ):
+                return None
         if owner is None:
             containing = _containing_wall_ids(
                 face_edge,
