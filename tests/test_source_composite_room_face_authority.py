@@ -1105,3 +1105,27 @@ def test_gpt2_b01_grid_component_first_gate_rejects_stale_label_face_receipt():
             "split_source_face_or_receipt_ambiguous",
         )
         assert row["source_room_metric_area_published"] is False
+
+
+def test_gpt2_b01_precomputed_source_w4_grid_indexes_preserve_first_gate():
+    from tools.diag_gpt2_grid_component_first_failure import (
+        inspect_split_grid_component_first_failure,
+    )
+    from pb_source_composite_room_face_authority import (
+        _fully_grid_opposed_wall_evidence, _grid_local_adjacency,
+    )
+    walls=_wall_scope((_grid_atom("e_sep"),))
+    rooms=_room_scope()
+    labels=_label_scope()
+    grid,evidence=_fully_grid_opposed_wall_evidence(walls)
+    adjacency=_grid_local_adjacency(rooms,grid)
+    candidate=labels.split_face_candidates[0]
+    unindexed=inspect_split_grid_component_first_failure(
+        candidate,wall_scope=walls,room_scope=rooms,label_scope=labels
+    )
+    indexed=inspect_split_grid_component_first_failure(
+        candidate,wall_scope=walls,room_scope=rooms,label_scope=labels,
+        grid_walls=grid,grid_evidence=evidence,grid_adjacency=adjacency,
+    )
+    assert indexed==unindexed
+    assert indexed["source_room_composite_published_by_diagnostic"] is False
