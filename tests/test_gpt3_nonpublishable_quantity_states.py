@@ -48,3 +48,35 @@ def test_real_abstention_keeps_its_missing_numeric_value():
                  blocking_reasons=("not_source_proven",))
     sealed = seal_source_closed_quantity(q, trace=trace())
     assert sealed.abstained and sealed.value is None
+
+
+@pytest.mark.parametrize(("metadata_override", "reason"), [
+    ({"shadow_only": True}, "shadow_only_quantity"),
+    ({"commercial_projection_allowed": False}, "commercial_projection_forbidden"),
+    ({"shadow_only": True, "commercial_projection_allowed": False}, "shadow_only_quantity"),
+])
+def test_shadow_and_explicitly_forbidden_source_evidence_cannot_be_sealed_as_valid(
+    metadata_override, reason
+):
+    initial=quantity()
+    metadata={**initial.metadata, **metadata_override}
+    q=quantity(metadata=metadata)
+    sealed=seal_source_closed_quantity(q,trace=trace())
+    assert not sealed.abstained and sealed.value==13.270425
+    assert not sealed.lineage_ok
+    assert reason in sealed.lineage_reason_codes
+    with pytest.raises(MissingCommercialAuthorityError):
+        quantity_evidence_to_takeoff_output_row(
+            q,trace=trace(),
+            authority=CommercialMeasurementAuthority(method="direct_evidence"),
+        )
+
+
+def test_explicit_positive_projection_metadata_and_nonshadow_remain_valid():
+    q=quantity(metadata={**quantity().metadata,
+                         "shadow_only": False, "commercial_projection_allowed": True})
+    assert seal_source_closed_quantity(q,trace=trace()).lineage_ok
+    row=quantity_evidence_to_takeoff_output_row(
+        q,trace=trace(),authority=CommercialMeasurementAuthority(method="direct_evidence")
+    )
+    assert row and row["quantity_id"]=="qty-1"
