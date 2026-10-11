@@ -247,6 +247,19 @@ def _validate_quantity_trace(
             f"unit {quantity.unit!r} is not valid for the commercial takeoff projection"
         )
 
+    for source_field, identifiers in (
+        ("quantity input_entity_ids", quantity.input_entity_ids),
+        ("quantity evidence_ids", quantity.evidence_ids),
+        ("source trace canonical_entity_ids", trace.canonical_entity_ids),
+        ("source trace evidence_ids", trace.evidence_ids),
+    ):
+        if any(
+            type(value) is not str or not value or value != value.strip()
+            for value in identifiers
+        ):
+            raise MissingCommercialAuthorityError(
+                f"{source_field} must contain canonical nonblank source identities"
+            )
     missing_evidence = set(quantity.evidence_ids) - set(trace.evidence_ids)
     if missing_evidence:
         raise MissingCommercialAuthorityError(
