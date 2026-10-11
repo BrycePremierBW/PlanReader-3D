@@ -338,14 +338,29 @@ def _validate_area_quantity(
     if tuple(area_quantity.input_entity_ids) != (_clean(scope_entity_id),):
         blockers.append("upstream_area_scope_mismatch")
 
+    # This is only a PROVISIONAL ceiling handoff, but a false positive here
+    # can be replayed as a future source-backed ceiling. Validate the actual
+    # original area evidence instead of relying on an upstream status string.
     if area_quantity.value is not None:
-        try:
-            value = float(area_quantity.value)
-        except (TypeError, ValueError, OverflowError):
+        if type(area_quantity.value) not in (int, float):
             blockers.append("upstream_area_invalid")
         else:
+            value = float(area_quantity.value)
             if not math.isfinite(value) or value <= 0.0:
                 blockers.append("upstream_area_invalid")
+    if (
+        type(area_quantity.confidence) not in (int, float)
+        or not math.isfinite(float(area_quantity.confidence))
+        or not 0.0 <= float(area_quantity.confidence) <= 1.0
+    ):
+        blockers.append("upstream_area_confidence_invalid")
+    if (
+        not isinstance(area_quantity.evidence_ids, (tuple, list))
+        or not area_quantity.evidence_ids
+        or any(type(value) is not str or not value.strip() for value in area_quantity.evidence_ids)
+        or len(set(area_quantity.evidence_ids)) != len(area_quantity.evidence_ids)
+    ):
+        blockers.append("upstream_area_source_receipts_invalid")
 
     if not set(area_quantity.evidence_ids).issubset(set(document.evidence_ids)):
         blockers.append("upstream_area_evidence_not_owned_by_document")
@@ -357,13 +372,22 @@ def _validate_area_quantity(
         blockers.append("upstream_area_revision_mismatch")
     if _clean(meta.get("viewport_id")) != viewport.viewport_id:
         blockers.append("upstream_area_coordinate_frame_mismatch")
-    try:
-        area_page = int(meta.get("page_no"))
-    except (TypeError, ValueError, OverflowError):
+    raw_area_page = meta.get("page_no")
+    if type(raw_area_page) not in (int, str) or (
+        isinstance(raw_area_page, str) and (
+            not raw_area_page or raw_area_page != raw_area_page.strip()
+            or not raw_area_page.isdecimal()
+        )
+    ):
         blockers.append("upstream_area_page_unbound")
     else:
-        if area_page != int(page_no):
-            blockers.append("upstream_area_page_mismatch")
+        try:
+            area_page = int(raw_area_page)
+        except (TypeError, ValueError, OverflowError):
+            blockers.append("upstream_area_page_unbound")
+        else:
+            if area_page != int(page_no):
+                blockers.append("upstream_area_page_mismatch")
 
     blockers.extend(
         _base_context_blockers(
