@@ -4,6 +4,7 @@ from test_source_closed_run_export import quantity, trace
 from pb_quantity_takeoff_adapter import (
     CommercialMeasurementAuthority,
     MissingCommercialAuthorityError,
+    CommercialTakeoffConflictError,
     quantity_evidence_to_takeoff_output_row,
     quantity_status_not_publishable,
 )
@@ -23,7 +24,8 @@ def test_provisional_source_quantities_cannot_reach_commercial_rows(status):
     assert not sealed.lineage_ok
     assert "quantity_status_not_publishable" in sealed.lineage_reason_codes
     assert quantity_status_not_publishable(status)
-    with pytest.raises(MissingCommercialAuthorityError, match="nonpublishable"):
+    error = CommercialTakeoffConflictError if "conflict" in status else MissingCommercialAuthorityError
+    with pytest.raises(error):
         quantity_evidence_to_takeoff_output_row(
             q, trace=source, authority=CommercialMeasurementAuthority(method="direct_evidence"),
         )
@@ -94,7 +96,8 @@ def test_provisional_evidence_enum_status_is_never_commercially_firm(enum_value)
     sealed=seal_source_closed_quantity(q,trace=trace())
     assert sealed.lineage_ok is False
     assert "quantity_status_not_publishable" in sealed.lineage_reason_codes
-    with pytest.raises(MissingCommercialAuthorityError, match="nonpublishable"):
+    error = CommercialTakeoffConflictError if enum_value.value == "conflict" else MissingCommercialAuthorityError
+    with pytest.raises(error):
         quantity_evidence_to_takeoff_output_row(
             q,trace=trace(),
             authority=CommercialMeasurementAuthority(method="direct_evidence"),
@@ -110,7 +113,7 @@ def test_corroborated_evidence_enum_remains_eligible():
 
 
 @pytest.mark.parametrize("untrusted_status", [
-    "provisional", "review_required", "excluded", "unknown",
+    "excluded", "unknown",
     "future_status", "shadow_firm", "firm_pending", "corroborated_but_unresolved",
 ])
 def test_unknown_or_future_statuses_fail_closed_instead_of_self_certifying(untrusted_status):
@@ -137,3 +140,58 @@ def test_known_proven_statuses_keep_existing_publication_authority(firm_status):
         q, trace=source,
         authority=CommercialMeasurementAuthority(method="direct_evidence"),
     )["quantity_id"] == "qty-1"
+
+
+
+@pytest.mark.parametrize("status", ["provisional", "review_required"])
+def test_unapproved_review_draft_is_allowed_but_same_quantity_must_not_seal(status):
+    q = quantity(status=status)
+    source = trace()
+    row = quantity_evidence_to_takeoff_output_row(
+        q, trace=source,
+        authority=CommercialMeasurementAuthority(method="direct_evidence"),
+    )
+    assert row["origin"] == "AI"
+    assert row["quantity_status"] == "To review"
+    assert not seal_source_closed_quantity(q, trace=source).lineage_ok
+    assert quantity_status_not_publishable(status)
+
+
+@pytest.mark.parametrize("status", ["provisional", "review_required"])
+def test_shadow_or_explicitly_forbidden_review_candidate_is_never_projected(status):
+    q = quantity(status=status, metadata={
+        **quantity().metadata, "shadow_only": True,
+        "commercial_projection_allowed": False,
+    })
+    with pytest.raises(MissingCommercialAuthorityError, match="shadow-only"):
+        quantity_evidence_to_takeoff_output_row(
+            q, trace=trace(),
+            authority=CommercialMeasurementAuthority(method="direct_evidence"),
+        )
+
+
+def test_canonical_ceiling_handoff_only_final_quantity_seals_without_customer_promotion():
+    q = quantity(family="ceiling_lining", status="firm", metadata={
+        **quantity().metadata,
+        "shadow_only": False,
+        "commercial_projection_allowed": False,
+        "quantity_handoff_only": True,
+    })
+    source = trace()
+    assert seal_source_closed_quantity(q, trace=source).lineage_ok
+    with pytest.raises(MissingCommercialAuthorityError, match="explicitly blocks"):
+        quantity_evidence_to_takeoff_output_row(
+            q, trace=source,
+            authority=CommercialMeasurementAuthority(method="direct_evidence"),
+        )
+
+
+def test_stale_shadow_handoff_only_does_not_self_authorize():
+    q = quantity(status="provisional", metadata={
+        **quantity().metadata, "shadow_only": True,
+        "commercial_projection_allowed": False,
+        "quantity_handoff_only": True,
+    })
+    sealed = seal_source_closed_quantity(q, trace=trace())
+    assert not sealed.lineage_ok
+    assert "commercial_projection_forbidden" in sealed.lineage_reason_codes
