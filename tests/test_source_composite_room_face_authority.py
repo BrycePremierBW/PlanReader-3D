@@ -1317,3 +1317,52 @@ def test_gpt2_grid_first_gate_requires_nonempty_aggregate_separator_evidence():
         edges,{"w_a":(),"w_b":()}
     )
     assert not _internal_grid_source_evidence_present(edges,{})
+
+
+def test_gpt2_w4_collision_reports_both_original_source_records_without_equivalence():
+    from tools.diag_gpt2_grid_component_first_failure import (
+        diagnose_original_w4_address_collisions,
+    )
+    source=(
+        SimpleNamespace(
+            wall_candidate_id="w4-reused",
+            wall_candidate=SimpleNamespace(centerline_pts=((0.,0.),(1.,0.))),
+            source_edge_fragments=(SimpleNamespace(source_observation_id="native-1"),),
+        ),
+        SimpleNamespace(
+            wall_candidate_id="w4-reused",
+            wall_candidate=SimpleNamespace(centerline_pts=((5.,5.),(6.,5.))),
+            source_edge_fragments=(SimpleNamespace(source_observation_id="native-2"),),
+        ),
+        SimpleNamespace(
+            wall_candidate_id="independent",
+            wall_candidate=SimpleNamespace(centerline_pts=((3.,2.),(4.,2.))),
+            source_edge_fragments=(),
+        ),
+        SimpleNamespace(
+            wall_candidate_id=[],
+            wall_candidate=SimpleNamespace(centerline_pts=((0.,0.),(0.,1.))),
+            source_edge_fragments=(),
+        ),
+    )
+    report=diagnose_original_w4_address_collisions(source)
+    assert report["colliding_original_w4_ids"]==["w4-reused"]
+    assert report["individual_original_record_count"]==2
+    assert [row["source_record_ordinal"] for row in report[
+        "original_collision_records_diagnostic_only"
+    ]]==[0,1]
+    assert [
+        row["source_fragment_observation_ids_sample"]
+        for row in report["original_collision_records_diagnostic_only"]
+    ]==[["native-1"],["native-2"]]
+    assert report["original_collision_records_diagnostic_only"][0][
+        "original_centerline_points_diagnostic_only"
+    ] != report["original_collision_records_diagnostic_only"][1][
+        "original_centerline_points_diagnostic_only"
+    ]
+    assert not report["physical_wall_equivalence_proven"]
+    assert all(
+        row["physical_wall_equivalence_proven"] is False
+        and row["source_room_boundary_published"] is False
+        for row in report["original_collision_records_diagnostic_only"]
+    )
