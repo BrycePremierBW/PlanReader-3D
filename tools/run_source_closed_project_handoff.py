@@ -14,6 +14,9 @@ import argparse
 from dataclasses import replace
 import hashlib
 import json
+import math
+import re
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -112,13 +115,42 @@ def _source_topology_pages(path: Path) -> tuple[tuple[int, ...], int]:
 def _non_abstained(
     quantities: Iterable[QuantityEvidence],
 ) -> tuple[QuantityEvidence, ...]:
-    return tuple(
-        quantity
-        for quantity in quantities
-        if isinstance(quantity, QuantityEvidence)
-        and not quantity.abstained
-        and quantity.value is not None
-    )
+    """Only source-closed eligible quantities may enter a sealed handoff.
+
+    Non-ABSTAIN with a numeric value is not itself a publication grant.
+    Shadow and conflicted provisional records remain unavailable, not zero.
+    """
+    retained = []
+    for quantity in quantities:
+        if not isinstance(quantity, QuantityEvidence) or quantity.abstained or quantity.value is None:
+            continue
+        if type(quantity.value) not in (int, float):
+            continue
+        try:
+            if not math.isfinite(quantity.value):
+                continue
+        except OverflowError:
+            continue
+        status = getattr(quantity.status, "value", quantity.status)
+        status = str(status).strip().lower().replace("-", "_").replace(" ", "_")
+        metadata = quantity.metadata if isinstance(quantity.metadata, Mapping) else {}
+        if status not in {"firm", "corroborated"}:
+            continue
+        if quantity.blocking_reasons or any(
+            any(token in str(code).lower() for token in ("conflict", "stale", "superseded"))
+            for code in quantity.reason_codes
+        ):
+            continue
+        if "shadow_only" in metadata and metadata["shadow_only"] is not False:
+            continue
+        if "commercial_projection_allowed" in metadata and metadata["commercial_projection_allowed"] is not True:
+            continue
+        if metadata.get("is_stale") is not None and metadata.get("is_stale") is not False:
+            continue
+        if metadata.get("is_superseded") is not None and metadata.get("is_superseded") is not False:
+            continue
+        retained.append(quantity)
+    return tuple(retained)
 
 
 def _write_json(path: Path, payload: Any) -> None:
@@ -150,10 +182,11 @@ def generate_project_handoff(
 ) -> dict[str, Any]:
     if not pdf_path.is_file():
         raise FileNotFoundError(pdf_path)
-    project_id = _clean(project_id)
-    if not project_id:
-        raise ValueError("project_id must be non-empty")
-    if isinstance(workspace_id, bool) or int(workspace_id) <= 0:
+    if type(project_id) is not str or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", project_id):
+        raise ValueError("project_id must be a single filename-safe source identity")
+    # A fractional/Boolean ID cannot be converted into a different producer's
+    # workspace before source authentication. CLI already supplies an integer.
+    if type(workspace_id) is not int or workspace_id <= 0:
         raise ValueError("workspace_id must be a positive integer")
 
     clean_family_group = str(family_group or "").strip().lower()
@@ -492,21 +525,120 @@ def generate_project_handoff(
         )
         family_runs.append(("ceiling_area", ceiling_run))
 
+    # The extractor may reread the file across page/source passes. Reject
+    # replaced input PDFs before writing *any* family/customer seal artifact.
+    try:
+        current_source_sha = _sha256(pdf_path)
+    except OSError as exc:
+        summary["status"] = "source_unavailable_during_production"
+        summary["claim_reason_codes"] = [
+            *summary["claim_reason_codes"], "source_read_failed_during_production"
+        ]
+        _write_json(output_dir / "production_summary.json", summary)
+        raise RuntimeError("source PDF unavailable during production handoff") from exc
+    if current_source_sha != source_sha256:
+        summary["status"] = "source_changed_during_production"
+        summary["claim_reason_codes"] = [*summary["claim_reason_codes"], "source_sha_changed"]
+        _write_json(output_dir / "production_summary.json", summary)
+        raise RuntimeError("source PDF SHA changed during production handoff")
+
+    # Validate *all* families before writing a single sealed file: checking
+    # after _write_run would leave a plausible but unauthenticated artifact.
+    # This production command accepts exactly one PDF; sibling source digests
+    # in its sealed envelope have no authenticated owner here.
+    for family, run in family_runs:
+        if set(run.source_sha256s) != {source_sha256}:
+            summary["status"] = "source_envelope_conflict"
+            summary["claim_reason_codes"] = [
+                *summary["claim_reason_codes"],
+                f"sealed_source_envelope_conflict:{family}",
+            ]
+            _write_json(output_dir / "production_summary.json", summary)
+            raise RuntimeError(f"{family} sealed run has conflicting source SHA envelope")
+
+    expected_by_family = {
+        "floor_area": floor_quantities,
+        "floor_finish_area": floor_finish_quantities,
+        "opening_area": opening_area_quantities,
+        "opening_count": opening_count_quantities,
+        "ceiling_area": ceiling_quantities,
+    }
+    for family, run in family_runs:
+        expected_quantities = expected_by_family[family]
+        expected_ids = tuple(q.quantity_id for q in expected_quantities)
+        actual_ids = tuple(q.quantity_id for q in run.quantities)
+        by_producer_id = {q.quantity_id: q for q in expected_quantities}
+        content_changed = False
+        for sealed_row in run.quantities:
+            original = by_producer_id.get(sealed_row.quantity_id)
+            if original is None:
+                content_changed = True
+                continue
+            if any(
+                getattr(sealed_row, name, None) != getattr(original, name)
+                for name in (
+                    "family", "semantic_key", "value", "unit", "status",
+                    "authority", "confidence", "abstained",
+                )
+            ) or any(
+                getattr(sealed_row, field, None) != tuple(sorted(getattr(original, source_field)))
+                for field, source_field in (
+                    ("object_identity_refs", "input_entity_ids"),
+                    ("evidence_ids", "evidence_ids"),
+                    ("blocking_reasons", "blocking_reasons"),
+                    ("reason_codes", "reason_codes"),
+                )
+            ):
+                content_changed = True
+        if (
+            content_changed
+            or len(set(expected_ids)) != len(expected_ids)
+            or len(set(actual_ids)) != len(actual_ids)
+            or set(expected_ids) != set(actual_ids)
+            or any(q.abstained or not q.lineage_ok for q in run.quantities)
+        ):
+            summary["status"] = "family_quantity_identity_conflict"
+            summary["claim_reason_codes"] = [
+                *summary["claim_reason_codes"],
+                f"family_quantity_identity_conflict:{family}",
+            ]
+            _write_json(output_dir / "production_summary.json", summary)
+            raise RuntimeError(
+                f"{family} sealed quantities differ from authenticated publisher receipts"
+            )
+
+    # Project-level reconciliation is another source authority gate. Do not
+    # publish even individually valid family files until the complete combined
+    # seal passes duplicate, lineage and source-envelope checks.
+    combined = None
+    if family_runs:
+        try:
+            combined = combine_source_closed_runs(
+                tuple(run for _, run in family_runs),
+                project_id=project_id,
+            )
+        except Exception as exc:
+            summary["status"] = "sealed_project_combination_failed"
+            summary["claim_reason_codes"] = [
+                *summary["claim_reason_codes"],
+                f"sealed_project_combination_error:{type(exc).__name__}",
+            ]
+            _write_json(output_dir / "production_summary.json", summary)
+            raise
+        if set(combined.source_sha256s) != {source_sha256}:
+            summary["status"] = "source_envelope_conflict"
+            summary["claim_reason_codes"] = [
+                *summary["claim_reason_codes"], "combined_source_envelope_conflict",
+            ]
+            _write_json(output_dir / "production_summary.json", summary)
+            raise RuntimeError("combined sealed run has conflicting source SHA envelope")
+
     for family, run in family_runs:
         run_path = _write_run(output_dir, family, run)
         summary["family_run_ids"][family] = run.run_id
         summary["family_run_files"][family] = str(run_path)
-        # Every family handoff must still bind to the input PDF's exact bytes.
-        if source_sha256 not in set(run.source_sha256s):
-            raise RuntimeError(
-                f"{family} sealed run does not bind to input source SHA"
-            )
 
-    if family_runs:
-        combined = combine_source_closed_runs(
-            tuple(run for _, run in family_runs),
-            project_id=project_id,
-        )
+    if combined is not None:
         combined_filename = (
             f"{project_id}.json"
             if clean_family_group == "all"

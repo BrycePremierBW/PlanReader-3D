@@ -187,7 +187,22 @@ def test_project_handoff_preserves_nonoverlapping_legacy_ceiling(
             run_id=run_id,
             source_sha256s=(source_sha,),
             quantities=tuple(
-                SimpleNamespace(quantity_id=quantity.quantity_id)
+                SimpleNamespace(
+                    quantity_id=quantity.quantity_id,
+                    family=quantity.family,
+                    semantic_key=quantity.semantic_key,
+                    value=quantity.value,
+                    unit=quantity.unit,
+                    status=quantity.status,
+                    authority=quantity.authority,
+                    confidence=quantity.confidence,
+                    abstained=quantity.abstained,
+                    object_identity_refs=tuple(sorted(quantity.input_entity_ids)),
+                    evidence_ids=tuple(sorted(quantity.evidence_ids)),
+                    blocking_reasons=tuple(sorted(quantity.blocking_reasons)),
+                    reason_codes=tuple(sorted(quantity.reason_codes)),
+                    lineage_ok=True,
+                )
                 for quantity in quantities
             ),
             to_json=lambda: "{}",
