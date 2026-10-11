@@ -250,11 +250,18 @@ def build_net_wall_area_quantity(
         if dmeta.get("wall_id") != wall_id:
             blockers.append("opening_deduction_wall_metadata_mismatch")
         if deduction.value is not None:
-            numeric = float(deduction.value)
-            if not math.isfinite(numeric) or numeric < 0.0:
+            if type(deduction.value) not in (int, float):
                 blockers.append("opening_deduction_value_invalid")
             else:
-                total_deduction += numeric
+                try:
+                    numeric = float(deduction.value)
+                except (TypeError, ValueError, OverflowError):
+                    blockers.append("opening_deduction_value_invalid")
+                else:
+                    if not math.isfinite(numeric) or numeric < 0.0:
+                        blockers.append("opening_deduction_value_invalid")
+                    else:
+                        total_deduction += numeric
 
     if len(set(observed_opening_ids)) != len(observed_opening_ids):
         blockers.append("duplicate_opening_deduction_identity")
@@ -262,11 +269,18 @@ def build_net_wall_area_quantity(
         blockers.append("opening_deduction_set_not_complete")
 
     if gross_wall_area.value is not None:
-        gross_value = float(gross_wall_area.value)
-        if not math.isfinite(gross_value) or gross_value <= 0.0:
+        if type(gross_wall_area.value) not in (int, float):
             blockers.append("gross_wall_area_value_invalid")
-        elif total_deduction > gross_value:
-            blockers.append("opening_deductions_exceed_gross_area")
+        else:
+            try:
+                gross_value = float(gross_wall_area.value)
+            except (TypeError, ValueError, OverflowError):
+                blockers.append("gross_wall_area_value_invalid")
+            else:
+                if not math.isfinite(gross_value) or gross_value <= 0.0:
+                    blockers.append("gross_wall_area_value_invalid")
+                elif total_deduction > gross_value:
+                    blockers.append("opening_deductions_exceed_gross_area")
 
     if blockers:
         return _abstain(
