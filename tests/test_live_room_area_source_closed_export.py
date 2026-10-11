@@ -755,3 +755,47 @@ def test_room_area_source_metadata_must_own_same_original_room(
         export.build_live_room_area_source_traces(
             claim, workspace_id=7, project_id="source-project",
         )
+
+
+@pytest.mark.parametrize("field,bad", (
+    ("value", True),
+    ("value", False),
+    ("value", "8.64"),
+    ("confidence", True),
+    ("confidence", float("nan")),
+    ("confidence", float("inf")),
+    ("confidence", -0.01),
+    ("confidence", 1.01),
+))
+def test_room_area_seal_rejects_untyped_metric_and_invalid_source_confidence(
+    live_claim, field, bad,
+):
+    source = copy(_firm_quantity(live_claim))
+    object.__setattr__(source, field, bad)
+    claim = replace(
+        live_claim,
+        room_area_quantity_evidence=tuple(
+            source if q.quantity_id == source.quantity_id else q
+            for q in live_claim.room_area_quantity_evidence
+        ),
+    )
+    with pytest.raises(SourceClosedRunConflictError):
+        export.build_live_room_area_source_traces(
+            claim, workspace_id=7, project_id="source-project",
+        )
+
+
+def test_room_area_seal_rejects_boolean_canonical_floor_metric(live_claim):
+    floor = _resolved_floor(live_claim)
+    forged = replace(floor, metric_area_m2=True)
+    claim = replace(
+        live_claim,
+        canonical_floors=tuple(
+            forged if row.canonical_floor_id == floor.canonical_floor_id
+            else row for row in live_claim.canonical_floors
+        ),
+    )
+    with pytest.raises(SourceClosedRunConflictError):
+        export.build_live_room_area_source_traces(
+            claim, workspace_id=7, project_id="source-project",
+        )
