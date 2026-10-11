@@ -440,3 +440,35 @@ def test_floor_finish_seal_cannot_use_missing_floor_occurrence_witness() -> None
         seal_live_floor_finish_area_run(
             claim, workspace_id=1, project_id="project-1",
         )
+
+
+def test_floor_finish_customer_projection_uses_canonical_not_physical_floor_join():
+    original = _floor()
+    physical_id = "physical-floor-from-source-face-distinct"
+    floor = replace(original, physical_floor_surface_id=physical_id)
+    quantity = _quantity()
+    corrected = replace(
+        quantity,
+        metadata={
+            **dict(quantity.metadata),
+            "physical_floor_surface_id": physical_id,
+        },
+    )
+    claim = replace(
+        _claim(floor),
+        floor_finish_quantity_evidence=(corrected,),
+    )
+    sealed = seal_live_floor_finish_area_run(
+        claim, workspace_id=1, project_id="project-1",
+    )
+    assert len(sealed.quantities) == 1
+    rows = project_live_floor_finish_customer_rows(
+        claim, workspace_id=1, project_id="project-1",
+    )
+    assert len(rows) == 1
+    assert rows[0]["quantity_id"] == corrected.quantity_id
+    assert rows[0]["location"] == floor.room_entity_id
+    assert rows[0]["finish_system"] == "tile"
+    assert verify_sealed_customer_output(sealed, rows).verified_quantity_ids == (
+        corrected.quantity_id,
+    )
