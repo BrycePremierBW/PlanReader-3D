@@ -539,3 +539,135 @@ def test_foreign_revision_unsupported_opening_cannot_hide_conflict() -> None:
     )
     with pytest.raises(ValueError, match="revision conflicts"):
         publish_live_opening_area_quantities(_composition(proven, stale))
+
+
+@pytest.mark.parametrize("untyped_metric", (True, False, "2.172", None))
+def test_opening_area_requires_typed_original_metric_m2(untyped_metric):
+    assert _opening_quantity(_opening(area_m2=untyped_metric)) is None
+    assert _opening_quantity(_opening()) is not None
+
+
+@pytest.mark.parametrize("receipts", (
+    (), ("source-observation-1", "source-observation-1"),
+    ("source-observation-1", ""),
+    ("source-observation-1", "  "),
+    ("source-observation-1", 42),
+    None,
+))
+def test_opening_area_never_normalizes_corrupted_original_source_receipts(receipts):
+    forged = replace(_opening(), evidence_ids=receipts)
+    assert _opening_quantity(forged) is None
+    assert _opening_quantity(_opening()) is not None
+
+
+@pytest.mark.parametrize("field,value", (
+    ("document_id", "foreign-document"),
+    ("revision_id", "foreign-revision"),
+    ("source_sha256", "f" * 64),
+    ("snapshot_id", "foreign-snapshot"),
+    ("viewport_id", "foreign-viewport"),
+    ("page_no", "foreign-page"),
+    ("host_wall_id", "foreign-wall"),
+    ("host_binding_record_id", "foreign-host-evidence"),
+    ("opening_kind", "door"),
+    ("area_basis", "unproven-geometry"),
+    ("measurement_record_id", "foreign-measurement"),
+    ("canonical_opening_id", "foreign-opening"),
+    ("physical_opening_id", "foreign-opening"),
+))
+def test_sealed_opening_area_rejects_replayed_foreign_source_ownership(field, value):
+    from pb_live_opening_source_closed_export import _build_opening_area_source_traces
+    from pb_source_closed_run_export import SourceClosedRunConflictError
+
+    opening = _opening()
+    quantity = _opening_quantity(opening)
+    assert quantity is not None
+    forged = replace(quantity, metadata={**dict(quantity.metadata), field: value})
+    with pytest.raises(SourceClosedRunConflictError, match="source.*identity mismatch"):
+        _build_opening_area_source_traces(
+            (forged,), (opening,),
+            workspace_id=1, project_id="source-project",
+        )
+
+
+def test_source_closed_opening_claim_cannot_hide_duplicate_physical_evidence():
+    from pb_live_opening_source_closed_export import _build_opening_area_source_traces
+    from pb_source_closed_run_export import SourceClosedRunConflictError
+    from copy import copy
+
+    opening = _opening()
+    quantity = _opening_quantity(opening)
+    assert quantity is not None
+    bad_opening = replace(opening, evidence_ids=(
+        *opening.evidence_ids, opening.evidence_ids[0],
+    ))
+    with pytest.raises(SourceClosedRunConflictError, match="source evidence"):
+        _build_opening_area_source_traces(
+            (quantity,), (bad_opening,),
+            workspace_id=1, project_id="source-project",
+        )
+
+    forged = copy(quantity)
+    object.__setattr__(forged, "evidence_ids", (*quantity.evidence_ids, ""))
+    with pytest.raises(SourceClosedRunConflictError, match="source evidence"):
+        _build_opening_area_source_traces(
+            (forged,), (opening,),
+            workspace_id=1, project_id="source-project",
+        )
+    assert len(_build_opening_area_source_traces(
+        (quantity,), (opening,),
+        workspace_id=1, project_id="source-project",
+    )) == 1
+
+
+@pytest.mark.parametrize("corruption", (
+    ("value", 999.0),
+    ("value", True),
+    ("authority", "unproven_geometry"),
+    ("quantity_id", "forged-different-quantity-id"),
+    ("semantic_key", "window_area:foreign-opening"),
+    ("evidence_ids", ("opening-1", "figured-1", "host-binding-1", "host-frame-1")),
+))
+def test_source_closed_opening_area_rechecks_original_numeric_measurement(corruption):
+    from pb_live_opening_source_closed_export import _build_opening_area_source_traces
+    from pb_source_closed_run_export import SourceClosedRunConflictError
+    from copy import copy
+
+    opening = _opening()
+    original = _opening_quantity(opening)
+    assert original is not None
+    field, value = corruption
+    forged = copy(original)
+    object.__setattr__(forged, field, value)
+    with pytest.raises(SourceClosedRunConflictError, match="original source measurement"):
+        _build_opening_area_source_traces(
+            (forged,), (opening,),
+            workspace_id=1, project_id="source-project",
+        )
+    assert len(_build_opening_area_source_traces(
+        (original,), (opening,),
+        workspace_id=1, project_id="source-project",
+    )) == 1
+
+
+@pytest.mark.parametrize("dropped", (
+    "document_id", "revision_id", "source_sha256", "snapshot_id",
+    "page_no", "viewport_id", "canonical_opening_id",
+    "physical_opening_id", "host_wall_id", "opening_kind",
+    "area_basis", "measurement_record_id",
+))
+def test_source_closed_opening_area_requires_producer_owned_measurement_metadata(dropped):
+    from pb_live_opening_source_closed_export import _build_opening_area_source_traces
+    from pb_source_closed_run_export import SourceClosedRunConflictError
+
+    opening = _opening()
+    quantity = _opening_quantity(opening)
+    assert quantity is not None
+    altered = {**dict(quantity.metadata)}
+    altered.pop(dropped)
+    forged = replace(quantity, metadata=altered)
+    with pytest.raises(SourceClosedRunConflictError, match="missing original source ownership"):
+        _build_opening_area_source_traces(
+            (forged,), (opening,),
+            workspace_id=1, project_id="source-project",
+        )

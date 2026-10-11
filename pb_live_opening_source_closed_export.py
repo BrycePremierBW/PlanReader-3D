@@ -14,6 +14,7 @@ from types import MappingProxyType
 from typing import Mapping, Sequence
 
 from pb_live_opening_area_quantity_publication import (
+    _opening_quantity,
     publish_live_opening_area_quantities,
 )
 from pb_live_physical_opening_void_composition import (
@@ -92,19 +93,87 @@ def _build_opening_area_source_traces(
             raise SourceClosedRunConflictError(
                 f"canonical/physical opening identity mismatch: {canonical_id}"
             )
+        # A final live claim can reach this exporter without re-running the
+        # canonical publisher. Re-derive source-authenticated measurement and
+        # identity before sealing: possession of old evidence IDs alone does
+        # not authorize a different numeric area or measurement method.
+        for receipts in (opening.evidence_ids, quantity.evidence_ids):
+            if (
+                not isinstance(receipts, (tuple, list))
+                or not receipts
+                or any(type(item) is not str or not item.strip() for item in receipts)
+                or len(set(receipts)) != len(receipts)
+            ):
+                raise SourceClosedRunConflictError(
+                    f"opening original source evidence is incomplete: {quantity.quantity_id}"
+                )
+        authenticated = _opening_quantity(opening)
+        if (
+            authenticated is None
+            or quantity.quantity_id != authenticated.quantity_id
+            or type(quantity.value) not in (int, float)
+            or quantity.value != authenticated.value
+            or quantity.authority != authenticated.authority
+            or quantity.semantic_key != authenticated.semantic_key
+            or quantity.unit != authenticated.unit
+            or quantity.input_entity_ids != authenticated.input_entity_ids
+            or set(quantity.evidence_ids) != set(authenticated.evidence_ids)
+            or quantity.status != authenticated.status
+        ):
+            raise SourceClosedRunConflictError(
+                f"opening area claim differs from original source measurement: {canonical_id}"
+            )
 
         viewport_id = str(opening.viewport_id or "").strip()
         if not viewport_id:
             raise SourceClosedRunConflictError(
                 f"opening area quantity lacks owned viewport: {canonical_id}"
             )
-        evidence_ids = tuple(
-            dict.fromkeys(
-                str(value).strip()
-                for value in opening.evidence_ids
-                if str(value).strip()
-            )
+        # An explicitly retained source owner cannot be replayed onto a
+        # different document/revision/snapshot even when metric area matches.
+        metadata = quantity.metadata if isinstance(quantity.metadata, Mapping) else {}
+        required_source_fields = (
+            "document_id", "revision_id", "source_sha256", "snapshot_id",
+            "page_no", "viewport_id", "canonical_opening_id",
+            "physical_opening_id", "host_wall_id", "opening_kind",
+            "area_basis", "measurement_record_id",
         )
+        if any(
+            type(metadata.get(name)) is not str
+            or not metadata[name].strip()
+            for name in required_source_fields
+        ):
+            raise SourceClosedRunConflictError(
+                f"opening area claim is missing original source ownership: {canonical_id}"
+            )
+        if not (
+            metadata.get("host_binding_record_id")
+            or metadata.get("host_frame_record_id")
+        ):
+            raise SourceClosedRunConflictError(
+                f"opening area claim omits the authenticated physical host: {canonical_id}"
+            )
+        for name, source_value in (
+            ("document_id", opening.document_id),
+            ("revision_id", opening.revision_id),
+            ("source_sha256", opening.source_sha256),
+            ("snapshot_id", opening.snapshot_id),
+            ("viewport_id", opening.viewport_id),
+            ("page_no", opening.page_id),
+            ("canonical_opening_id", canonical_id),
+            ("physical_opening_id", opening.physical_opening_id),
+            ("host_wall_id", opening.host_wall_id),
+            ("host_binding_record_id", opening.host_binding_record_id),
+            ("host_frame_record_id", opening.host_frame_record_id),
+            ("opening_kind", opening.opening_kind),
+            ("area_basis", opening.area_basis),
+            ("measurement_record_id", authenticated.metadata.get("measurement_record_id")),
+        ):
+            if metadata.get(name) is not None and str(metadata[name]).strip() != str(source_value).strip():
+                raise SourceClosedRunConflictError(
+                    f"opening source {name} identity mismatch: {quantity.quantity_id}"
+                )
+        evidence_ids = tuple(opening.evidence_ids)
         missing_evidence = set(quantity.evidence_ids) - set(evidence_ids)
         if missing_evidence:
             raise SourceClosedRunConflictError(
