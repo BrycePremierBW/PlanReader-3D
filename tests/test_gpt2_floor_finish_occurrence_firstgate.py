@@ -1,5 +1,6 @@
 """Source-native finish occurrence first failures never assign room finishes."""
 from types import SimpleNamespace as S
+from pb_migration_contracts import EvidenceResolutionStatus
 
 from tools.diag_gpt2_floor_finish_occurrence_firstgate import (
     inspect_floor_finish_occurrence_first_gates as inspect,
@@ -26,7 +27,10 @@ def rec(**extra):
 
 
 def run(records, **kw):
-    return inspect(S(records=tuple(records)),view(),sha="sha",page_id="7",**kw)
+    return inspect(S(
+        records=tuple(records),status=EvidenceResolutionStatus.CORROBORATED,
+        scope_complete=True
+    ),view(),sha="sha",page_id="7",**kw)
 
 
 def test_exact_source_occurrence_is_not_room_finish_attribution():
@@ -65,7 +69,10 @@ def test_stale_scope_and_native_bbox_are_never_reinterpreted_as_room():
 
 
 def test_unresolved_floor_plan_cannot_promote_source_occurrence():
-    row=inspect(S(records=(rec(),)), S(
+    row=inspect(S(
+        records=(rec(),),status=EvidenceResolutionStatus.CORROBORATED,
+        scope_complete=True
+    ), S(
         view_id="view_p7_2",view_type="floor_plan",status="unsupported",
         bounding_box=None,
     ),sha="sha",page_id="7")
@@ -73,3 +80,19 @@ def test_unresolved_floor_plan_cannot_promote_source_occurrence():
         "source_floor_plan_viewport_unresolved":1
     }
     assert not row["floor_finish_quantity_published"]
+
+
+def test_incomplete_material_scope_first_fails_even_with_valid_occurrence():
+    for status,complete in (
+        (EvidenceResolutionStatus.ABSTAINED,False),
+        (EvidenceResolutionStatus.CORROBORATED,False),
+    ):
+        row=inspect(
+            S(records=(rec(),),status=status,scope_complete=complete),
+            view(),sha="sha",page_id="7",
+        )
+        assert row["first_failure_counts"]=={
+            "material_occurrence_scope_unresolved":1
+        }
+        assert not row["room_finish_ownership_published"]
+        assert not row["floor_finish_quantity_published"]
