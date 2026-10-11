@@ -222,7 +222,10 @@ def compose_live_external_net_wall_publication(
 
         expected = _lineage_tuple(gross_selector)
         if (
-            _lineage_tuple(role_selector) != expected
+            _clean(trace.page_id) != _clean(gross_selector.page_id)
+            or _clean(trace.decision_scope_id) != _clean(gross_selector.decision_scope_id)
+            or _clean(trace.physical_wall_id) != _clean(gross_selector.physical_wall_id)
+            or _lineage_tuple(role_selector) != expected
             or _lineage_tuple(net_selector) != expected
             or _clean(net_selector.trade_scope_id) != target
         ):
@@ -281,6 +284,7 @@ def compose_live_external_net_wall_publication(
             net_result.status is not EvidenceResolutionStatus.CORROBORATED
             or net_record is None
             or net_record.net_area_m2 is None
+            or type(net_record.net_area_m2) not in (int, float)
             or not math.isfinite(float(net_record.net_area_m2))
             or float(net_record.net_area_m2) < 0.0
         ):
@@ -305,6 +309,43 @@ def compose_live_external_net_wall_publication(
             or _clean(net_record.gross_geometry_record_id)
             != _clean(gross_record.record_id)
             or _clean(net_record.trade_scope_id) != target
+        ):
+            return _blocked(
+                revision_id=revision_id,
+                target_scope_id=target,
+                status=EvidenceResolutionStatus.CONFLICT,
+                reason=LIVE_EXTERNAL_NET_WALL_LINEAGE_MISMATCH,
+            )
+
+        # A source-backed net wall can only be the gross physical surface
+        # minus its authenticated union of physical opening voids. Do not
+        # publish values larger than the wall, negative voids, or a replay
+        # whose net/gross/void arithmetic no longer agrees with the original
+        # authority's record. This is a quantity integrity check, not a
+        # substitute for the upstream physical opening-universe proof.
+        gross_area = gross_record.gross_area_m2
+        net_gross = net_record.gross_area_m2
+        void_area = net_record.void_union_area_m2
+        net_area = net_record.net_area_m2
+        if (
+            any(type(n) not in (int, float) for n in (
+                gross_area, net_gross, void_area, net_area,
+            ))
+            or not all(math.isfinite(float(n)) for n in (
+                gross_area, net_gross, void_area, net_area,
+            ))
+            or float(gross_area) <= 0.0
+            or float(void_area) < 0.0
+            or float(net_area) > float(gross_area) + 1e-6
+            or float(void_area) > float(gross_area) + 1e-6
+            or not math.isclose(
+                float(net_gross), float(gross_area), rel_tol=1e-9, abs_tol=1e-6
+            )
+            or not math.isclose(
+                float(net_area) + float(void_area), float(gross_area),
+                rel_tol=1e-9, abs_tol=1e-6,
+            )
+            or _clean(trace.gross_record_id) != _clean(gross_record.record_id)
         ):
             return _blocked(
                 revision_id=revision_id,
