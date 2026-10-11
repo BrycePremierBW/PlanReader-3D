@@ -358,14 +358,22 @@ def _validate_area_quantity(
         if type(area_quantity.value) not in (int, float):
             blockers.append("upstream_area_invalid")
         else:
-            value = float(area_quantity.value)
-            if not math.isfinite(value) or value <= 0.0:
+            try:
+                value = float(area_quantity.value)
+            except (TypeError, ValueError, OverflowError):
                 blockers.append("upstream_area_invalid")
-    if (
-        type(area_quantity.confidence) not in (int, float)
-        or not math.isfinite(float(area_quantity.confidence))
-        or not 0.0 <= float(area_quantity.confidence) <= 1.0
-    ):
+            else:
+                if not math.isfinite(value) or value <= 0.0:
+                    blockers.append("upstream_area_invalid")
+    try:
+        source_confidence = (
+            float(area_quantity.confidence)
+            if type(area_quantity.confidence) in (int, float)
+            else float("nan")
+        )
+    except (TypeError, ValueError, OverflowError):
+        source_confidence = float("nan")
+    if not math.isfinite(source_confidence) or not 0.0 <= source_confidence <= 1.0:
         blockers.append("upstream_area_confidence_invalid")
     if (
         not isinstance(area_quantity.evidence_ids, (tuple, list))
@@ -375,7 +383,13 @@ def _validate_area_quantity(
     ):
         blockers.append("upstream_area_source_receipts_invalid")
 
-    if not set(area_quantity.evidence_ids).issubset(set(document.evidence_ids)):
+    try:
+        document_receipts_cover_area = set(area_quantity.evidence_ids).issubset(
+            set(document.evidence_ids)
+        )
+    except (TypeError, ValueError):
+        document_receipts_cover_area = False
+    if not document_receipts_cover_area:
         blockers.append("upstream_area_evidence_not_owned_by_document")
 
     meta = _metadata(area_quantity.metadata)
@@ -437,12 +451,18 @@ def _abstention(
         "finish_entity_id": finish_entity.candidate_entity_id if finish_entity is not None else None,
         "blockers": list(reasons),
     }
-    evidence_ids = sorted(
-        {
-            *(() if area_quantity is None else area_quantity.evidence_ids),
-            *(() if finish_entity is None else finish_entity.evidence_ids),
-        }
-    )
+    # Abstention itself must remain serializable when replayed upstream
+    # evidence contains invalid/non-string source receipts. Record the gate
+    # failure; do not elevate or synthesize any supposedly genuine witness.
+    evidence_ids = sorted({
+        value
+        for group in (
+            () if area_quantity is None else area_quantity.evidence_ids,
+            () if finish_entity is None else finish_entity.evidence_ids,
+        )
+        for value in (group if isinstance(group, (tuple, list)) else ())
+        if type(value) is str and value and value == value.strip()
+    })
     return QuantityEvidence(
         quantity_id=stable_contract_id("qty", payload),
         family=CEILING_LINING_FAMILY,
