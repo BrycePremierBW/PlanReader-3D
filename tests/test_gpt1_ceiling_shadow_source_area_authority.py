@@ -87,3 +87,27 @@ def test_admissible_metric_room_area_authorities_remain_provisional_not_commerci
     assert result.value == 42.375
     assert result.metadata["shadow_only"] is True
     assert result.metadata["commercial_projection_allowed"] is False
+
+
+
+def test_ceiling_shadow_extreme_figured_metric_abstains_without_overflow():
+    result = _build(area=replay(value=10 ** 400))
+    assert result.abstained is True
+    assert "upstream_area_invalid" in result.blocking_reasons
+
+
+def test_ceiling_shadow_overflowed_probability_abstains_without_firm():
+    result = _build(area=replay(confidence=10 ** 400))
+    assert result.abstained is True
+    assert "upstream_area_confidence_invalid" in result.blocking_reasons
+
+
+@pytest.mark.parametrize("bad_receipts", [
+    ("ev-area", True), ("ev-area", ("nested",)),
+    ("ev-area", ["unhashable"]), (False, "ev-area"),
+])
+def test_shadow_abstention_with_tampered_receipts_stays_serializable(bad_receipts):
+    result = _build(area=replay(evidence_ids=bad_receipts))
+    assert result.abstained is True
+    assert "upstream_area_source_receipts_invalid" in result.blocking_reasons
+    assert all(type(value) is str for value in result.evidence_ids)
