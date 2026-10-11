@@ -347,6 +347,31 @@ jobs:
                       if row["first_authority_gate"]==
                           "two_source_wall_endpoint_contacts_candidate_only"
                   ],
+                  # Closest *unowned* source-dimension candidates are ranked
+                  # only for causal analysis. An offset is never permission
+                  # to extend a wall witness or publish metric room area.
+                  "unowned_endpoint_offset_samples_pdf_pts":[
+                      {
+                          "observation_id":row["source_dimension_observation_id"],
+                          "offsets_pdf_pts":row[
+                              "endpoint_nearest_source_wall_distance_pdf_pts_diagnostic_only"
+                          ],
+                          "first_gate":row["first_authority_gate"],
+                          "room_dimension_owned":False,
+                      }
+                      for row in sorted(
+                          entry["native_dimension_endpoints"],
+                          key=lambda item:max(
+                              item["endpoint_nearest_source_wall_distance_pdf_pts_diagnostic_only"]
+                              or [float("inf")]
+                          ),
+                      )
+                      if row["first_authority_gate"]==
+                          "figured_endpoint_not_on_source_room_wall"
+                      and len(row[
+                          "endpoint_nearest_source_wall_distance_pdf_pts_diagnostic_only"
+                      ])==2
+                  ][:5],
               } for entry in contact_rows],
               "room_owned_figured_measurement_count":0,
               "metric_room_area_publications":0,
