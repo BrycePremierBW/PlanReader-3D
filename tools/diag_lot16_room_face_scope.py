@@ -17,6 +17,7 @@ import pb_source_room_label_authority as label_authority
 import pb_same_view_room_area_authority as same_view_authority
 from pb_geometry_takeoff_model import MeasurementAuthorityType
 from pb_live_floor_area_quantity_publication import publish_live_floor_area_quantities
+from pb_live_opening_area_quantity_publication import _opening_quantity
 from pb_live_physical_net_wall_integration import collect_live_physical_net_wall_claim
 
 
@@ -45,7 +46,9 @@ def _has_firm_metric_floor_receipt(floor) -> bool:
 
 
 
-def _floor_quantity_first_failure(floor, room, area_quantity_ids: set[str]) -> str:
+def _floor_quantity_first_failure(
+    floor, room, area_quantity_ids: set[str], *, duplicate_room_owner: bool = False
+) -> str:
     """Identify the earliest unresolved floor-to-measurement stage.
 
     A PDF polygon area is never a physical m² measurement. A correctly
@@ -55,6 +58,8 @@ def _floor_quantity_first_failure(floor, room, area_quantity_ids: set[str]) -> s
         return "physical_floor_identity_unresolved"
     if not floor.source_room_face_record_id or not floor.evidence_ids:
         return "source_room_face_evidence_unavailable"
+    if duplicate_room_owner:
+        return "duplicate_canonical_room_source_owner_conflict"
     if room is None:
         return "canonical_room_owner_unavailable"
     # A separately source-authenticated physical scale can close metric area
@@ -78,6 +83,9 @@ def _floor_quantity_diagnostic(claim) -> dict:
         str(room.canonical_room_id): room
         for room in claim.canonical_rooms
     }
+    # Do not let a dict's last-writer-wins normalization conceal duplicate
+    # authenticated canonical rooms in a diagnostic claiming a floor is ready.
+    room_owner_counts = Counter(str(room.canonical_room_id) for room in claim.canonical_rooms)
     # The raw room-area source universe is NOT proof of a publishable floor
     # quantity. Reuse the exact production floor publisher, which validates
     # physical face, canonical/physical floor uniqueness, area, units, source
@@ -92,6 +100,21 @@ def _floor_quantity_diagnostic(claim) -> dict:
         for quantity in approved_floor_quantities
         if quantity.metadata.get("upstream_room_area_quantity_id")
     }
+    # Report asserted source-finish evidence separately from source-trace-
+    # validated finish evidence. Raw claims are not sealed customer quantities.
+    # This diagnostic executes no side-effecting export or benchmark scoring.
+    from pb_live_floor_finish_area_source_closed_export import (
+        build_live_floor_finish_area_source_traces,
+    )
+    from pb_source_closed_run_export import SourceClosedRunExportError
+    try:
+        finish_source_traces = build_live_floor_finish_area_source_traces(
+            claim, workspace_id=1, project_id="gpt1-lot16-source-diagnostic",
+        )
+        finish_source_trace_failure = None
+    except (TypeError, ValueError, SourceClosedRunExportError) as error:
+        finish_source_traces = {}
+        finish_source_trace_failure = str(error)
     finishes: dict[str, list[str]] = {}
     for quantity in claim.floor_finish_quantity_evidence:
         for entity_id in quantity.input_entity_ids:
@@ -99,7 +122,8 @@ def _floor_quantity_diagnostic(claim) -> dict:
     rows = []
     for floor in claim.canonical_floors:
         reason = _floor_quantity_first_failure(
-            floor, rooms_by_id.get(str(floor.room_entity_id)), areas
+            floor, rooms_by_id.get(str(floor.room_entity_id)), areas,
+            duplicate_room_owner=room_owner_counts[str(floor.room_entity_id)] > 1,
         )
         rows.append({
             "canonical_floor_id": floor.canonical_floor_id,
@@ -115,6 +139,10 @@ def _floor_quantity_diagnostic(claim) -> dict:
             "published_finish_quantity_ids": sorted(
                 finishes.get(str(floor.canonical_floor_id), [])
             ),
+            "source_trace_validated_finish_quantity_ids": sorted(
+                qid for qid in finishes.get(str(floor.canonical_floor_id), [])
+                if qid in finish_source_traces
+            ),
             "first_missing_prerequisite": reason,
         })
     return {
@@ -125,6 +153,8 @@ def _floor_quantity_diagnostic(claim) -> dict:
         "area_quantity_count": len(claim.room_area_quantity_evidence),
         "source_closed_floor_quantity_count": len(approved_floor_quantities),
         "finish_quantity_count": len(claim.floor_finish_quantity_evidence),
+        "source_trace_validated_finish_quantity_count": len(finish_source_traces),
+        "finish_source_trace_failure": finish_source_trace_failure,
         "per_floor": rows,
     }
 
@@ -139,16 +169,34 @@ def _wall_metric_first_failure(wall) -> str:
         return "physical_wall_identity_unresolved"
     if not wall.evidence_ids or not wall.plan_members:
         return "canonical_wall_source_receipts_unavailable"
-    if wall.length_m is None:
-        return "metric_wall_length_unavailable"
-    if wall.height_m is None:
-        return "authenticated_wall_height_unavailable"
-    if wall.gross_area_m2 is None or not wall.gross_polygon_wkb_hex:
+    # The ledger must not call a wall metric-ready from a nonempty source
+    # field when its actual value is Boolean, nonfinite or physically invalid.
+    for attr, reason, strictly_positive in (
+        ("length_m", "metric_wall_length_unavailable", True),
+        ("height_m", "authenticated_wall_height_unavailable", True),
+        ("gross_area_m2", "gross_wall_area_unavailable", True),
+    ):
+        measurement = getattr(wall, attr, None)
+        if (
+            type(measurement) not in (int, float)
+            or not math.isfinite(float(measurement))
+            or (measurement <= 0.0 if strictly_positive else measurement < 0.0)
+        ):
+            return reason
+    if not wall.gross_polygon_wkb_hex:
         return "gross_wall_area_unavailable"
     if not wall.role or not wall.whole_wall_role_record_id:
         return "authenticated_whole_wall_role_unavailable"
-    if wall.net_area_m2 is None or not wall.net_polygon_wkb_hex:
+    net_value = getattr(wall, "net_area_m2", None)
+    if (
+        type(net_value) not in (int, float)
+        or not math.isfinite(float(net_value))
+        or net_value < 0.0
+        or not wall.net_polygon_wkb_hex
+    ):
         return "net_wall_area_or_deduction_unavailable"
+    if net_value > wall.gross_area_m2 + 1e-6:
+        return "net_wall_greater_than_authenticated_gross_area"
     return "canonical_net_wall_area_available"
 
 
@@ -218,15 +266,23 @@ def _opening_quantity_first_failure(opening) -> str:
     }
     if basis not in bases:
         return "authenticated_opening_area_basis_unavailable"
+    if type(opening.area_m2) not in (int, float):
+        return "metric_opening_area_unavailable"
     try:
         area = float(opening.area_m2)
     except (TypeError, ValueError, OverflowError):
         return "metric_opening_area_unavailable"
     if not math.isfinite(area) or area <= 0.0:
         return "metric_opening_area_unavailable"
-    evidence = {str(value).strip() for value in opening.evidence_ids if str(value).strip()}
-    if not evidence:
+    original_receipts = opening.evidence_ids
+    if (
+        not isinstance(original_receipts, (tuple, list))
+        or not original_receipts
+        or any(type(value) is not str or not value.strip() for value in original_receipts)
+        or len(set(original_receipts)) != len(original_receipts)
+    ):
         return "opening_source_evidence_unavailable"
+    evidence = set(original_receipts)
     authority_record_id = str(getattr(opening, bases[basis]) or "").strip()
     if not authority_record_id or authority_record_id not in evidence:
         return "opening_area_measurement_source_receipt_unavailable"
@@ -235,6 +291,11 @@ def _opening_quantity_first_failure(opening) -> str:
         and str(opening.schedule_row_dimension_basis or "").strip().lower() != "frame"
     ):
         return "authenticated_frame_schedule_basis_unavailable"
+    # A diagnostic heuristic is never authoritative over the actual
+    # canonical→quantity publisher. Report the exact first failed publication
+    # gate rather than falsely declaring an opening ready to improve recall.
+    if _opening_quantity(opening) is None:
+        return "production_opening_area_quantity_gate_unresolved"
     return "opening_area_quantity_prerequisites_resolved"
 
 
@@ -246,6 +307,32 @@ def _opening_quantity_diagnostic(claim) -> dict:
     ledger = []
     for opening in claim.canonical_openings:
         published = published_by_opening.get(str(opening.canonical_opening_id), ())
+        readiness = _opening_quantity_first_failure(opening)
+        authentic = _opening_quantity(opening)
+        signed_publication_matches = tuple(
+            candidate for candidate in published
+            if authentic is not None
+            and candidate.quantity_id == authentic.quantity_id
+            and type(candidate.value) in (int, float)
+            and candidate.value == authentic.value
+            and candidate.authority == authentic.authority
+            and candidate.unit == authentic.unit
+            and candidate.status == authentic.status
+            and candidate.semantic_key == authentic.semantic_key
+            and candidate.input_entity_ids == authentic.input_entity_ids
+            and candidate.evidence_ids == authentic.evidence_ids
+            and candidate.formula == authentic.formula
+            and candidate.formula_version == authentic.formula_version
+            and candidate.confidence == authentic.confidence
+            and candidate.abstained == authentic.abstained
+            and candidate.blocking_reasons == authentic.blocking_reasons
+            and candidate.reason_codes == authentic.reason_codes
+            and candidate.metadata == authentic.metadata
+        )
+        if readiness == "opening_area_quantity_prerequisites_resolved" and published and (
+            len(signed_publication_matches) != 1 or len(published) != 1
+        ):
+            readiness = "opening_area_published_claim_drift"
         ledger.append({
             "canonical_opening_id": opening.canonical_opening_id,
             "physical_opening_id": opening.physical_opening_id,
@@ -261,12 +348,22 @@ def _opening_quantity_diagnostic(claim) -> dict:
             "area_m2": opening.area_m2,
             "source_evidence_count": len(opening.evidence_ids),
             "schedule_explicit_count": bool(opening.schedule_count_explicit),
-            "first_missing_prerequisite": _opening_quantity_first_failure(opening),
+            "first_missing_prerequisite": readiness,
             "published_area_quantity_ids": [quantity.quantity_id for quantity in published],
+            "production_matched_area_quantity_ids": [
+                quantity.quantity_id for quantity in signed_publication_matches
+            ],
         })
     return {
         "canonical_opening_count": len(claim.canonical_openings),
         "published_area_quantity_count": len(claim.opening_quantity_evidence),
+        "production_matched_area_quantity_count": sum(
+            len(row["production_matched_area_quantity_ids"]) for row in ledger
+        ),
+        "published_area_claim_drift_count": sum(
+            row["first_missing_prerequisite"] == "opening_area_published_claim_drift"
+            for row in ledger
+        ),
         "published_explicit_count_quantity_count": len(
             claim.opening_count_quantity_evidence
         ),
