@@ -210,10 +210,17 @@ def _metadata_identity_matches(quantity: QuantityEvidence, trace: CommercialTake
             continue
         candidate = metadata.get(key)
         if key == "workspace_id":
-            try:
-                candidate = int(candidate)
-            except (TypeError, ValueError, OverflowError):
+            # int(True) and int(7.8) would silently become valid workspace
+            # identities. Only canonical integer IDs or decimal strings are
+            # admissible original producer metadata receipts.
+            if type(candidate) is int and candidate > 0:
                 pass
+            elif type(candidate) is str and candidate.isascii() and candidate.isdecimal():
+                candidate = int(candidate)
+            else:
+                raise CommercialTakeoffConflictError(
+                    "QuantityEvidence workspace_id has invalid source identity type"
+                )
         if str(candidate).strip() != str(authoritative).strip():
             raise CommercialTakeoffConflictError(
                 f"QuantityEvidence {key} does not match commercial source trace"
