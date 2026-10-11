@@ -11,6 +11,12 @@ from typing import Any
 from pb_migration_contracts import EvidenceResolutionStatus
 
 
+def _source_token(value: Any) -> str | None:
+    """Use original producer enum values; never Python repr as authority."""
+    owned=getattr(value, "value", value)
+    return owned if isinstance(owned,str) else None
+
+
 def _owned_text(value: Any) -> bool:
     return isinstance(value, str) and bool(value) and value == value.strip()
 
@@ -33,8 +39,8 @@ def inspect_floor_finish_occurrence_first_gates(scope: Any, viewport: Any, *, sh
     owner_valid=(
         _owned_text(expected_view) and _owned_text(expected_page)
         and _owned_text(sha)
-        and getattr(viewport,"status",None)=="resolved"
-        and getattr(viewport,"view_type",None)=="floor_plan"
+        and _source_token(getattr(viewport,"status",None))=="resolved"
+        and _source_token(getattr(viewport,"view_type",None))=="floor_plan"
         and view_bbox is not None
     )
     receipt_counts=Counter(
