@@ -526,6 +526,16 @@ def _unique_containing_wall_owner(
     """
     exact = edge_owner.get(edge)
     if exact is not None:
+        # An indexed owner is only source evidence while its original W4
+        # wall still contains this exact quantized face subedge. A stale
+        # or foreign index entry is not a physical wall identity.
+        if not isinstance(exact, str) or not exact or exact != exact.strip():
+            return None
+        if not any(
+            _edge_contains_edge(parent, edge)
+            for parent in wall_edges.get(exact, ())
+        ):
+            return None
         return exact
 
     owner: str | None = None
