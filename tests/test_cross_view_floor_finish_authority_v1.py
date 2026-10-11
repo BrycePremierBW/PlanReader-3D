@@ -882,3 +882,82 @@ def test_shared_floor_finish_conflict_result_is_input_order_independent(
     assert tuple(row.occurrence_record_id for row in reversed_rows) == (
         "different-authenticated-occurrence",
     )
+
+
+def test_gpt2_duplicate_documented_area_cannot_own_a_floor_finish(monkeypatch):
+    from pb_cross_view_floor_finish_authority import (
+        _unique_documented_area_owner_receipts,
+    )
+    _patch_material_viewports(monkeypatch)
+    source, documented, floors = _source_room_area_and_floor(_payload())
+    original = documented.records[0]
+    conflicting = replace(
+        original,
+        area_evidence=replace(
+            original.area_evidence, evidence_id="competing-source-documented-area",
+            normalized_value=9.0,
+        ),
+    )
+    selected, disputed = _unique_documented_area_owner_receipts(
+        (), (original, conflicting)
+    )
+    assert selected == {}
+    assert disputed == (original.source_room_face_record_id,)
+
+    result = CrossViewFloorFinishProducer.from_source(
+        source=source,
+        room_areas=replace(documented, records=(original, conflicting)),
+        floors=floors,
+    ).publish()
+    assert result.status is EvidenceResolutionStatus.CONFLICT
+    assert result.records == ()
+    assert result.quantities == ()
+    assert result.unresolved_canonical_floor_ids == (
+        floors.floors[0].canonical_floor_id,
+    )
+
+
+def test_gpt2_source_floor_finish_crossview_priority_survives_duplicate_supplements(
+    monkeypatch,
+):
+    from pb_cross_view_floor_finish_authority import (
+        _unique_documented_area_owner_receipts,
+    )
+    _patch_material_viewports(monkeypatch)
+    source, documented, floors = _source_room_area_and_floor(_payload())
+    strong = documented.records[0]
+    other = replace(strong, area_evidence=replace(
+        strong.area_evidence, evidence_id="supplement-one",
+    ))
+    another = replace(strong, area_evidence=replace(
+        strong.area_evidence, evidence_id="supplement-two",
+    ))
+    selected, disputed = _unique_documented_area_owner_receipts(
+        (other, another), (strong,),
+    )
+    assert selected == {strong.source_room_face_record_id: strong}
+    assert disputed == ()
+    # A duplicate cross-view producer receipt may not be silently replaced
+    # by even a single independently positive same-view candidate.
+    selected, disputed = _unique_documented_area_owner_receipts(
+        (other,), (strong, strong),
+    )
+    assert selected == {}
+    assert disputed == (strong.source_room_face_record_id,)
+
+
+def test_gpt2_invalid_source_room_area_id_never_becomes_finish_owner():
+    from types import SimpleNamespace
+    from pb_cross_view_floor_finish_authority import (
+        _unique_documented_area_owner_receipts,
+    )
+    authentic = SimpleNamespace(source_room_face_record_id="source-face-1")
+    invalid = tuple(
+        SimpleNamespace(source_room_face_record_id=value)
+        for value in (None, 17, "", " source-face-1", "source-face-1 ")
+    )
+    owners, disputed = _unique_documented_area_owner_receipts(
+        invalid, (authentic,)
+    )
+    assert owners == {"source-face-1": authentic}
+    assert disputed == ()
