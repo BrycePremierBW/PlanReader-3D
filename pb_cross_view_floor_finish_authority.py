@@ -411,6 +411,51 @@ class CrossViewFloorFinishResult:
         )
 
 
+def _unique_documented_area_owner_receipts(
+    same_view: Sequence[SameViewRoomAreaRecord],
+    cross_view: Sequence[CrossViewRoomAreaRecord],
+) -> tuple[
+    dict[str, CrossViewRoomAreaRecord | SameViewRoomAreaRecord],
+    tuple[str, ...],
+]:
+    """Select only unambiguous source-room areas, preserving producer priority.
+
+    One cross-view documented measurement legitimately supersedes one or more
+    supplementary same-view candidates. But two entries from the SAME
+    authority claiming one physical source-room face cannot silently overwrite
+    each other or mint a floor finish from insertion order.
+    """
+    def valid(value: object) -> bool:
+        return isinstance(value, str) and bool(value) and value == value.strip()
+
+    def grouped(rows):
+        out = {}
+        for record in rows:
+            source_id = getattr(record, "source_room_face_record_id", None)
+            if valid(source_id):
+                out.setdefault(source_id, []).append(record)
+        return out
+
+    supplementary = grouped(same_view)
+    authoritative = grouped(cross_view)
+    selected = {}
+    disputed = set()
+    for source_id in sorted(set(supplementary) | set(authoritative)):
+        high = authoritative.get(source_id, ())
+        low = supplementary.get(source_id, ())
+        if len(high) > 1:
+            disputed.add(source_id)
+        elif high:
+            # An independent single source-proven cross-view measurement
+            # retains priority over possibly duplicated supplements.
+            selected[source_id] = high[0]
+        elif len(low) > 1:
+            disputed.add(source_id)
+        elif low:
+            selected[source_id] = low[0]
+    return selected, tuple(sorted(disputed))
+
+
 def _quarantine_reused_floor_finish_occurrences(
     records: Sequence[CrossViewFloorFinishRecord],
 ) -> tuple[tuple[CrossViewFloorFinishRecord, ...], tuple[str, ...]]:
@@ -505,31 +550,39 @@ class CrossViewFloorFinishProducer:
         # Same-view documented area is supplemental. Preserve established
         # cross-view authority for a source room when both producers resolve,
         # exactly as the live room-area bridge does.
-        area_by_source_room: dict[
-            str,
-            CrossViewRoomAreaRecord | SameViewRoomAreaRecord,
-        ] = {
-            str(record.source_room_face_record_id): record
-            for record in (
+        area_by_source_room, disputed_area_source_ids = (
+            _unique_documented_area_owner_receipts(
                 self._same_view_room_areas.records
-                if self._same_view_room_areas is not None
-                else ()
+                if self._same_view_room_areas is not None else (),
+                self._room_areas.records
+                if self._room_areas is not None else (),
             )
-        }
-        for record in (
-            self._room_areas.records if self._room_areas is not None else ()
-        ):
-            area_by_source_room[str(record.source_room_face_record_id)] = record
+        )
         area_records = tuple(
             area_by_source_room[key]
             for key in sorted(area_by_source_room)
         )
+        unresolved_disputed_area_floors = {
+            floor.canonical_floor_id
+            for floor in self._floors.floors
+            if floor.source_room_face_record_id in disputed_area_source_ids
+        }
         if not area_records:
             return CrossViewFloorFinishResult(
-                status=EvidenceResolutionStatus.ABSTAINED,
-                reason_codes=(CROSS_VIEW_FLOOR_FINISH_UNAVAILABLE,),
+                status=(
+                    EvidenceResolutionStatus.CONFLICT
+                    if disputed_area_source_ids
+                    else EvidenceResolutionStatus.ABSTAINED
+                ),
+                reason_codes=(
+                    (CROSS_VIEW_FLOOR_FINISH_CONFLICT,)
+                    if disputed_area_source_ids
+                    else (CROSS_VIEW_FLOOR_FINISH_UNAVAILABLE,)
+                ),
                 records=(),
-                unresolved_canonical_floor_ids=(),
+                unresolved_canonical_floor_ids=tuple(sorted(
+                    unresolved_disputed_area_floors
+                )),
             )
 
         document_ids: set[str] = set()
@@ -597,8 +650,8 @@ class CrossViewFloorFinishProducer:
         occurrence_results = material_producer.published_occurrence_results()
 
         records: list[CrossViewFloorFinishRecord] = []
-        unresolved: set[str] = set()
-        conflict = False
+        unresolved: set[str] = set(unresolved_disputed_area_floors)
+        conflict = bool(disputed_area_source_ids)
 
         # Cross-view fallback: a floor-finish plan may carry the room label and
         # finish code separately from the figured-dimension view that measured
