@@ -83,12 +83,18 @@ class CommercialTakeoffSourceTrace:
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        if isinstance(self.workspace_id, bool):
-            raise MissingCommercialAuthorityError("workspace_id must be a positive integer")
-        try:
+        if type(self.workspace_id) is int:
+            workspace_id = self.workspace_id
+        elif (
+            type(self.workspace_id) is str
+            and self.workspace_id.isascii()
+            and self.workspace_id.isdecimal()
+        ):
             workspace_id = int(self.workspace_id)
-        except (TypeError, ValueError, OverflowError) as exc:
-            raise MissingCommercialAuthorityError("workspace_id must be a positive integer") from exc
+        else:
+            # int(7.8) == 7 is not a valid original workspace authority.
+            # Numeric strings remain supported for persisted integer IDs.
+            raise MissingCommercialAuthorityError("workspace_id must be a positive integer")
         if workspace_id <= 0:
             raise MissingCommercialAuthorityError("workspace_id must be a positive integer")
         object.__setattr__(self, "workspace_id", workspace_id)
