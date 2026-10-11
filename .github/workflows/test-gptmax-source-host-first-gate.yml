@@ -1,0 +1,37 @@
+name: GPT MAX Source Host First Gate Census
+on:
+  pull_request:
+    paths:
+      - tools/diag_gptmax_source_host_first_gate.py
+      - tests/test_gptmax_source_host_first_gate.py
+      - docs/engineering/gptmax_source_host_first_gate_census.md
+      - .github/workflows/test-gptmax-source-host-first-gate.yml
+jobs:
+  source-report-census:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        python-version: ["3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install pytest
+      - name: Strict original-source report census negatives
+        run: PYTHONPATH=. python -m pytest -q tests/test_gptmax_source_host_first_gate.py
+      - name: Frozen V2 truth unchanged in census and test
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          for name in (
+              "tools/diag_gptmax_source_host_first_gate.py",
+              "tests/test_gptmax_source_host_first_gate.py",
+          ):
+              code=Path(name).read_text()
+              assert "reference_takeoff.json" not in code
+              assert "precision_adjusted_accuracy" not in code
+          PY
