@@ -36,6 +36,10 @@ def inspect_floor_finish_occurrence_first_gates(scope: Any, viewport: Any, *, sh
     expected_view=getattr(viewport,"view_id",None)
     expected_page=page_id
     view_bbox=_native_bbox(getattr(viewport,"bounding_box",None))
+    source_scope_ready=(
+        getattr(scope,"status",None) is EvidenceResolutionStatus.CORROBORATED
+        and getattr(scope,"scope_complete",None) is True
+    )
     owner_valid=(
         _owned_text(expected_view) and _owned_text(expected_page)
         and _owned_text(sha)
@@ -112,6 +116,12 @@ def inspect_floor_finish_occurrence_first_gates(scope: Any, viewport: Any, *, sh
         })
     return {
         "source_floor_viewport_id":expected_view,
+        "source_scope_first_unclosed_gate":(
+            "material_occurrence_scope_unresolved" if not source_scope_ready else
+            "source_occurrence_unavailable" if not records else
+            "source_floor_plan_viewport_unresolved" if not owner_valid else
+            "source_occurrence_room_ownership_unresolved"
+        ),
         "producer_occurrence_count":len(records),
         "ambiguous_source_receipt_ids":sorted(k for k,v in receipt_counts.items() if v>1),
         "ambiguous_source_text_observation_ids":sorted(k for k,v in observation_counts.items() if v>1),
