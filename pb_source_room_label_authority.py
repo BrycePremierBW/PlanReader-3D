@@ -22,6 +22,7 @@ matching, or benchmark-aware vocabulary.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections import Counter
 import io
 import math
 import re
@@ -456,6 +457,59 @@ class SourceRoomLabelAuthority:
             page_id=selector.page_id,
             decision_scope_id=selector.decision_scope_id,
         )
+
+
+def _unique_source_faces_for_label_ownership(records):
+    """Keep only unambiguous producer face ID AND source receipt identities.
+
+    Never let dict insertion order choose one of several original physical
+    room faces. Valid independent source faces remain available for labels.
+    """
+    faces=tuple(records)
+    def valid(value):
+        return isinstance(value,str) and bool(value) and value==value.strip()
+    face_counts=Counter(
+        rec.face_id for rec in faces
+        if valid(getattr(rec,"face_id",None))
+    )
+    receipt_counts=Counter(
+        rec.record_id for rec in faces
+        if valid(getattr(rec,"record_id",None))
+    )
+    return tuple(
+        rec for rec in faces
+        if valid(getattr(rec,"face_id",None))
+        and valid(getattr(rec,"record_id",None))
+        and face_counts[rec.face_id]==1
+        and receipt_counts[rec.record_id]==1
+    )
+
+
+def _unique_source_label_observation_owners(positive, split):
+    """Never publish one original text observation under competing room labels."""
+    direct=tuple(positive)
+    unresolved=tuple(split)
+    all_claims=direct+unresolved
+    def owned_ids(rec):
+        ids=getattr(rec,"observation_ids",None)
+        return tuple(ids) if isinstance(ids,(tuple,list)) else ()
+    counts=Counter(
+        obs for rec in all_claims for obs in owned_ids(rec)
+        if isinstance(obs,str) and obs
+    )
+    def safe(rec):
+        ids=owned_ids(rec)
+        return bool(ids) and all(
+            isinstance(obs,str) and bool(obs) and obs==obs.strip()
+            for obs in ids
+        ) and len(ids)==len(set(ids)) and all(
+            counts[obs]==1 for obs in ids
+        )
+    kept_direct=tuple(rec for rec in direct if safe(rec))
+    kept_unresolved=tuple(rec for rec in unresolved if safe(rec))
+    return kept_direct,kept_unresolved, (
+        len(kept_direct)!=len(direct) or len(kept_unresolved)!=len(unresolved)
+    )
 
 
 class SourceRoomLabelProducer:
@@ -932,12 +986,16 @@ class SourceRoomLabelProducer:
             required_word_unresolved = False
             position_unresolved = False
             split_face_candidates: list[SourceRoomSplitLabelCandidate] = []
+            # Duplicate physical source-face IDs or shared producer record
+            # receipts cannot choose an arbitrary text owner by dict order.
+            # Retain other exact independent source-owned rooms.
+            authentic_faces = _unique_source_faces_for_label_ownership(scope.records)
             room_by_face = {
-                record.face_id: record for record in scope.records
+                record.face_id: record for record in authentic_faces
             }
             source_face_bounds = tuple(
                 (record, _source_face_polygon_bbox(record.polygon_pdf_pts))
-                for record in scope.records
+                for record in authentic_faces
             )
 
             for line in _line_groups(words):
@@ -1120,6 +1178,18 @@ class SourceRoomLabelProducer:
                         _seal=_RECORD_SEAL,
                     )
                 )
+
+            # Original native text observations are producer-owned receipts;
+            # no one word may simultaneously establish two room labels,
+            # including a resolved single-face and unresolved split label.
+            clean_positive, clean_split, word_owner_conflict = (
+                _unique_source_label_observation_owners(
+                    positive, split_face_candidates
+                )
+            )
+            positive = list(clean_positive)
+            split_face_candidates = list(clean_split)
+            conflict = conflict or word_owner_conflict
 
             reasons = (
                 [SOURCE_ROOM_LABEL_SCOPE_RESOLVED]
