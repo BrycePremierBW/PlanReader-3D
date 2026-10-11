@@ -860,3 +860,188 @@ def test_source_w4_node_counts_are_scoped_once_across_competing_labels(monkeypat
         "split_label_primary",
         "split_label_competing",
     }
+
+
+def test_gpt2_b02_duplicate_w4_candidate_id_does_not_authenticate_separator():
+    """Original Maryborough exposed different W4 candidates with one address.
+
+    A shared W4 address does not prove wall physical equivalence or an exact
+    separator. Preserve independent source-owned walls and all face records.
+    """
+    from dataclasses import replace
+    from pb_source_composite_room_face_authority import (
+        _fully_grid_opposed_wall_evidence,
+    )
+
+    original = _wall_scope((_grid_atom("e_sep"), _grid_atom("e_left")))
+    clean_ids, clean_receipts = _fully_grid_opposed_wall_evidence(original)
+    assert "w_sep" in clean_ids and "w_left" in clean_ids
+    assert clean_receipts["w_sep"]
+    duplicate = _wall_record("w_sep", "another_original_source_edge")
+    contaminated = replace(
+        original, records=(*original.records, duplicate)
+    )
+    quarantined, receipts = _fully_grid_opposed_wall_evidence(contaminated)
+    assert "w_sep" not in quarantined
+    assert "w_sep" not in receipts
+    assert "w_left" in quarantined
+    assert receipts["w_left"] == clean_receipts["w_left"]
+    # Exactly the same producer ID repeated twice is also nonunique and
+    # cannot silently grant two physical face-cell ownership claims.
+    repeated = replace(
+        original, records=(*original.records, original.records[0])
+    )
+    repeated_ids, _ = _fully_grid_opposed_wall_evidence(repeated)
+    assert "w_sep" not in repeated_ids
+
+    # A candidate union relying on a colliding W4 separator must abstain.
+    attempted = compose_grid_separated_room_faces(
+        wall_scope=contaminated,
+        room_scope=_room_scope(),
+        label_scope=_label_scope(),
+    )
+    assert attempted.records == ()
+    assert attempted.status is EvidenceResolutionStatus.ABSTAINED
+
+
+def test_gpt2_b02_duplicate_source_face_or_receipt_blocks_room_composite():
+    from dataclasses import replace
+
+    original=_room_scope()
+    wall=_wall_scope((_grid_atom("e_sep"),))
+    label=_label_scope()
+    positive=compose_grid_separated_room_faces(
+        wall_scope=wall,room_scope=original,label_scope=label
+    )
+    assert positive.status is EvidenceResolutionStatus.CORROBORATED
+    assert len(positive.records)==1
+
+    a,b=original.records
+    for corrupted in (
+        replace(original,records=(a,b,replace(a,record_id="another-source"))),
+        replace(original,records=(a,replace(b,record_id=a.record_id))),
+    ):
+        result=compose_grid_separated_room_faces(
+            wall_scope=wall,room_scope=corrupted,label_scope=label
+        )
+        assert result.status is EvidenceResolutionStatus.ABSTAINED
+        assert result.records == ()
+        assert result.unresolved_label_candidate_ids == ("split_label_1",)
+        # Original source record universe must remain auditable, never deleted.
+        assert len(corrupted.records) in (2,3)
+
+
+def test_gpt2_b02_invalid_w4_source_key_cannot_impersonate_grid_wall():
+    """Fail closed even when a typed GRID atom points to an apparent string ID."""
+    from dataclasses import replace
+    from pb_source_composite_room_face_authority import (
+        _fully_grid_opposed_wall_evidence,
+    )
+    for invalid in (None, 42, "", "  ", " w_sep"):
+        source = _wall_scope((_grid_atom("e_sep"),))
+        original = source.records[0]
+        forged = SimpleNamespace(
+            wall_candidate_id=invalid,
+            wall_candidate=original.wall_candidate,
+        )
+        amended = replace(source, records=(forged, *source.records[1:]))
+        grid, receipts = _fully_grid_opposed_wall_evidence(amended)
+        assert "w_sep" not in grid
+        assert "w_sep" not in receipts
+        assert not grid
+    # Unaffected producer-owned walls still publish their exact independent
+    # grid opposition when another wall has an invalid address.
+    source=_wall_scope((_grid_atom("e_sep"),_grid_atom("e_left")))
+    forged=SimpleNamespace(
+        wall_candidate_id=None,
+        wall_candidate=source.records[0].wall_candidate,
+    )
+    amended=replace(source, records=(forged,*source.records[1:]))
+    grid,receipts=_fully_grid_opposed_wall_evidence(amended)
+    assert grid=={"w_left"}
+    assert receipts["w_left"]
+
+
+def test_gpt2_split_label_exact_word_face_source_receipts_required():
+    """B01: Native word owners cannot borrow foreign face record ancestry."""
+    from dataclasses import replace
+    wall_scope = _wall_scope((_grid_atom("e_sep"),))
+    room_scope = _room_scope()
+    label_scope = _label_scope()
+    positive = compose_grid_separated_room_faces(
+        wall_scope=wall_scope, room_scope=room_scope, label_scope=label_scope
+    )
+    assert len(positive.records) == 1
+    original = label_scope.split_face_candidates[0]
+    for invalid in (
+        ("foreign-a", "record_right"),
+        ("record_right", "record_left"),
+        ("record_left",),
+        (),
+        ("record_left", "record_right", "unexpected"),
+    ):
+        tampered = SimpleNamespace(**vars(original))
+        tampered.source_room_face_record_ids = invalid
+        label_scope_invalid = replace(
+            label_scope, split_face_candidates=(tampered,)
+        )
+        rejected = compose_grid_separated_room_faces(
+            wall_scope=wall_scope, room_scope=room_scope,
+            label_scope=label_scope_invalid,
+        )
+        assert rejected.records == ()
+        assert rejected.status is EvidenceResolutionStatus.ABSTAINED
+    for field, stale in (
+        ("source_sha256", "b" * 64),
+        ("snapshot_id", "different-room-snapshot"),
+        ("page_id", "another-page"),
+        ("decision_scope_id", "foreign-floor-viewport"),
+    ):
+        tampered = SimpleNamespace(**vars(original))
+        setattr(tampered, field, stale)
+        rejected = compose_grid_separated_room_faces(
+            wall_scope=wall_scope, room_scope=room_scope,
+            label_scope=replace(
+                label_scope, split_face_candidates=(tampered,)
+            ),
+        )
+        assert rejected.records == ()
+
+
+def test_gpt2_b02_composite_rejects_stringified_missing_source_receipts():
+    """None and numeric upstream identities are not physical room ancestry."""
+    from dataclasses import replace
+    import copy
+    wall=_wall_scope((_grid_atom("e_sep"),))
+    room=_room_scope()
+    labelled=_label_scope()
+    assert len(compose_grid_separated_room_faces(
+        wall_scope=wall,room_scope=room,label_scope=labelled
+    ).records)==1
+    left,right=room.records
+    for malformed in (None, 73, "", " record_right"):
+        contaminated=replace(room,records=(
+            left,replace(right,record_id=malformed)
+        ))
+        candidate=copy.copy(labelled.split_face_candidates[0])
+        candidate.source_room_face_record_ids=(
+            "record_left",str(malformed),
+        )
+        result=compose_grid_separated_room_faces(
+            wall_scope=wall,room_scope=contaminated,
+            label_scope=replace(labelled,split_face_candidates=(candidate,))
+        )
+        assert result.status is EvidenceResolutionStatus.ABSTAINED
+        assert result.records == ()
+
+    # A native producer face ID of integer 7 cannot be owned by the string
+    # "7" in word evidence, even with exactly matching source geometry.
+    numeric=replace(room,records=(left,replace(right,face_id=7)))
+    candidate=copy.copy(labelled.split_face_candidates[0])
+    candidate.word_face_ids=("face_left","7")
+    result=compose_grid_separated_room_faces(
+        wall_scope=wall,room_scope=numeric,
+        label_scope=replace(labelled,split_face_candidates=(candidate,))
+    )
+    assert result.records == ()
+    assert result.status is EvidenceResolutionStatus.ABSTAINED
