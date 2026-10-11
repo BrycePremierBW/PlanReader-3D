@@ -257,3 +257,42 @@ def test_missing_source_occurrence_material_code_remains_unverified():
     row=gate(vp(),scope(complete=True,records=(
         R(viewport_id="v9",record_id="source",code="FPB"),)))
     assert row["producer_authenticated_record_ids"]==["source"]
+
+
+def test_gpt2_rcp_untrusted_viewport_identity_cannot_authorize_material_row():
+    from pb_migration_contracts import EvidenceResolutionStatus
+    source=scope(
+        complete=True,status=EvidenceResolutionStatus.CORROBORATED,
+        records=(R(record_id="source-occurrence",viewport_id="v9",code="FPB"),),
+    )
+    for malformed in (None, "", "  ", "v9 ", 42):
+        raw=vp()
+        raw.view_id=malformed
+        wrong=gate(raw,source)
+        assert wrong["first_unclosed_gate"]=="source_rcp_viewport_unresolved"
+        assert wrong["producer_authenticated_record_ids"]==[]
+        assert not wrong["new_room_material_ownership_claim"]
+        assert not wrong["new_metric_quantity_claim"]
+    assert gate(vp(),source)["producer_authenticated_record_ids"]==[
+        "source-occurrence"
+    ]
+
+
+def test_gpt2_rcp_source_occurrence_receipt_ids_cannot_be_string_coerced():
+    for invalid in (None, "", " ", 73, "source-occurrence "):
+        got=gate(vp(),scope(
+            complete=True,records=(
+                R(record_id=invalid,viewport_id="v9",code="FPB"),
+            ),
+        ))
+        assert got["producer_authenticated_record_ids"]==[]
+        assert got["new_room_material_ownership_claim"] is False
+        assert got["new_metric_quantity_claim"] is False
+
+    for invalid_viewport in (None, 9, "v9 ", "  "):
+        got=gate(vp(),scope(
+            complete=True,records=(
+                R(record_id="source-occurrence",viewport_id=invalid_viewport,code="FPB"),
+            ),
+        ))
+        assert got["producer_authenticated_record_ids"]==[]
