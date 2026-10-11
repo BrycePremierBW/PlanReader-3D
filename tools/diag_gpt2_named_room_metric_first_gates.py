@@ -62,6 +62,17 @@ def summarize_named_room_metric_first_gates(claim: Any) -> dict[str, Any]:
             )
             if rid in owners:
                 owned_reasons[rid].add(repr(reason))
+                # Conflicting but genuine source first-failure receipts still
+                # prove this producer RAN; they are not a missing receipt.
+                # Invalid reason rows must never impersonate that proof.
+                valid_reason = (
+                    isinstance(reason, str) and bool(reason.strip())
+                    if key != "physical_scale"
+                    else isinstance(reason, (tuple, list)) and bool(reason)
+                    and all(isinstance(v, str) and bool(v.strip()) for v in reason)
+                )
+                if valid_reason:
+                    witnessed_room_ids.add(rid)
         conflicted = {
             rid for rid, distinct in owned_reasons.items() if len(distinct) > 1
         }
