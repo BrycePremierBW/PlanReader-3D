@@ -1045,3 +1045,65 @@ def test_gpt2_b02_composite_rejects_stringified_missing_source_receipts():
     )
     assert result.records == ()
     assert result.status is EvidenceResolutionStatus.ABSTAINED
+
+
+def test_gpt2_grid_component_cannot_stringify_or_overwrite_native_source_faces():
+    from dataclasses import replace
+    from pb_source_composite_room_face_authority import (
+        _grid_connected_component, _fully_grid_opposed_wall_evidence,
+        _grid_local_adjacency,
+    )
+    walls = _wall_scope((_grid_atom("e_sep"),))
+    rooms = _room_scope()
+    grid, _ = _fully_grid_opposed_wall_evidence(walls)
+    adjacency = _grid_local_adjacency(rooms, grid)
+    candidate = ("face_left", "face_right")
+    authentic = _grid_connected_component(
+        candidate, room_scope=rooms,
+        fully_grid_wall_ids=grid, adjacency=adjacency
+    )
+    assert authentic is not None
+    for ids in (
+        "face_left", ("face_left", 9), ("face_left", None),
+        ("face_left", " face_right"), ("face_left",),
+    ):
+        assert _grid_connected_component(
+            ids, room_scope=rooms, fully_grid_wall_ids=grid,
+            adjacency=adjacency
+        ) is None
+    left,right = rooms.records
+    for invalid in (
+        replace(rooms, records=(left,right,replace(left,record_id="other"))),
+        replace(rooms, records=(left,replace(right,record_id=left.record_id))),
+        replace(rooms, records=(left,replace(right,face_id=None))),
+    ):
+        assert _grid_connected_component(
+            candidate, room_scope=invalid, fully_grid_wall_ids=grid,
+            adjacency=adjacency
+        ) is None
+
+
+def test_gpt2_duplicated_split_label_producer_id_cannot_evade_competing_label_gate():
+    from dataclasses import replace
+    from pb_source_composite_room_face_authority import (
+        _component_has_conflicting_label,
+    )
+    labels = _label_scope()
+    original = labels.split_face_candidates[0]
+    component = ("face_left", "face_right")
+    assert not _component_has_conflicting_label(
+        component,original,label_scope=labels
+    )
+    other = SimpleNamespace(**vars(original))
+    contaminated = replace(
+        labels,split_face_candidates=(original,other)
+    )
+    assert _component_has_conflicting_label(
+        component,original,label_scope=contaminated
+    )
+    actual = compose_grid_separated_room_faces(
+        wall_scope=_wall_scope((_grid_atom("e_sep"),)),
+        room_scope=_room_scope(),label_scope=contaminated,
+    )
+    assert actual.records == ()
+    assert actual.status is EvidenceResolutionStatus.ABSTAINED
