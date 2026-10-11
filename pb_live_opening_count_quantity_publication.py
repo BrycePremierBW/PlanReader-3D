@@ -17,6 +17,8 @@ Schedule-only quantities and implicit default counts remain fail-closed.
 """
 from __future__ import annotations
 
+import math
+
 from pb_generic_opening_count_authority import (
     GenericOpeningCountProducer,
     GenericOpeningCountSelector,
@@ -52,6 +54,17 @@ def _authentic_source_id_universe(ids: object) -> bool:
         and all(type(value) is str and value and value == value.strip() for value in ids)
         and len(set(ids)) == len(ids)
     )
+
+
+def _valid_explicit_source_count(count: object) -> bool:
+    """Explicit producer-owned item count, never a guessed per-detection one."""
+    if type(count) not in (int, float):
+        return False
+    try:
+        number = float(count)
+    except (OverflowError, ValueError):
+        return False
+    return math.isfinite(number) and number > 0 and number.is_integer()
 
 
 def publish_live_authenticated_opening_count_quantities(
@@ -165,10 +178,7 @@ def publish_live_authenticated_opening_count_quantities(
             result.status is not EvidenceResolutionStatus.CORROBORATED
             or record is None
             or not record.schedule_row_count_explicit
-            or record.schedule_row_count is None
-            or type(record.schedule_row_count) not in (int, float)
-            or record.schedule_row_count <= 0
-            or int(record.schedule_row_count) != record.schedule_row_count
+            or not _valid_explicit_source_count(record.schedule_row_count)
             or type(record.schedule_page_id) is not str
             or not record.schedule_page_id.strip()
             or not _authentic_source_id_universe(record.schedule_row_observation_ids)
