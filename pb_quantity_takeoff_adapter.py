@@ -71,7 +71,11 @@ _NONPUBLISHABLE_QUANTITY_STATES = frozenset({
 
 
 def quantity_status_not_publishable(status: Any) -> bool:
-    token = _norm(status)
+    # Resolve actual Enum values before normalizing their display names.
+    # str(EvidenceResolutionStatus.CANDIDATE) may be the qualified class
+    # token rather than "candidate" even though it is not firm evidence.
+    value = getattr(status, "value", status)
+    token = _norm(value)
     return token in _NONPUBLISHABLE_QUANTITY_STATES or "conflict" in token
 
 
