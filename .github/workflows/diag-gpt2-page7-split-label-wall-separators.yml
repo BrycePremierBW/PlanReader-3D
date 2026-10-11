@@ -382,6 +382,7 @@ jobs:
           )
           from tools.diag_gpt2_grid_component_first_failure import (
               inspect_split_grid_component_first_failure,
+              diagnose_original_w4_address_collisions,
           )
           composite_scopes=[]
           for selector in selectors:
@@ -412,6 +413,11 @@ jobs:
               colliding_w4_ids={
                   wall_id for wall_id,count in w4_counts.items() if count>1
               }
+              original_collision_receipts=diagnose_original_w4_address_collisions(
+                  wall_scope.records
+              )
+              assert set(original_collision_receipts["colliding_original_w4_ids"]) == colliding_w4_ids
+              assert not original_collision_receipts["physical_wall_equivalence_proven"]
               fully_grid,evidence_by_wall=_fully_grid_opposed_wall_evidence(wall_scope)
               assert not colliding_w4_ids.intersection(fully_grid)
               adjacency=_grid_local_adjacency(room_scope,fully_grid)
@@ -456,6 +462,7 @@ jobs:
                   "original_wall_candidate_count":len(original_w4_ids),
                   "unique_wall_candidate_id_count":len(w4_counts),
                   "ambiguous_wall_candidate_ids":sorted(colliding_w4_ids),
+                  "separate_original_w4_collision_receipts":original_collision_receipts,
                   "wall_scope_status":str(wall_scope.status),
                   "wall_scope_complete":wall_scope.scope_complete,
                   "wall_scope_reason_codes":list(wall_scope.reason_codes),
