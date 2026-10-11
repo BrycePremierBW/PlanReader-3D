@@ -151,10 +151,12 @@ def _customer_quantity_id(row: Mapping[str, Any]) -> str:
     try:
         parsed = _strict_customer_notes(notes)
     except CustomerOutputVerificationError as exc:
-        if _has_machine_quantity_receipt(row.get("source_reference")):
+        if _has_machine_quantity_receipt(row.get("source_reference")) and "duplicate provenance key" not in str(exc):
             raise CustomerOutputVerificationError(
                 "automated customer row is missing quantity identity"
             ) from exc
+        if "duplicate provenance key" in str(exc):
+            raise
         return ""
     if not isinstance(parsed, Mapping):
         return ""
