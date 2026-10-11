@@ -25,6 +25,39 @@ def _clean(value: object) -> str:
     return str(value or "").strip()
 
 
+def _valid_source_room_area_quantity(quantity: QuantityEvidence) -> bool:
+    """Reject untyped/replayed source m² before room-to-floor commercial reissue."""
+    if (
+        quantity.family != "room_area"
+        or quantity.abstained
+        or type(quantity.value) not in (int, float)
+        or _clean(quantity.status).lower() != AuthorityStatus.FIRM.value
+        or _clean(quantity.unit).lower() not in {"m2", "m²"}
+        or quantity.blocking_reasons
+        or _clean(quantity.authority) not in {
+            MeasurementAuthorityType.DOCUMENTED_DIMENSION.value,
+            MeasurementAuthorityType.PDF_SCALED.value,
+        }
+        or type(quantity.confidence) not in (int, float)
+        or len(quantity.input_entity_ids) != 1
+        or not isinstance(quantity.evidence_ids, (list, tuple))
+        or not quantity.evidence_ids
+        or any(type(value) is not str or not value or value != value.strip()
+               for value in quantity.evidence_ids)
+        or len(set(quantity.evidence_ids)) != len(quantity.evidence_ids)
+    ):
+        return False
+    try:
+        return (
+            math.isfinite(float(quantity.value))
+            and float(quantity.value) > 0.0
+            and math.isfinite(float(quantity.confidence))
+            and 0.0 <= float(quantity.confidence) <= 1.0
+        )
+    except (TypeError, ValueError, OverflowError):
+        return False
+
+
 def _canonical_rooms_by_id(
     claim: LivePhysicalNetWallClaim,
 ) -> dict[str, LiveCanonicalRoomObject]:
@@ -52,18 +85,7 @@ def publish_live_floor_area_quantities(
     for quantity in claim.room_area_quantity_evidence:
         if not isinstance(quantity, QuantityEvidence):
             raise TypeError("room_area_quantity_evidence must contain QuantityEvidence")
-        if (
-            quantity.family != "room_area"
-            or quantity.abstained
-            or quantity.value is None
-            or _clean(quantity.status).lower() != AuthorityStatus.FIRM.value
-            or _clean(quantity.unit).lower() not in {"m2", "m²"}
-            or quantity.blocking_reasons
-            or _clean(quantity.authority) not in {
-                MeasurementAuthorityType.DOCUMENTED_DIMENSION.value,
-                MeasurementAuthorityType.PDF_SCALED.value,
-            }
-        ):
+        if not _valid_source_room_area_quantity(quantity):
             continue
         qid = _clean(quantity.quantity_id)
         if not qid:
@@ -144,6 +166,10 @@ def publish_live_floor_area_quantities(
         ):
             continue
         if len(physical_floor_claim_ids.get(_clean(floor.physical_floor_surface_id), ())) != 1:
+            continue
+        # A source-derived canonical floor may carry PDF-point geometry but
+        # cannot borrow an untyped metric from a replayed floor snapshot.
+        if type(floor.metric_area_m2) not in (int, float):
             continue
         try:
             qvalue = float(quantity.value)
@@ -272,18 +298,7 @@ def publish_live_canonical_room_area_quantities(
     for source in claim.room_area_quantity_evidence:
         if not isinstance(source, QuantityEvidence):
             raise TypeError("room_area_quantity_evidence must contain QuantityEvidence")
-        if (
-            source.family != "room_area"
-            or source.abstained
-            or source.value is None
-            or _clean(source.status).lower() != AuthorityStatus.FIRM.value
-            or _clean(source.unit).lower() not in {"m2", "m²"}
-            or source.blocking_reasons
-            or _clean(source.authority) not in {
-                MeasurementAuthorityType.DOCUMENTED_DIMENSION.value,
-                MeasurementAuthorityType.PDF_SCALED.value,
-            }
-        ):
+        if not _valid_source_room_area_quantity(source):
             continue
         qid = _clean(source.quantity_id)
         if not qid or qid in conflicting_firm_ids:
