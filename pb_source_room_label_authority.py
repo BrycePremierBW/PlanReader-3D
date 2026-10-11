@@ -22,6 +22,7 @@ matching, or benchmark-aware vocabulary.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections import Counter
 import io
 import math
 import re
@@ -456,6 +457,32 @@ class SourceRoomLabelAuthority:
             page_id=selector.page_id,
             decision_scope_id=selector.decision_scope_id,
         )
+
+
+def _unique_source_faces_for_label_ownership(records):
+    """Keep only unambiguous producer face ID AND source receipt identities.
+
+    Never let dict insertion order choose one of several original physical
+    room faces. Valid independent source faces remain available for labels.
+    """
+    faces=tuple(records)
+    def valid(value):
+        return isinstance(value,str) and bool(value) and value==value.strip()
+    face_counts=Counter(
+        rec.face_id for rec in faces
+        if valid(getattr(rec,"face_id",None))
+    )
+    receipt_counts=Counter(
+        rec.record_id for rec in faces
+        if valid(getattr(rec,"record_id",None))
+    )
+    return tuple(
+        rec for rec in faces
+        if valid(getattr(rec,"face_id",None))
+        and valid(getattr(rec,"record_id",None))
+        and face_counts[rec.face_id]==1
+        and receipt_counts[rec.record_id]==1
+    )
 
 
 class SourceRoomLabelProducer:
@@ -932,12 +959,16 @@ class SourceRoomLabelProducer:
             required_word_unresolved = False
             position_unresolved = False
             split_face_candidates: list[SourceRoomSplitLabelCandidate] = []
+            # Duplicate physical source-face IDs or shared producer record
+            # receipts cannot choose an arbitrary text owner by dict order.
+            # Retain other exact independent source-owned rooms.
+            authentic_faces = _unique_source_faces_for_label_ownership(scope.records)
             room_by_face = {
-                record.face_id: record for record in scope.records
+                record.face_id: record for record in authentic_faces
             }
             source_face_bounds = tuple(
                 (record, _source_face_polygon_bbox(record.polygon_pdf_pts))
-                for record in scope.records
+                for record in authentic_faces
             )
 
             for line in _line_groups(words):
