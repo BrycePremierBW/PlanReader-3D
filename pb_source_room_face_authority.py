@@ -228,6 +228,16 @@ def _publication_boundary_ownership(
             return None
 
         owner = edge_owner.get(face_edge)
+        if owner is not None:
+            # Exact index ownership is strong only when the claimed W4
+            # owner still has an actual original source wall subedge. A
+            # dangling/stale index key is not physical wall evidence.
+            original_source_edges = wall_edges.get(owner, ())
+            if not any(
+                _edge_contains_edge(source_edge, face_edge)
+                for source_edge in original_source_edges
+            ):
+                return None
         if owner is None:
             containing = _containing_wall_ids(
                 face_edge,
@@ -516,10 +526,25 @@ def _unique_containing_wall_owner(
     """
     exact = edge_owner.get(edge)
     if exact is not None:
+        # An indexed owner is only source evidence while its original W4
+        # wall still contains this exact quantized face subedge. A stale
+        # or foreign index entry is not a physical wall identity.
+        if not isinstance(exact, str) or not exact or exact != exact.strip():
+            return None
+        if not any(
+            _edge_contains_edge(parent, edge)
+            for parent in wall_edges.get(exact, ())
+        ):
+            return None
         return exact
 
     owner: str | None = None
-    for wall_id in sorted(wall_edges):
+    for wall_id in sorted(
+        key for key in wall_edges
+        if isinstance(key, str) and key and key == key.strip()
+    ):
+        # Malformed W4 producer addresses cannot become authentic owners,
+        # and cannot crash otherwise valid independent source-wall checks.
         if not any(
             _edge_contains_edge(parent, edge) for parent in wall_edges[wall_id]
         ):

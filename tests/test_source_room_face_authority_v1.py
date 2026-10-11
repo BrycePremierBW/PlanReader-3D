@@ -477,3 +477,84 @@ def test_finite_source_coordinates_with_overflowed_intermediates_abstain():
     off_diagonal = ((5e199, 6e199), (9e199, 9e199))
     assert not _edge_contains_edge(huge_diagonal, off_diagonal)
     assert _collinear_overlap_edge(huge_diagonal, off_diagonal) is None
+
+def test_gpt2_b02_publication_exact_wall_owner_requires_real_original_subedge():
+    from pb_source_room_face_authority import _publication_boundary_ownership
+
+    ring=((0.0,0.0),(10.0,0.0),(10.0,10.0),(0.0,10.0))
+    edges=tuple(_edge(ring[i],ring[(i+1)%len(ring)]) for i in range(len(ring)))
+    walls={f"w{i}":(edge,) for i,edge in enumerate(edges)}
+    owners={edge:f"w{i}" for i,edge in enumerate(edges)}
+    positive=_publication_boundary_ownership(
+        ring,edge_owner=owners,wall_edges=walls,
+        ownership_grid={},ownership_oversized=[]
+    )
+    assert positive is not None
+    assert set(positive[1])==set(walls)
+    for forged in (
+        {**owners,edges[0]:"W4-absent"},
+        {**owners,edges[0]:"w1"},
+    ):
+        assert _publication_boundary_ownership(
+            ring,edge_owner=forged,wall_edges=walls,
+            ownership_grid={},ownership_oversized=[]
+        ) is None
+    # An index retaining its ID but losing the physical edge cannot
+    # publish the same boundary through stale source ancestry.
+    missing={**walls,"w0":()}
+    assert _publication_boundary_ownership(
+        ring,edge_owner=owners,wall_edges=missing,
+        ownership_grid={},ownership_oversized=[]
+    ) is None
+
+
+def test_gpt2_upstream_exact_indexed_w4_owner_must_have_original_edge():
+    from pb_source_room_face_authority import _unique_containing_wall_owner, _edge
+
+    edge = _edge((0.,0.),(10.,0.))
+    independent = _edge((0.,10.),(10.,10.))
+    good={"W4-original":(edge,),"other-source-wall":(independent,)}
+    assert _unique_containing_wall_owner(
+        edge,edge_owner={edge:"W4-original"},wall_edges=good
+    )=="W4-original"
+    for invalid in (None,17,""," W4-original","W4-foreign"):
+        assert _unique_containing_wall_owner(
+            edge,edge_owner={edge:invalid},wall_edges=good
+        ) is None
+    assert _unique_containing_wall_owner(
+        edge,edge_owner={edge:"W4-original"},
+        wall_edges={"W4-original":(independent,)}
+    ) is None
+    # Real source-contained original W4 fallback still works unchanged.
+    subedge=_edge((2.,0.),(8.,0.))
+    assert _unique_containing_wall_owner(
+        subedge,edge_owner={},wall_edges=good
+    )=="W4-original"
+
+
+def test_gpt2_containing_wall_owner_rejects_malformed_w4_fallback_keys():
+    from pb_source_room_face_authority import _unique_containing_wall_owner, _edge
+    parent=_edge((0.,0.),(10.,0.))
+    child=_edge((2.,0.),(8.,0.))
+    malformed={
+        None:(parent,),
+        73:(parent,),
+        " owner":(parent,),
+        "":(parent,),
+        "W4-proven":(parent,),
+    }
+    assert _unique_containing_wall_owner(
+        child,edge_owner={},wall_edges=malformed
+    )=="W4-proven"
+    assert _unique_containing_wall_owner(
+        child,edge_owner={},wall_edges={
+            None:(parent,),73:(parent,),"":(parent,),
+        }
+    ) is None
+    # Two truly distinct authenticated source wall owners remain a
+    # conflict rather than an arbitrary lexicographic first winner.
+    assert _unique_containing_wall_owner(
+        child,edge_owner={},wall_edges={
+            "W4-one":(parent,),"W4-two":(parent,),
+        }
+    ) is None
