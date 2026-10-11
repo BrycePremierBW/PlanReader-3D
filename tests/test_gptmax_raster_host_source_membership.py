@@ -783,7 +783,9 @@ def test_g17_foreign_receipt_is_retained_as_negative_without_geometry(field, val
     report = nonpublishing_g17_support_receipts(authority, support_opening(), opening())
     face = next(r for r in report if r["requested_source_observation_id"] == "face")
     assert not face["source_receipt_authenticated"]
-    assert face["diagnostic_rejection_reason"] == "G17_support_source_scope_mismatch"
+    assert face["diagnostic_rejection_reason"] == (
+        "G17_support_primitive_kind_unavailable" if field == "observation_kind"
+        else "G17_support_source_scope_mismatch")
     assert "original_source_support_geometry_pt" not in face
     assert not face["host_publication_allowed"]
 
@@ -1007,3 +1009,63 @@ def test_raster_cache_rejects_foreign_published_snapshot_before_lookup(monkeypat
     published.snapshot.snapshot_id = "foreign"
     with pytest.raises(ValueError, match="published source scope mismatch"):
         DiagnosticRasterLineCache().resolve(CacheAuthority(), existence, ("a",), published=published)
+
+
+@pytest.mark.parametrize("damage", ["source-bytes", "source-observation"])
+def test_warm_cache_rejects_actual_producer_store_tampering(damage):
+    import fitz
+
+    from pb_source_visibility_authority import SourceVisibilityProducer
+
+    doc = fitz.open()
+    try:
+        page = doc.new_page(width=200, height=100)
+        page.draw_rect(fitz.Rect(20, 20, 180, 80), width=1)
+        source_bytes = doc.tobytes()
+    finally:
+        doc.close()
+    producer = SourceVisibilityProducer(producer_method="diagnostic-cache-source-test", producer_version="1")
+    published = producer.ingest_native_pdf_bytes(document_id="actual-cache-source",
+        source_bytes=source_bytes, source_locator="memory://actual-cache-source.pdf", page_ids=("1",))
+    visibility = producer.authority()
+    class OpeningReader:
+        def source_visibility_authority(self):
+            return visibility
+    reader = OpeningReader()
+    existence = SimpleNamespace(document_id=published.revision.document_id,
+        revision_id=published.revision.revision_id, source_sha256=published.revision.source_sha256,
+        snapshot_id=published.snapshot.snapshot_id, page_id="1", viewport_id=None)
+    ids = published.visible_observation_ids
+    assert ids
+    cache = DiagnosticRasterLineCache()
+    # This native fixture has no raster lines: an empty result stays empty.
+    assert dict(cache.resolve(reader, existence, ids, published=published)) == {}
+    store = producer._producer._store
+    if damage == "source-bytes":
+        store.source_bytes_by_revision[existence.revision_id] = b"tampered-source-bytes"
+    else:
+        key = (existence.snapshot_id, ids[0])
+        record = store.observations[key]
+        store.observations[key] = replace(record, geometry=tuple(v + 1. for v in record.geometry))
+    with pytest.raises(RuntimeError, match="producer_integrity_failure"):
+        cache.resolve(reader, existence, ids, published=published)
+
+
+@pytest.mark.parametrize("kind", ["raster_line_run", "raster_thin_ink_run"])
+def test_supplementary_opening_strokes_retain_authentication_without_band_support(kind):
+    existence = support_opening()
+    existence.source_observation_ids += ("supplementary",)
+    observations = {oid: support_observation(oid) for oid in ("face", "end")}
+    observations["supplementary"] = support_observation("supplementary", observation_kind=kind,
+                                                        geometry=(0., 0., 10., 0.))
+    authority, _ = support_authority(observations)
+    report = nonpublishing_g17_support_receipts(authority, existence, opening())
+    supplementary = next(r for r in report if r["requested_source_observation_id"] == "supplementary")
+    assert supplementary["source_receipt_authenticated"]
+    assert supplementary["observation_kind"] == kind
+    assert supplementary["original_source_support_geometry_pt"] == [0., 0., 10., 0.]
+    assert supplementary["derivation_parent_ids"] == ["parent-supplementary"]
+    assert not supplementary["eligible_g17_host_band_support"]
+    assert not supplementary["physical_contact_proven"]
+    assert not supplementary["host_publication_allowed"]
+    assert all(r["eligible_g17_host_band_support"] for r in report if r is not supplementary)

@@ -37,7 +37,10 @@ from pb_physical_wall_candidate_authority import (
     PhysicalWallCandidateSelector,
 )
 from pb_source_observation_authority import ObservationSelector
-from pb_source_visibility_authority import SourceVisibilityProducer
+from pb_source_visibility_authority import (
+    RASTER_OPENING_VISIBLE_PRIMITIVE_KINDS,
+    SourceVisibilityProducer,
+)
 from pb_wall_room_topology_junction_classifier import deduplicate_coincident_edges
 from pb_wall_room_topology_primitive_lineage import fragment_contained_in_segment
 from pb_wall_room_topology_stage_a import DEFAULT_GAP_SNAP_TOLERANCE_PT
@@ -360,17 +363,22 @@ def nonpublishing_g17_support_receipts(authority, opening, geometry) -> list[dic
                "resolution_status": resolved.status.value,
                "original_resolution_reason_codes": list(resolved.reason_codes),
                "source_receipt_authenticated": False, "physical_contact_proven": False,
+               "eligible_g17_host_band_support": False,
                "host_publication_allowed": False}
         if resolved.status is not EvidenceResolutionStatus.CORROBORATED or observation is None:
             rows.append(row)
             continue
         if (any(getattr(observation, k, None) != getattr(selector, k)
                 for k in ("document_id", "revision_id", "source_sha256", "snapshot_id", "observation_id"))
-                or observation.page_id != opening.page_id or observation.viewport_id is not None
-                or observation.observation_kind not in ("raster_wall_band_face", "raster_wall_band_end")):
+                or observation.page_id != opening.page_id or observation.viewport_id is not None):
             rows.append({**row, "diagnostic_rejection_reason": "G17_support_source_scope_mismatch"})
             continue
+        if observation.observation_kind not in RASTER_OPENING_VISIBLE_PRIMITIVE_KINDS:
+            rows.append({**row, "diagnostic_rejection_reason": "G17_support_primitive_kind_unavailable"})
+            continue
         rows.append({**row, "source_receipt_authenticated": True,
+                     "eligible_g17_host_band_support": observation.observation_kind in (
+                         "raster_wall_band_face", "raster_wall_band_end"),
                      "document_id": observation.document_id, "revision_id": observation.revision_id,
                      "source_sha256": observation.source_sha256, "snapshot_id": observation.snapshot_id,
                      "page_id": observation.page_id, "viewport_id": observation.viewport_id,

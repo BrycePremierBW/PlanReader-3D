@@ -627,10 +627,10 @@ class NetWallBooleanUnionProducer:
                     ),
                 )
             if (
-                u0 < -tol
-                or u1 > gross_record.length_m + tol
-                or z0 < -tol
-                or z1 > gross_record.height_m + tol
+                u0 < 0.0
+                or u1 > gross_record.length_m
+                or z0 < 0.0
+                or z1 > gross_record.height_m
             ):
                 return self._store(
                     selector,

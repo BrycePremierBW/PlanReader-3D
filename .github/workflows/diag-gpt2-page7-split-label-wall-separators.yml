@@ -397,15 +397,35 @@ jobs:
                   page_id=selector.page_id,
                   decision_scope_id=selector.decision_scope_id,
               ))
+              # Original W4 candidate addresses are not proof of unique
+              # physical walls. Record actual collisions from the producer's
+              # untouched source scope before computing grid/room authority.
+              original_w4_ids=[
+                  str(record.wall_candidate_id) for record in wall_scope.records
+              ]
+              w4_counts=Counter(original_w4_ids)
+              colliding_w4_ids={
+                  wall_id for wall_id,count in w4_counts.items() if count>1
+              }
               fully_grid,evidence_by_wall=_fully_grid_opposed_wall_evidence(wall_scope)
+              assert not colliding_w4_ids.intersection(fully_grid)
               adjacency=_grid_local_adjacency(room_scope,fully_grid)
               composite=compose_grid_separated_room_faces(
                   wall_scope=wall_scope,
                   room_scope=room_scope,
                   label_scope=label_scope,
               )
+              # Even a composite published under another source topology
+              # candidate may not smuggle a colliding W4 source separator.
+              assert all(
+                  not colliding_w4_ids.intersection(record.separator_wall_ids)
+                  for record in composite.records
+              )
               composite_scopes.append({
                   "source_decision_scope_id":selector.decision_scope_id,
+                  "original_wall_candidate_count":len(original_w4_ids),
+                  "unique_wall_candidate_id_count":len(w4_counts),
+                  "ambiguous_wall_candidate_ids":sorted(colliding_w4_ids),
                   "wall_scope_status":str(wall_scope.status),
                   "wall_scope_complete":wall_scope.scope_complete,
                   "wall_scope_reason_codes":list(wall_scope.reason_codes),

@@ -142,3 +142,103 @@ opening/host/frame receipt. All additions remain read-only diagnostics.
 what to inspect, never prediction rules or expected outcomes. No transfer of
 removed ancestry into a W4 identity, physical SAME/DISTINCT decision, host,
 opening count, quantity, safety-cap change or frozen truth edit is proposed.
+
+## Implemented source receipt stages, 2026-10-11
+
+The eight receipt tasks are implemented in the nonpublishing diagnostic.
+The graph observer retains the actual input primitives, observation IDs and
+geometry with the producer snapshot observed immediately before the W2 call.
+The original graph object is returned to production. Every original W2 edge
+retains its own source parents, original geometry and snapped endpoints;
+W3-retained and removed edges remain separate. W4 edge alternatives require
+exact sidecar geometry and parents for diagnostic membership. Conflicted edge
+addresses and repeated candidate addresses are quarantined. Neither this
+membership nor a common snapped-node pair proves a physical host.
+
+Each G17 support is independently resolved by
+`resolve_raster_opening_primitive`; its exact source scope, payload hash,
+derivation parents and signed endpoint coordinates are retained. Failed or
+foreign resolutions stay negative rows. Perpendicular ends and parallel faces
+are projected without inventing a face pairing or local contact proposition.
+Nonfinite input or derived geometry cannot serialize as positive evidence.
+
+A removed edge does not imply loss of its parent when another surviving edge
+retains that parent. Parent-stage receipts distinguish removed-only ancestry,
+independently retained W3 ancestry, and actual usable W4 edge membership;
+unknown parent inventories remain explicit. No removed source parent is
+transferred into a surviving W4 identity.
+
+Run-local source-line reuse is immutable and keyed by the exact authority,
+document, revision, SHA, snapshot, page, viewport, observation IDs and
+reauthenticated source payload manifest. Every warm lookup bulk-reauthenticates
+the producer-owned snapshot first. Regression tests include actual producer
+source-byte tampering and replaced source observations after a warm lookup.
+
+Current-main `545688c6b147954783e430bd7679ef9d3f09ea4c` original Lot16 source
+report SHA-256 is `e8d04e46648b7db5d0c3872dc5bb170158b4557be98e8508492ed85b6ebe7c53`.
+Its fresh original page-3 source remains 23 opening existences, 14 hosts and
+9 frames. The independently refreshed first-gate census remains six left and
+one right unmapped raster primitive failures and two missing host-band proofs.
+These are source-authority observations, not frozen V2 benchmark accuracy.
+
+Validation: 139 ancestry regressions, including real producer-store negatives;
+189 combined ancestry/receipt/W3 tests before the two added producer negatives;
+523 focused regressions across all five PRs before those two additions. The
+source workflow now checks complete G17/W2/W3/W4 receipt inventories and their
+nonpublication boundaries in addition to strict original host/frame retention.
+Exact-head Actions and fresh candidate source retention remain merge gates.
+
+## Original-source support completeness correction
+
+The first full receipt run preserved every original opening, host and frame
+proof (zero lost or changed proofs). Artifact SHA-256:
+`226237463a7b231bf1058e6b47ed50bb4dc7558f67c8d74ff439b09dca433b80`.
+It retained 58 requested support observations for seven openings: 42 were
+band faces/ends; supplementary producer-authenticated raster strokes had been
+incorrectly labelled as source-scope mismatches. The reader now retains every
+supported primitive kind authenticated by the existing G17 visibility reader,
+and separately marks only faces/ends eligible as host-band support. Neither
+supplementary strokes nor band support alone authenticate a wall host.
+
+The original graph-time receipts show 2,672 input primitives, 3,049 W2 edges,
+2,563 W3-retained edges and 486 removed edges. Of the observed source-parent
+inventories, 341 occur only on removed edges. These graph observations establish
+ancestry disappearance, not 341 physical walls or opening quantities.
+
+Primitive `...:1597` is still removed on `split_3305` and
+`merged_split_1530_split_3306`; neither has a usable W4 edge membership. For
+opening `physical_opening_existence_f819752382d44a00d9f28feca4b00787`, its axis
+span is `[19.78, 47.28]` relative to an aperture of length `23.76`, while the
+left sealed flank spans `[-5.04, -0.24]`. Thus this aperture-local orphan is
+not proof of the first failing left-flank source parent. Required-flank source
+matching must precede any attempt to transfer ancestry or recover a host.
+
+## Required-flank receipt reader and final source verification
+
+`tools/diag_gptmax_required_flank_source.py` consumes the original diagnostic
+JSON and applies the existing host reader's sealed-face interval/end matching
+and raw-parent endpoint, overlap and cross-band predicates. It retains every
+reported source-parent/W4 alternative. It never selects a host, authenticates
+physical equivalence, proves source-universe completeness, or claims to
+reauthenticate the PDF from JSON. Missing candidates mean only that no
+qualifying primitive was observed in the reported local line inventory.
+Regression tests cover opposite-flank orphans, several W4 alternatives, remote
+and cross-band lines, foreign receipts, missing ends, input order, rotation,
+reversed direction, duplicated addresses and publishing input reports.
+
+The corrected fresh original run on live-main
+`107764c` retains all 58 support receipts: 28 band faces, 14 band ends, ten
+line runs and six thin-ink runs. Only the 42 faces/ends are eligible as band
+support. All original 23/14/9 opening/host/frame proofs are unchanged, with
+zero lost or changed proofs. The exact source-workflow assertions pass locally.
+
+| Verified original artifact | SHA-256 |
+| --- | --- |
+| Independent current-main source baseline | `e8d04e46648b7db5d0c3872dc5bb170158b4557be98e8508492ed85b6ebe7c53` |
+| Complete support / W2-W4 ancestry report | `b557a9061509f5a8058ea5d09bccc05f4a400534b062eef80e1a36572fecfb66` |
+| Strict source-retention comparison | `bf79fca8c5ae4a0ed989ae86292a32faac5cb285f2f0211d2456b6e3aa14f553` |
+| Required-flank report | `3100908d00529376c33b3b6daa08590d551370ba23af35640e724adb2cbab99f` |
+
+Final focused source-receipt, required-flank, producer-integrity, strict-retention
+and W3 regressions: 216 passed. No host recovery or frozen V2 accuracy gain is
+asserted. The semantic opening universe remains incomplete.

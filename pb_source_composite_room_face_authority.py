@@ -128,10 +128,29 @@ def _fully_grid_opposed_wall_evidence(
         if edge_id and evidence_id:
             grid_evidence_by_edge[edge_id].add(evidence_id)
 
+    # W4 addresses are not inherently unique physical identities. If a
+    # producer scope contains two candidates with the same wall ID, neither
+    # can authorize a grid separator until W4 source identity is resolved.
+    # This preserves independent wall evidence while preventing ambiguous
+    # source edge ancestry from silently connecting physical room cells.
+    # Do not convert invalid producer keys into plausible literal wall IDs
+    # (for example None -> "None", or 42 -> "42").
+    def authentic_wall_id(value):
+        return (
+            value if isinstance(value, str) and value
+            and value == value.strip() else None
+        )
+
+    wall_ids = Counter(
+        authentic_wall_id(getattr(record, "wall_candidate_id", None))
+        for record in wall_scope.records
+    )
     fully: set[str] = set()
     evidence_by_wall: dict[str, tuple[str, ...]] = {}
     for record in wall_scope.records:
-        wall_id = str(record.wall_candidate_id)
+        wall_id = authentic_wall_id(getattr(record, "wall_candidate_id", None))
+        if wall_id is None or wall_ids[wall_id] != 1:
+            continue
         edge_ids = _wall_edge_ids(record)
         if not edge_ids or not all(edge_id in grid_evidence_by_edge for edge_id in edge_ids):
             continue
@@ -390,8 +409,66 @@ def _candidate_record(
     local_counts=None,
     grid_adjacency=None,
 ) -> CompositeSourceRoomFaceRecord | None:
-    room_by_face = {str(record.face_id): record for record in room_scope.records}
-    seed_face_ids = tuple(str(value) for value in candidate.word_face_ids)
+    # No dictionary overwrite of duplicate upstream source-face identities.
+    # A source receipt shared across two different physical face IDs also
+    # cannot authenticate a room union. Unrelated valid faces remain usable.
+    def authentic_source_id(value):
+        return (
+            isinstance(value, str) and bool(value)
+            and value == value.strip()
+        )
+
+    face_counts = Counter(
+        record.face_id for record in room_scope.records
+        if authentic_source_id(getattr(record, "face_id", None))
+    )
+    receipt_counts = Counter(
+        record.record_id for record in room_scope.records
+        if authentic_source_id(getattr(record, "record_id", None))
+    )
+    room_by_face = {
+        record.face_id: record for record in room_scope.records
+        if authentic_source_id(getattr(record, "face_id", None))
+    }
+    raw_word_face_ids = getattr(candidate, "word_face_ids", ()) or ()
+    if not isinstance(raw_word_face_ids, (tuple, list)):
+        return None
+    seed_face_ids = tuple(raw_word_face_ids)
+    if len(seed_face_ids) < 2 or any(
+        not authentic_source_id(value) for value in seed_face_ids
+    ):
+        return None
+    if any(
+        face_counts[face_id] != 1
+        or face_id not in room_by_face
+        or not authentic_source_id(room_by_face[face_id].record_id)
+        or receipt_counts[room_by_face[face_id].record_id] != 1
+        for face_id in seed_face_ids
+    ):
+        return None
+    # A split label producer seals the first-seen, distinct physical face
+    # receipt for each word owner. Never use word-facing geometry from one
+    # source face with record ancestry belonging to another or older face.
+    distinct_word_faces = tuple(dict.fromkeys(seed_face_ids))
+    actual_word_face_receipts = tuple(
+        getattr(candidate, "source_room_face_record_ids", ()) or ()
+    )
+    expected_word_face_receipts = tuple(
+        room_by_face[face_id].record_id for face_id in distinct_word_faces
+    )
+    if (
+        len(distinct_word_faces) < 2
+        or actual_word_face_receipts != expected_word_face_receipts
+        or any(not receipt.strip() for receipt in expected_word_face_receipts)
+        or any(
+            getattr(candidate, name, None) != getattr(room_scope, name, None)
+            for name in (
+                "document_id", "revision_id", "source_sha256",
+                "snapshot_id", "page_id", "decision_scope_id",
+            )
+        )
+    ):
+        return None
     constituent_face_ids = _grid_connected_component(
         seed_face_ids,
         room_scope=room_scope,
@@ -399,6 +476,13 @@ def _candidate_record(
         adjacency=grid_adjacency,
     )
     if constituent_face_ids is None:
+        return None
+    if any(
+        face_counts[face_id] != 1
+        or not authentic_source_id(room_by_face[face_id].record_id)
+        or receipt_counts[room_by_face[face_id].record_id] != 1
+        for face_id in constituent_face_ids
+    ):
         return None
     if _component_has_conflicting_label(
         constituent_face_ids,

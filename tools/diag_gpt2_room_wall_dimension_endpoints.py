@@ -43,6 +43,34 @@ def _point_on_native_source_subedge(point: Any, edge: Any, *, tolerance: float) 
     nearest_x, nearest_y = ax + along * ux, ay + along * uy
     return math.hypot(x - nearest_x, y - nearest_y) <= tolerance
 
+def _native_point_to_source_subedge_distance(point: Any, edge: Any) -> float | None:
+    """Finite native-PDF-point separation for read-only first-failure diagnosis.
+
+    This is *not* a binding tolerance, nearest wall selector, scaling
+    authority, or proof that dimension witness extensions reach a room.
+    """
+    try:
+        x, y = tuple(float(value) for value in point)
+        (ax, ay), (bx, by) = tuple(
+            tuple(float(value) for value in pair) for pair in edge
+        )
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if not all(math.isfinite(value) for value in (x, y, ax, ay, bx, by)):
+        return None
+    dx, dy = bx - ax, by - ay
+    length = math.hypot(dx, dy)
+    if not math.isfinite(length) or length <= 0.0:
+        return None
+    ux, uy = dx / length, dy / length
+    along = (x - ax) * ux + (y - ay) * uy
+    if not math.isfinite(along):
+        return None
+    along = min(length, max(0.0, along))
+    distance = math.hypot(x - (ax + along * ux), y - (ay + along * uy))
+    return distance if math.isfinite(distance) else None
+
+
 def inspect_source_face_dimension_endpoints(
     face: Any,
     binding: Any,
@@ -63,6 +91,7 @@ def inspect_source_face_dimension_endpoints(
         "source_line_id":str(getattr(binding,"dimension_line_id","") or ""),
         "source_witness_line_ids":list(getattr(binding,"witness_line_ids",()) or ()),
         "endpoint_wall_owner_ids":[],
+        "endpoint_nearest_source_wall_distance_pdf_pts_diagnostic_only":[],
         "metric_area_published":False,
         "room_dimension_owned":False,
     }
@@ -80,6 +109,15 @@ def inspect_source_face_dimension_endpoints(
     else:
         contacts=[]
         for point in endpoints:
+            distances=[
+                distance for wall_id, edge in edges
+                if isinstance(wall_id, str) and wall_id.strip()
+                for distance in (_native_point_to_source_subedge_distance(point, edge),)
+                if distance is not None
+            ]
+            output[
+                "endpoint_nearest_source_wall_distance_pdf_pts_diagnostic_only"
+            ].append(min(distances) if distances else None)
             ids=sorted({
                 str(wall_id) for wall_id,edge in edges
                 if str(wall_id).strip() and _point_on_native_source_subedge(
