@@ -105,6 +105,16 @@ def _abstention(
     )
 
 
+def _valid_source_confidence(value: object) -> bool:
+    if type(value) not in (int, float):
+        return False
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return False
+    return math.isfinite(numeric) and 0.0 <= numeric <= 1.0
+
+
 def _validate_common(
     *,
     room: RoomCandidate,
@@ -153,6 +163,11 @@ def _validate_common(
         blockers.append("entity_evidence_not_owned_by_document")
     if room.evidence and not set(room.evidence).issubset(set(document.evidence_ids)):
         blockers.append("room_evidence_not_owned_by_document")
+    if (
+        not _valid_source_confidence(room.geometry_confidence)
+        or not _valid_source_confidence(entity.confidence)
+    ):
+        blockers.append("room_area_source_confidence_invalid")
     if room.area_conflict:
         blockers.append("room_area_conflict")
     return tuple(blockers)
@@ -178,16 +193,34 @@ def _validate_explicit_area(
         blockers.append("explicit_area_viewport_mismatch")
     if evidence.status != EvidenceResolutionStatus.CORROBORATED:
         blockers.append("explicit_area_not_corroborated")
+    if (
+        not _valid_source_confidence(evidence.confidence)
+    ):
+        blockers.append("explicit_area_confidence_invalid")
     if evidence.normalized_value is None:
         blockers.append("explicit_area_missing_normalized_value")
+    elif type(evidence.normalized_value) not in (int, float):
+        blockers.append("explicit_area_invalid")
     else:
         try:
             value = float(evidence.normalized_value)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             blockers.append("explicit_area_invalid")
         else:
             if not math.isfinite(value) or value <= 0.0:
                 blockers.append("explicit_area_invalid")
+    # Figured-dimension receipts are optional for genuinely explicit printed
+    # area labels, but when supplied may never be an iterable string that
+    # masquerades as two independent source dimensions.
+    meta = evidence.metadata if isinstance(evidence.metadata, dict) else {}
+    figured = meta.get("figured_dimension_ids")
+    if figured is not None and (
+        not isinstance(figured, (tuple, list))
+        or len(figured) != 2
+        or any(type(item) is not str or not item or item != item.strip() for item in figured)
+        or len(set(figured)) != 2
+    ):
+        blockers.append("explicit_area_figured_receipts_invalid")
     if str(evidence.unit or "").strip().lower() not in {"m2", "m²"}:
         blockers.append("explicit_area_unit_not_m2")
     return tuple(blockers)
@@ -252,16 +285,10 @@ def build_room_area_quantity(
             if isinstance(explicit_area_evidence.metadata, dict)
             else {}
         )
+        # Validated by _validate_explicit_area; do not coerce an arbitrary
+        # string into a false two-axis figured source receipt at publication.
         figured_dimension_ids = tuple(
-            sorted(
-                {
-                    str(value).strip()
-                    for value in (
-                        explicit_metadata.get("figured_dimension_ids") or ()
-                    )
-                    if str(value).strip()
-                }
-            )
+            sorted(explicit_metadata.get("figured_dimension_ids") or ())
         )
         payload = {
             "family": ROOM_AREA_FAMILY,
