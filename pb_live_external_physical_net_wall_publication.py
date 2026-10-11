@@ -451,8 +451,13 @@ def compose_live_external_physical_net_wall_publication(
     expected_opening_ids = tuple(
         _clean(trace.opening_identity_id)
         for trace in wall_opening_composition.opening_bindings
-        if _clean(trace.opening_identity_id)
     )
+    if any(not opening_id for opening_id in expected_opening_ids):
+        return _blocked(
+            revision_id=revision_id,
+            status=EvidenceResolutionStatus.CONFLICT,
+            reason=LIVE_EXTERNAL_PHYSICAL_NET_WALL_UPSTREAM_INCOMPLETE,
+        )
     if len(set(expected_opening_ids)) != len(expected_opening_ids):
         return _blocked(
             revision_id=revision_id,
@@ -461,11 +466,17 @@ def compose_live_external_physical_net_wall_publication(
         )
 
     if expected_opening_ids:
-        trace_opening_ids = {
+        trace_ids = tuple(
             _clean(trace.opening_identity_id)
             for trace in physical_void_composition.traces
-            if _clean(trace.opening_identity_id)
-        }
+        )
+        trace_opening_ids = set(trace_ids)
+        if any(not value for value in trace_ids) or len(trace_opening_ids) != len(trace_ids):
+            return _blocked(
+                revision_id=revision_id,
+                status=EvidenceResolutionStatus.CONFLICT,
+                reason=LIVE_EXTERNAL_PHYSICAL_NET_WALL_VOID_UNRESOLVED,
+            )
         if (
             physical_void_composition.status
             is not EvidenceResolutionStatus.CORROBORATED
@@ -511,12 +522,32 @@ def compose_live_external_physical_net_wall_publication(
             or universe is None
             or universe.status is not EvidenceResolutionStatus.CORROBORATED
             or universe.record is None
-            or not universe.record.decision_scope_complete
+            or universe.decision_scope_complete is not True
+            or universe.source_decode_complete is not True
+            or universe.semantic_enumeration_complete is not True
+            or universe.record.decision_scope_complete is not True
         ):
             return _blocked(
                 revision_id=revision_id,
                 status=EvidenceResolutionStatus.ABSTAINED,
                 reason=LIVE_EXTERNAL_PHYSICAL_NET_WALL_UPSTREAM_INCOMPLETE,
+            )
+
+        source_universe = universe.record
+        if (
+            _clean(source_universe.document_id) != _clean(gross_selector.document_id)
+            or _clean(source_universe.revision_id) != _clean(gross_selector.revision_id)
+            or _clean(source_universe.source_sha256) != _clean(gross_selector.source_sha256)
+            or _clean(source_universe.snapshot_id) != _clean(gross_selector.snapshot_id)
+            or _clean(source_universe.decision_scope_id) != _clean(gross_selector.decision_scope_id)
+            or _clean(trace.page_id) not in {
+                _clean(page) for page in source_universe.page_ids
+            }
+        ):
+            return _blocked(
+                revision_id=revision_id,
+                status=EvidenceResolutionStatus.CONFLICT,
+                reason=LIVE_EXTERNAL_PHYSICAL_NET_WALL_LINEAGE_MISMATCH,
             )
 
         gross_result = gross_authority.resolve(gross_selector)
@@ -636,6 +667,17 @@ def compose_live_external_physical_net_wall_publication(
                 extra_reasons=tuple(result.reason_codes),
             )
 
+        if (
+            not _clean(record.record_id)
+            or not _clean(record.host_binding_record_id)
+            or not _clean(record.opening_universe_record_id)
+        ):
+            return _blocked(
+                revision_id=revision_id,
+                status=EvidenceResolutionStatus.CONFLICT,
+                reason=LIVE_EXTERNAL_PHYSICAL_NET_WALL_VOID_UNRESOLVED,
+            )
+
         wall_id = _clean(record.wall_local_frame_id)
         gross_record = gross_records.get(wall_id)
         if gross_record is None:
@@ -649,6 +691,9 @@ def compose_live_external_physical_net_wall_publication(
             or _clean(record.decision_scope_id)
             != _clean(gross_record.decision_scope_id)
             or _clean(record.revision_id) != revision_id
+            or _clean(record.document_id) != _clean(gross_record.document_id)
+            or _clean(record.source_sha256) != _clean(gross_record.source_sha256)
+            or _clean(record.snapshot_id) != _clean(gross_record.snapshot_id)
         ):
             return _blocked(
                 revision_id=revision_id,
@@ -666,8 +711,8 @@ def compose_live_external_physical_net_wall_publication(
             or z0 < 0.0
             or u1 <= u0
             or z1 <= z0
-            or u1 > float(gross_record.length_m) + 1e-9
-            or z1 > float(gross_record.height_m) + 1e-9
+            or u1 > float(gross_record.length_m)
+            or z1 > float(gross_record.height_m)
         ):
             return _blocked(
                 revision_id=revision_id,
