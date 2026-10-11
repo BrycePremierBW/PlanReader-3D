@@ -17,6 +17,8 @@ jobs:
         python-version: ["3.13", "3.14"]
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
@@ -33,7 +35,11 @@ jobs:
           PYTHONPATH=. python scripts/check_full_plan_v2_integrity.py
   original-source-trace-parity:
     runs-on: ubuntu-latest
-    timeout-minutes: 55
+    # Three independent original-source runs took ~22 minutes each on the
+    # Maryborough runner; the former 55-minute limit cancelled the exact-base
+    # prerequisite. Keep every existing source/identity gate, with enough time
+    # for all three runs and setup. This is not a source primitive cap change.
+    timeout-minutes: 90
     strategy:
       matrix:
         include:
@@ -49,6 +55,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
