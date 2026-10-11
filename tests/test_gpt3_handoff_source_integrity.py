@@ -314,3 +314,44 @@ def test_unpublishable_sealed_row_cannot_ride_firm_family_count(abstained,lineag
             output_dir=output,family_group="core",
         )
     assert not (output/"family_runs").exists()
+
+
+
+@pytest.mark.parametrize(("field","different"), [
+    ("value",99.0),
+    ("unit","ea"),
+    ("family","unexpected-family"),
+    ("semantic_key","forged-semantic"),
+    ("authority","unverified"),
+    ("confidence",0.5),
+    ("object_identity_refs",("other-object",)),
+    ("evidence_ids",("forged-evidence",)),
+    ("status","candidate"),
+])
+def test_sealed_quantity_content_cannot_change_under_same_publisher_id(
+    field,different,tmp_path,monkeypatch
+):
+    from types import SimpleNamespace
+    import hashlib
+    source=tmp_path/"source.pdf"
+    source.write_bytes(b"original-verified-source")
+    sha=hashlib.sha256(source.read_bytes()).hexdigest()
+    monkeypatch.setattr(handoff,"_source_page_scopes",lambda _:((0,),(),1))
+    monkeypatch.setattr(handoff,"collect_live_physical_net_wall_claim",
+                        lambda *_args,**_kwargs:_core_opening_claim())
+    row=_signed_row_for_fixture(_q("firm"))
+    setattr(row,field,different)
+    monkeypatch.setattr(handoff,"seal_live_opening_area_claim_run",
+        lambda *_args,**_kwargs:SimpleNamespace(
+            run_id="misrepresented-producer",
+            source_sha256s=(sha,),quantities=(row,),to_json=lambda:"{}",
+        ))
+    output=tmp_path/"out"
+    with pytest.raises(RuntimeError,match="sealed quantities differ from authenticated publisher receipts"):
+        handoff.generate_project_handoff(
+            pdf_path=source,project_id="project-a",workspace_id=1,
+            output_dir=output,family_group="core",
+        )
+    assert not (output/"family_runs").exists()
+    summary=json.loads((output/"production_summary.json").read_text())
+    assert summary["status"]=="family_quantity_identity_conflict"
