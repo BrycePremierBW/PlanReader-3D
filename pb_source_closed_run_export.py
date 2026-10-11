@@ -431,6 +431,22 @@ def _build_sealed_run(
             raise SourceClosedRunConflictError(
                 f"quantity {row.quantity_id} belongs to project {row.project_id}"
             )
+        # Production seal writers emit canonical sorted, unique source ID
+        # arrays. The verifier must not accept re-signed duplicate or padded
+        # identities merely because the SHA fingerprint matches their bytes.
+        for field in (
+            "object_identity_refs", "trace_canonical_entity_ids",
+            "evidence_ids", "trace_evidence_ids",
+        ):
+            receipts = getattr(row, field)
+            if (
+                any(type(value) is not str or not value or value != value.strip()
+                    for value in receipts)
+                or tuple(receipts) != tuple(sorted(set(receipts)))
+            ):
+                raise SourceClosedRunConflictError(
+                    f"noncanonical sealed source identity array: {field}"
+                )
         if row.quantity_id in quantity_ids:
             raise SourceClosedRunConflictError(
                 f"duplicate sealed quantity id: {row.quantity_id}"
