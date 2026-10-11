@@ -1,0 +1,90 @@
+name: GPT MAX Raster Flank Source Ownership
+on:
+  pull_request:
+    paths:
+      - tools/gptmax_raster_flank_ownership.py
+      - tools/diag_gptmax_raster_flank_ownership.py
+      - tests/test_gptmax_raster_flank_ownership.py
+      - tests/test_gptmax_raster_flank_runtime.py
+      - docs/engineering/gptmax_raster_flank_first_failure.md
+      - .github/workflows/test-gptmax-raster-flank-ownership.yml
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      matrix:
+        python-version: ["3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - run: python -m pip install -r requirements.txt -r requirements-ci-v1228.txt
+      - name: Exact source lineage, geometry, ambiguity and runtime abstention regressions
+        run: |
+          PYTHONPATH=. python -m pytest -q tests/test_gptmax_raster_flank_ownership.py tests/test_gptmax_raster_flank_runtime.py
+          PYTHONPATH=. python scripts/check_provider_gold_isolation.py
+          PYTHONPATH=. python scripts/check_full_plan_v2_integrity.py
+  original-lot16-retention:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: python -m pip install -r requirements.txt -r requirements-ci-v1228.txt
+      - name: Independent PR-base original source evidence
+        run: |
+          git worktree add /tmp/flank-source-base "${{ github.event.pull_request.base.sha }}"
+          (
+            cd /tmp/flank-source-base
+            PYTHONPATH=. python -u tools/diag_opening_wall_face_preservation.py \
+              --pdf "documents/sources/1. Construction Plans - Lot 16 Power (REV E).pdf" \
+              --page-id 3 --output "$GITHUB_WORKSPACE/source-before.json"
+          )
+      - name: SHA-pinned source flank diagnostic
+        run: |
+          PYTHONPATH=. python -u tools/diag_gptmax_raster_flank_ownership.py \
+            --pdf "documents/sources/1. Construction Plans - Lot 16 Power (REV E).pdf" \
+            --page-id 3 \
+            --expected-source-sha 10109b4b6e85e6e27af81f6399ce4b92abfdba80f87dc69dd5887bd6f3a65844 \
+            --output source-after.json
+          PYTHONPATH=. python tools/gptmax_compare_source_face_retention.py \
+            --baseline source-before.json --candidate source-after.json \
+            --output source-retention.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data=json.loads(Path('source-after.json').read_text())
+          assert data['primitive_safety_cap']==20000
+          assert data['summary']=={'physical_existence_claims':23,'host_bindings':14,'host_frames':9}
+          assert data['targeted_opening_count']==len(data['opening_rows'])==7
+          assert data['audited_opening_count']+data['abstained_opening_count']==7
+          assert data['benchmark_accuracy'] is None
+          assert not data['host_publication_allowed']
+          assert not data['opening_count_publication_allowed']
+          assert not data['metric_quantity_publication_allowed']
+          for row in data['opening_rows']:
+              if row['source_audit_abstained']:
+                  assert row['first_observed_failure'] and row['flank_audit'] is None
+              else:
+                  assert not row['flank_audit']['host_publication_allowed']
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gptmax-original-raster-flank-source-retention
+          path: |
+            source-before.json
+            source-after.json
+            source-retention.json
+          retention-days: 30
