@@ -220,12 +220,29 @@ def project_resolved_slab_entity(
         )
 
     source_page_raw = provenance.get("annotation_source_page", boundary.source_page)
-    try:
-        source_page = int(source_page_raw)
-    except (TypeError, ValueError):
+    # An annotation on an unrelated source page cannot silently own a metric
+    # boundary merely because its text and geometry happened to bind. Page
+    # numbers must be actual integral source-page receipts, not bool or float.
+    if (
+        type(boundary.source_page) is not int
+        or boundary.source_page < 0
+        or type(source_page_raw) not in (str, int)
+    ):
         return LiveCanonicalSlabProjection(
             object=None,
             reason_codes=(LIVE_CANONICAL_SLAB_UNAVAILABLE,),
+        )
+    try:
+        source_page = int(source_page_raw)
+    except (TypeError, ValueError, OverflowError):
+        return LiveCanonicalSlabProjection(
+            object=None,
+            reason_codes=(LIVE_CANONICAL_SLAB_UNAVAILABLE,),
+        )
+    if source_page < 0 or source_page != boundary.source_page:
+        return LiveCanonicalSlabProjection(
+            object=None,
+            reason_codes=(LIVE_CANONICAL_SLAB_LINEAGE_UNAVAILABLE,),
         )
 
     physical_polygon = _canonical_polygon_identity(slab.boundary_polygon)
