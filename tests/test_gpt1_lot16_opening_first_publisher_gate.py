@@ -105,3 +105,48 @@ def test_duplicate_room_conflict_does_not_precede_missing_physical_floor():
     assert _floor_quantity_first_failure(
         floor, SimpleNamespace(room_label="ROOM"), set(), duplicate_room_owner=True
     ) == "physical_floor_identity_unresolved"
+
+
+
+def _metric_wall(**updates):
+    from types import SimpleNamespace
+
+    fields = dict(
+        physical_identity_resolved=True,
+        physical_wall_id="wall-1",
+        evidence_ids=("source-wall-receipt",),
+        plan_members=("physical-candidate",),
+        length_m=4.0,
+        height_m=3.0,
+        gross_area_m2=12.0,
+        gross_polygon_wkb_hex="01030000",
+        role="external",
+        whole_wall_role_record_id="physical-role-1",
+        net_area_m2=10.0,
+        net_polygon_wkb_hex="01030000",
+    )
+    fields.update(updates)
+    return SimpleNamespace(**fields)
+
+
+def test_authentic_lot16_wall_ledger_classifies_real_metric_fields_as_ready():
+    from tools.diag_lot16_room_face_scope import _wall_metric_first_failure
+    assert _wall_metric_first_failure(_metric_wall()) == (
+        "canonical_net_wall_area_available"
+    )
+
+
+@pytest.mark.parametrize(("field", "value", "expected"), [
+    ("length_m", True, "metric_wall_length_unavailable"),
+    ("length_m", "4.0", "metric_wall_length_unavailable"),
+    ("height_m", False, "authenticated_wall_height_unavailable"),
+    ("height_m", float("inf"), "authenticated_wall_height_unavailable"),
+    ("gross_area_m2", float("nan"), "gross_wall_area_unavailable"),
+    ("net_area_m2", True, "net_wall_area_or_deduction_unavailable"),
+    ("net_area_m2", float("nan"), "net_wall_area_or_deduction_unavailable"),
+    ("net_area_m2", -1.0, "net_wall_area_or_deduction_unavailable"),
+    ("net_area_m2", 13.0, "net_wall_greater_than_authenticated_gross_area"),
+])
+def test_lot16_wall_quantity_diagnostic_does_not_claim_ready_on_bad_source(field, value, expected):
+    from tools.diag_lot16_room_face_scope import _wall_metric_first_failure
+    assert _wall_metric_first_failure(_metric_wall(**{field: value})) == expected
