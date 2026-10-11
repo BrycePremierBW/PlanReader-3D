@@ -1351,3 +1351,25 @@ def test_gpt2_local_wall_edge_index_never_coerces_source_owner_ids():
     bad_face=replace(source,records=(replace(left,face_id=None),right))
     assert all("None" not in owners for owners in _local_edge_owners(bad_face).values())
     assert _local_edge_owners(source)==clean
+
+
+def test_gpt2_original_source_face_receipt_collection_must_be_sequence():
+    from dataclasses import replace
+    import copy
+    labels=_label_scope()
+    first=labels.split_face_candidates[0]
+    for malformed in (7, {"record_left":"record_right"}, "record_left", True):
+        candidate=copy.copy(first)
+        candidate.source_room_face_record_ids=malformed
+        result=compose_grid_separated_room_faces(
+            wall_scope=_wall_scope((_grid_atom("e_sep"),)),
+            room_scope=_room_scope(),
+            label_scope=replace(labels,split_face_candidates=(candidate,)),
+        )
+        assert result.records==()
+        assert result.status is EvidenceResolutionStatus.ABSTAINED
+    positive=compose_grid_separated_room_faces(
+        wall_scope=_wall_scope((_grid_atom("e_sep"),)),
+        room_scope=_room_scope(),label_scope=labels,
+    )
+    assert len(positive.records)==1
