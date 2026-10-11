@@ -97,6 +97,16 @@ def _build_opening_area_source_traces(
         # canonical publisher. Re-derive source-authenticated measurement and
         # identity before sealing: possession of old evidence IDs alone does
         # not authorize a different numeric area or measurement method.
+        for receipts in (opening.evidence_ids, quantity.evidence_ids):
+            if (
+                not isinstance(receipts, (tuple, list))
+                or not receipts
+                or any(type(item) is not str or not item.strip() for item in receipts)
+                or len(set(receipts)) != len(receipts)
+            ):
+                raise SourceClosedRunConflictError(
+                    f"opening original source evidence is incomplete: {quantity.quantity_id}"
+                )
         authenticated = _opening_quantity(opening)
         if (
             authenticated is None
@@ -119,16 +129,6 @@ def _build_opening_area_source_traces(
             raise SourceClosedRunConflictError(
                 f"opening area quantity lacks owned viewport: {canonical_id}"
             )
-        for receipts in (opening.evidence_ids, quantity.evidence_ids):
-            if (
-                not isinstance(receipts, (tuple, list))
-                or not receipts
-                or any(type(item) is not str or not item.strip() for item in receipts)
-                or len(set(receipts)) != len(receipts)
-            ):
-                raise SourceClosedRunConflictError(
-                    f"opening original source evidence is incomplete: {quantity.quantity_id}"
-                )
         # An explicitly retained source owner cannot be replayed onto a
         # different document/revision/snapshot even when metric area matches.
         metadata = quantity.metadata if isinstance(quantity.metadata, Mapping) else {}
