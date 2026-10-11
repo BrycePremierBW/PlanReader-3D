@@ -107,6 +107,7 @@ def _build_opening_area_source_traces(
             or quantity.semantic_key != authenticated.semantic_key
             or quantity.unit != authenticated.unit
             or quantity.input_entity_ids != authenticated.input_entity_ids
+            or set(quantity.evidence_ids) != set(authenticated.evidence_ids)
             or quantity.status != authenticated.status
         ):
             raise SourceClosedRunConflictError(
