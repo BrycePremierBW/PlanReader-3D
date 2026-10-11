@@ -1214,3 +1214,28 @@ def test_gpt2_b01_union_diagnostic_rejects_duplicate_original_face_receipts():
         )
         assert detail["new_room_geometry_published"] is False
         assert detail["new_metric_area_published"] is False
+
+
+def test_gpt2_b01_exterior_grid_owned_source_wall_ids_are_reported_not_assumed():
+    from tools.diag_gpt2_grid_component_first_failure import (
+        _physical_union_first_unclosed_gate,
+    )
+    from pb_source_composite_room_face_authority import (
+        _atomic_source_wall_edge_counts,_fully_grid_opposed_wall_evidence,
+    )
+    room=_room_scope()
+    walls=_wall_scope((_grid_atom("e_sep"),_grid_atom("e_left")))
+    grid,evidence=_fully_grid_opposed_wall_evidence(walls)
+    assert "w_left" in grid and "w_sep" in grid
+    row=_physical_union_first_unclosed_gate(
+        ("face_left","face_right"),room_scope=room,
+        fully_grid_wall_ids=grid,grid_evidence=evidence,
+        local_counts=_atomic_source_wall_edge_counts(room,grid),
+    )
+    assert row["physical_union_first_unclosed_gate"]==(
+        "source_external_grid_owned_subedge_room_incomplete"
+    )
+    assert "w_left" in row["physical_union_external_grid_w4_ids_diagnostic_only"]
+    assert row["physical_union_external_grid_w4_id_count"]>=1
+    assert row["new_room_geometry_published"] is False
+    assert row["new_metric_area_published"] is False
