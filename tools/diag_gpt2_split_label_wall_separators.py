@@ -11,6 +11,15 @@ from typing import Any
 _EPS_PDF_PT=1e-6
 
 
+def _authentic_source_wall_id(value: Any) -> bool:
+    """Native W4 address must be an exact nonblank producer string."""
+    return (
+        isinstance(value, str)
+        and bool(value)
+        and value == value.strip()
+    )
+
+
 def _finite_native_edge(raw: Any):
     try:
         if len(raw)!=2:
@@ -118,7 +127,7 @@ def split_face_source_wall_separator_gate(
                         continue
                     wall_id,raw=row
                     parsed=_finite_native_edge(raw)
-                    if not str(wall_id).strip() or parsed is None:
+                    if not _authentic_source_wall_id(wall_id) or parsed is None:
                         malformed=True
                         continue
                     bag.append((str(wall_id),parsed))
