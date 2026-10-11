@@ -1,0 +1,96 @@
+name: GPT MAX Terminal Source Span Shadow
+on:
+  pull_request:
+    paths:
+      - tools/gptmax_terminal_source_span_shadow.py
+      - tools/diag_gptmax_terminal_source_span_shadow.py
+      - tests/test_gptmax_terminal_source_span_shadow.py
+      - tests/test_gptmax_terminal_source_span_runtime.py
+      - .github/workflows/test-gptmax-terminal-source-span-shadow.yml
+jobs:
+  source-shadow-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    strategy:
+      matrix:
+        python-version: ["3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install -r requirements.txt -r requirements-ci-v1228.txt
+      - name: Source-only terminal ownership and non-mutation regressions
+        run: |
+          PYTHONPATH=. python -m pytest -q \
+            tests/test_gptmax_terminal_source_span_shadow.py \
+            tests/test_gptmax_terminal_source_span_runtime.py
+      - name: Source isolation and frozen V2 integrity
+        run: |
+          PYTHONPATH=. python scripts/check_provider_gold_isolation.py
+          PYTHONPATH=. python scripts/check_full_plan_v2_integrity.py
+
+  original-source-shadow-parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    strategy:
+      matrix:
+        include:
+          - name: lot16
+            pdf: "documents/sources/1. Construction Plans - Lot 16 Power (REV E).pdf"
+            pages: "--page-id 3"
+            sha: "10109b4b6e85e6e27af81f6399ce4b92abfdba80f87dc69dd5887bd6f3a65844"
+          - name: maryborough
+            pdf: "documents/sources/Arch_Combined_Maryborough_Service_Station.pdf"
+            pages: "--page-id 7 --page-id 30 --page-id 31"
+            sha: "b1be53531412005f42937c89d0cfce66fbbe608315016bbb56731029ffc9e007"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: python -m pip install -r requirements.txt -r requirements-ci-v1228.txt
+      - name: Verify unmodified original source against pure terminal span preview
+        env:
+          SOURCE_PDF: "${{ matrix.pdf }}"
+          SOURCE_PAGES: "${{ matrix.pages }}"
+          SOURCE_SHA: "${{ matrix.sha }}"
+        run: |
+          PYTHONPATH=. python -u tools/diag_opening_wall_face_preservation.py \
+            --pdf "$SOURCE_PDF" $SOURCE_PAGES --output original-source.json
+          PYTHONPATH=. python -u tools/diag_gptmax_terminal_source_span_shadow.py \
+            --pdf "$SOURCE_PDF" $SOURCE_PAGES --output terminal-source-shadow.json
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          old=json.loads(Path("original-source.json").read_text())
+          shadow=json.loads(Path("terminal-source-shadow.json").read_text())
+          assert old["source_sha256"]==shadow["source_sha256"]==os.environ["SOURCE_SHA"]
+          assert old["primitive_safety_cap"]==shadow["source_report"]["primitive_safety_cap"]==20000
+          assert old==shadow["source_report"], "shadow mutated original source host/frame report"
+          assert shadow["source_assembly_call_previews"], "original source assembly was not observed"
+          assert shadow["benchmark_accuracy"] is None
+          assert shadow["source_evidence_only"] is True
+          assert not shadow["physical_equivalence_proven"]
+          assert not shadow["graph_identity_host_frame_quantity_mutation_allowed"]
+          for call in shadow["source_assembly_call_previews"]:
+              preview=call["terminal_source_path_preview"]
+              assert not preview["physical_equivalence_proven"]
+              assert not preview["graph_mutation_allowed"]
+              assert not preview["host_count_quantity_publication_allowed"]
+              assert preview["benchmark_accuracy"] is None
+          print({"actual_original_source_parity":True,"summary":old["summary"]})
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gptmax-terminal-source-parity-${{ matrix.name }}
+          path: |
+            original-source.json
+            terminal-source-shadow.json
+          retention-days: 30
