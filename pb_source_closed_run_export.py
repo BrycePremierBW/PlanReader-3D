@@ -56,6 +56,11 @@ def _lineage_reasons(
         "source_sha256": trace.source_sha256,
         "revision_id": trace.revision_id,
     }
+    if not quantity.abstained and metadata.get("shadow_only") is True:
+        reasons.append("shadow_only_quantity")
+    if not quantity.abstained and metadata.get("commercial_projection_allowed") is False:
+        reasons.append("commercial_projection_forbidden")
+
     for key, authoritative in expected.items():
         candidate = metadata.get(key)
         if candidate is None:
