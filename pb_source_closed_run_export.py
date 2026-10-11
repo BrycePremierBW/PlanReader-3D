@@ -158,6 +158,12 @@ def sealed_source_closed_run_from_dict(
     """
     if not isinstance(payload, Mapping):
         raise TypeError("sealed run payload must be a mapping")
+    for field in ("schema_version", "run_id", "project_id", "fingerprint"):
+        original = payload.get(field)
+        if type(original) is not str or not original or original != original.strip():
+            raise SourceClosedRunConflictError(
+                f"sealed run has noncanonical scalar {field}"
+            )
     if _clean(payload.get("schema_version")) != SOURCE_CLOSED_RUN_EXPORT_SCHEMA_VERSION:
         raise SourceClosedRunConflictError("unsupported sealed run schema_version")
 
@@ -182,6 +188,24 @@ def sealed_source_closed_run_from_dict(
         if not isinstance(raw, Mapping):
             raise SourceClosedRunConflictError(
                 f"sealed quantity {index} must be a mapping"
+            )
+        # Original source fields are canonical strings. Coercing 123 -> "123"
+        # during rehydration can preserve the same normalized fingerprint,
+        # hiding an altered signed wire receipt.
+        scalar_fields = (
+            "schema_version", "project_id", "quantity_id", "family",
+            "semantic_key", "unit", "status", "authority", "document_id",
+            "source_sha256", "source_page", "viewport_id", "revision_id",
+        )
+        for name in scalar_fields:
+            value = raw.get(name)
+            if type(value) is not str or not value or value != value.strip():
+                raise SourceClosedRunConflictError(
+                    f"sealed quantity {index} has noncanonical scalar {name}"
+                )
+        if raw["schema_version"] != SOURCE_CLOSED_RUN_EXPORT_SCHEMA_VERSION:
+            raise SourceClosedRunConflictError(
+                f"sealed quantity {index} has unsupported schema_version"
             )
         # Signed lineage arrays are canonical JSON sequences, not strings,
         # mappings or numerics with keys/characters that happen to rehydrate
