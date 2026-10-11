@@ -952,3 +952,141 @@ def test_canonical_composite_requires_nonblank_source_receipts():
     )
     assert remaining == missing
     assert accepted == ()
+
+def test_gpt2_composite_eight_source_identity_negative_gates():
+    """Never retire physical source faces from malformed or aliased receipts."""
+    from types import SimpleNamespace
+    from pb_live_canonical_room_composition import _canonical_composite_supersedence
+
+    def face(face_id, record_id):
+        return SimpleNamespace(face_id=face_id, record_id=record_id)
+
+    def composite(ids=("a", "b"), receipts=("ra", "rb"), record_id="composite"):
+        return SimpleNamespace(
+            record_id=record_id,
+            constituent_face_ids=ids,
+            constituent_source_room_face_record_ids=receipts,
+        )
+
+    originals = (face("a", "ra"), face("b", "rb"), face("c", "rc"))
+    cases = (
+        # 1. Original producer face identity must be a nonblank string.
+        ((face(None, "ra"), originals[1]), (composite(),)),
+        # 2. Original source receipt may not be missing.
+        ((face("a", None), originals[1]), (composite(("a", "b"), ("None", "rb")),)),
+        # 3. Different original physical faces cannot share one source receipt.
+        ((face("a", "shared"), face("b", "shared")), (composite(("a", "b"), ("shared", "shared")),)),
+        # 4. The composite itself must have a proper source-owned identity.
+        (originals, (composite(record_id=None),)),
+        # 5. Composite constituent IDs cannot be blank or padded.
+        (originals, (composite(ids=("a", " b")),)),
+        # 6. Numeric face IDs may not stringify into genuine faces.
+        ((face("1", "ra"), face("b", "rb")), (composite(ids=(1, "b")),)),
+        # 7. A scalar text sequence is not a constituent list.
+        (originals, (composite(ids="ab"),)),
+        # 8. Two composites with the same producer ID cannot retire separate rooms.
+        (originals + (face("d", "rd"),), (
+            composite(("a", "b"), ("ra", "rb"), "duplicate"),
+            composite(("c", "d"), ("rc", "rd"), "duplicate"),
+        )),
+    )
+    for source, candidates in cases:
+        remaining, accepted = _canonical_composite_supersedence(source, candidates)
+        assert remaining == source
+        assert accepted == ()
+
+    # Fail-closed candidates must not block unrelated authentic compositions.
+    remaining, accepted = _canonical_composite_supersedence(
+        originals + (face("d", "rd"),),
+        (composite(("a", "b"), ("ra", "rb"), record_id=None),
+         composite(("c", "d"), ("rc", "rd"), "authentic")),
+    )
+    assert accepted[0].record_id == "authentic"
+    assert len(accepted) == 1
+    assert remaining == originals[:2]
+
+
+def test_gpt2_composite_physical_identity_cannot_alias_source_or_sibling():
+    from types import SimpleNamespace
+    from pb_live_canonical_room_composition import _canonical_composite_supersedence
+
+    originals = (
+        SimpleNamespace(face_id="a", record_id="ra"),
+        SimpleNamespace(face_id="b", record_id="rb"),
+    )
+
+    def candidate(composite_id, face_id):
+        return SimpleNamespace(
+            record_id=composite_id, face_id=face_id,
+            constituent_face_ids=("a", "b"),
+            constituent_source_room_face_record_ids=("ra", "rb"),
+        )
+
+    # Composite must not claim a physical identity still owned by an
+    # authenticated original source face.
+    for invalid in (candidate("c", "a"), candidate("c", "  "), candidate("c", 1)):
+        remaining, accepted = _canonical_composite_supersedence(originals, (invalid,))
+        assert remaining == originals
+        assert accepted == ()
+
+    # Repeated composite physical IDs cannot silently choose a winner,
+    # including when the second candidate has unrelated constituents.
+    other = (
+        SimpleNamespace(face_id="c", record_id="rc"),
+        SimpleNamespace(face_id="d", record_id="rd"),
+    )
+    sibling = SimpleNamespace(
+        record_id="other", face_id="new-face",
+        constituent_face_ids=("c", "d"),
+        constituent_source_room_face_record_ids=("rc", "rd"),
+    )
+    remaining, accepted = _canonical_composite_supersedence(
+        originals + other, (candidate("first", "new-face"), sibling)
+    )
+    assert remaining == originals + other
+    assert accepted == ()
+
+    valid = candidate("composite", "new-face")
+    remaining, accepted = _canonical_composite_supersedence(originals, (valid,))
+    assert remaining == ()
+    assert accepted == (valid,)
+
+
+def test_gpt2_malformed_composite_membership_does_not_break_independent_room():
+    from types import SimpleNamespace
+    from pb_live_canonical_room_composition import _canonical_composite_supersedence
+
+    originals = tuple(SimpleNamespace(face_id=id, record_id="receipt_" + id)
+                      for id in ("a", "b", "c", "d"))
+    valid = SimpleNamespace(record_id="valid", face_id="new-cd",
+                            constituent_face_ids=("c", "d"),
+                            constituent_source_room_face_record_ids=("receipt_c", "receipt_d"))
+    malformed = (
+        SimpleNamespace(record_id="bad_integer", constituent_face_ids=42),
+        SimpleNamespace(record_id="bad_none", constituent_face_ids=None),
+        SimpleNamespace(record_id="bad_dictionary", constituent_face_ids={"a": True}),
+        SimpleNamespace(record_id="bad_generator", constituent_face_ids=iter(("a", "b"))),
+    )
+    remaining, accepted = _canonical_composite_supersedence(
+        originals, (*malformed, valid)
+    )
+    assert accepted == (valid,)
+    assert remaining == originals[:2]
+
+
+def test_gpt2_invalid_original_face_identity_is_not_stringified_on_retirement():
+    from types import SimpleNamespace
+    from pb_live_canonical_room_composition import _canonical_composite_supersedence
+    originals = (
+        SimpleNamespace(face_id=None, record_id="null"),
+        SimpleNamespace(face_id="a", record_id="ra"),
+        SimpleNamespace(face_id="b", record_id="rb"),
+    )
+    composite = SimpleNamespace(
+        record_id="ab", face_id="physical-ab",
+        constituent_face_ids=("a", "b"),
+        constituent_source_room_face_record_ids=("ra", "rb"),
+    )
+    remaining, accepted = _canonical_composite_supersedence(originals, (composite,))
+    assert accepted == (composite,)
+    assert remaining == originals[:1]
