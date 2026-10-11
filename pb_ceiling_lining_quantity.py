@@ -332,6 +332,19 @@ def _validate_area_quantity(
         blockers.append("upstream_area_unit_not_m2")
     if _norm(area_quantity.status) not in _AUTHORITATIVE_AREA_STATUSES:
         blockers.append("upstream_area_not_authoritative")
+    # FIRM is a status, not a measurement method: a guessed/model-derived
+    # area cannot be laundered through provisional ceiling lining by copying
+    # a FIRM status string from an unrelated quantity producer.
+    if _norm(area_quantity.authority) not in {
+        MeasurementAuthorityType.DOCUMENTED_DIMENSION.value,
+        MeasurementAuthorityType.PDF_SCALED.value,
+        MeasurementAuthorityType.USER_APPROVED.value,
+    }:
+        blockers.append("upstream_area_measurement_authority_untrusted")
+    if area_quantity.semantic_key != (
+        f"{area_quantity.family}:{_clean(scope_entity_id)}"
+    ):
+        blockers.append("upstream_area_semantic_owner_mismatch")
     if area_quantity.blocking_reasons:
         blockers.append("upstream_area_carries_blockers")
 
