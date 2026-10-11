@@ -745,3 +745,30 @@ def test_canonical_ceiling_rejects_boolean_or_nonmetric_source_area(bad_area):
     assert publish_live_ceiling_area_quantities(
         _result(ceiling=replace(_ceiling(), area_m2=bad_area))
     ) == ()
+
+
+
+@pytest.mark.parametrize("bad_ring", (
+    ((0.0, 0.0), (1.0, 1.0), (2.0, 2.0)),
+    ((0.0, 0.0), (2.0, 2.0), (0.0, 2.0), (2.0, 0.0)),
+))
+def test_source_closed_ceiling_refuses_zero_area_ring_even_with_nonzero_bbox(bad_ring):
+    from pb_source_closed_run_export import SourceClosedRunConflictError
+
+    altered = replace(_ceiling(), polygon_pdf_pts=bad_ring)
+    # Canonical object carried a FIRM metric; its source polygon alone cannot
+    # validate the geometry. Only the final source-closed exporter can reject
+    # a valid-looking bounding box with no closed physical face.
+    assert len(publish_live_ceiling_area_quantities(_result(ceiling=altered))) == 1
+    with pytest.raises(SourceClosedRunConflictError, match="degenerate"):
+        ceiling_export.build_live_ceiling_area_source_traces(
+            _result(ceiling=altered), workspace_id=1, project_id="original-source",
+        )
+
+
+def test_source_closed_ceiling_keeps_original_non_degenerate_page_ring():
+    traces = ceiling_export.build_live_ceiling_area_source_traces(
+        _result(), workspace_id=1, project_id="original-source",
+    )
+    assert len(traces) == 1
+    assert next(iter(traces.values())).source_bbox == (0.0, 0.0, 10.0, 10.0)
