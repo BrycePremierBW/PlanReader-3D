@@ -61,13 +61,10 @@ def _json_copy(value: Any) -> Any:
     return json.loads(canonical_contract_json(value))
 
 
-# These states describe observations or blocked evidence, not admissible
-# source-supported commercial quantities. The positive statuses used by
-# different production families remain unchanged.
-_NONPUBLISHABLE_QUANTITY_STATES = frozenset({
-    "raw", "candidate", "partial", "blocked", "abstained", "unresolved",
-    "unsupported", "pending", "shadow",
-})
+# Publication is an explicit authority grant, not the absence of a known
+# negative state. New/unknown statuses (including shadow or review states)
+# must never silently become source-supported commercial quantities.
+_PUBLISHABLE_QUANTITY_STATES = frozenset({"firm", "corroborated"})
 
 
 def quantity_status_not_publishable(status: Any) -> bool:
@@ -75,8 +72,7 @@ def quantity_status_not_publishable(status: Any) -> bool:
     # str(EvidenceResolutionStatus.CANDIDATE) may be the qualified class
     # token rather than "candidate" even though it is not firm evidence.
     value = getattr(status, "value", status)
-    token = _norm(value)
-    return token in _NONPUBLISHABLE_QUANTITY_STATES or "conflict" in token
+    return _norm(value) not in _PUBLISHABLE_QUANTITY_STATES
 
 
 def _unit_is_valid(unit: str) -> bool:
