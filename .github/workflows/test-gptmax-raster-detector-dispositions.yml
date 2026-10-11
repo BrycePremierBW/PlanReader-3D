@@ -1,0 +1,108 @@
+name: GPT MAX Original Raster Detector Dispositions
+on:
+  pull_request:
+    paths:
+      - tools/diag_gptmax_raster_detector_dispositions.py
+      - tests/test_gptmax_raster_detector_dispositions.py
+      - docs/engineering/gptmax_raster_detector_dispositions.md
+      - .github/workflows/test-gptmax-raster-detector-dispositions.yml
+concurrency:
+  group: gptmax-raster-detector-dispositions-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      matrix:
+        python-version: ["3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - run: python -m pip install -r requirements.txt -r requirements-ci-v1228.txt
+      - name: Exact original producer trace and negative source regressions
+        run: |
+          PYTHONPATH=. python -m pytest -q tests/test_gptmax_raster_detector_dispositions.py
+          PYTHONPATH=. python scripts/check_provider_gold_isolation.py
+          PYTHONPATH=. python scripts/check_full_plan_v2_integrity.py
+  original-lot16:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: python -m pip install -r requirements.txt -r requirements-ci-v1228.txt
+      - name: Independent base source and component inventories
+        run: |
+          git worktree add /tmp/detector-source-base "${{ github.event.pull_request.base.sha }}"
+          (
+            cd /tmp/detector-source-base
+            PYTHONPATH=. python -u tools/diag_opening_wall_face_preservation.py \
+              --pdf "documents/sources/1. Construction Plans - Lot 16 Power (REV E).pdf" \
+              --page-id 3 --output "$GITHUB_WORKSPACE/source-before.json"
+            PYTHONPATH=. python -u tools/diag_gptmax_raster_visible_components.py \
+              --pdf "documents/sources/1. Construction Plans - Lot 16 Power (REV E).pdf" \
+              --page-id 3 \
+              --expected-source-sha 10109b4b6e85e6e27af81f6399ce4b92abfdba80f87dc69dd5887bd6f3a65844 \
+              --output "$GITHUB_WORKSPACE/components-before.json"
+          )
+      - name: Original immutable render and actual detector dispositions
+        run: |
+          git rev-parse HEAD > head_sha.txt
+          PYTHONPATH=. python -u tools/diag_gptmax_raster_detector_dispositions.py \
+            --pdf "documents/sources/1. Construction Plans - Lot 16 Power (REV E).pdf" \
+            --page-id 3 \
+            --expected-source-sha 10109b4b6e85e6e27af81f6399ce4b92abfdba80f87dc69dd5887bd6f3a65844 \
+            --expected-render-sha 64e58ab817b1b89d3c83e0e04a972f5e4e48fa3816d346af9cc809b9b56357ab \
+            --output detector-dispositions.json
+          PYTHONPATH=. python -u tools/diag_opening_wall_face_preservation.py \
+            --pdf "documents/sources/1. Construction Plans - Lot 16 Power (REV E).pdf" \
+            --page-id 3 --output source-after.json
+          PYTHONPATH=. python tools/gptmax_compare_source_face_retention.py \
+            --baseline source-before.json --candidate source-after.json --output source-retention.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report=json.loads(Path('detector-dispositions.json').read_text())
+          components=json.loads(Path('components-before.json').read_text())
+          source=json.loads(Path('source-after.json').read_text())
+          assert source['summary']=={'physical_existence_claims':23,'host_bindings':14,'host_frames':9}
+          assert report['primitive_safety_cap']==source['primitive_safety_cap']==20000
+          assert report['original_detector_output_unchanged'] and report['original_source_render_reauthenticated']
+          for key in ('source_sha256','document_id','revision_id','snapshot_id','page_id','render_sha256',
+                      'render_dpi','native_page_parent_observation_id','detector_version','observed_original_segment_count'):
+              assert report[key]==components[key], key
+          def component_key(row):
+              return (row['orientation'],row['pixel_bbox'],row['foreground_area_px'],row['existing_rejection_reasons'])
+          assert sorted(map(component_key,report['component_receipts']))==sorted(map(component_key,components['observed_component_receipts']))
+          final=[r for r in report['original_post_snap_length_receipts'] if not r['minimum_length_rejected']]
+          assert sorted(r['final_detector_output_index'] for r in final)==list(range(report['observed_original_segment_count']))
+          assert all(r['component_parent_ids'] and r['source_primitive_ref'] is None for r in final)
+          assert report['evidence_resolution_status']=='abstained' and report['benchmark_accuracy'] is None
+          for key in ('visibility_publication_proven','source_universe_completeness_proven','physical_equivalence_proven',
+                      'host_publication_allowed','opening_count_publication_allowed','metric_quantity_publication_allowed'):
+              assert report[key] is False
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gptmax-original-raster-detector-dispositions
+          path: |
+            components-before.json
+            detector-dispositions.json
+            source-before.json
+            source-after.json
+            source-retention.json
+            head_sha.txt
+          retention-days: 30
