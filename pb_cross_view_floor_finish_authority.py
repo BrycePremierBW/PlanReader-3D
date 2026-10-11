@@ -20,6 +20,7 @@ benchmark values are never inputs.
 """
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass, replace
 import math
 from types import MappingProxyType
@@ -406,9 +407,19 @@ class CrossViewFloorFinishResult:
 
     @property
     def records_by_floor_id(self) -> Mapping[str, CrossViewFloorFinishRecord]:
-        return MappingProxyType(
-            {record.canonical_floor_id: record for record in self.records}
+        # A direct consumer must never silently choose the last of two
+        # competing finish claims for one canonical physical floor.
+        counts = Counter(
+            record.canonical_floor_id for record in self.records
+            if isinstance(record.canonical_floor_id, str)
+            and record.canonical_floor_id
         )
+        return MappingProxyType({
+            record.canonical_floor_id: record for record in self.records
+            if isinstance(record.canonical_floor_id, str)
+            and record.canonical_floor_id == record.canonical_floor_id.strip()
+            and counts[record.canonical_floor_id] == 1
+        })
 
 
 def _unique_documented_area_owner_receipts(
