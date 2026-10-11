@@ -1,0 +1,152 @@
+name: GPT MAX W4 Source Collision Identity
+on:
+  pull_request:
+    paths:
+      - pb_wall_room_topology_wall_assembly.py
+      - pb_physical_wall_identity.py
+      - pb_physical_wall_candidate_authority.py
+      - tests/test_gptmax_w4_collision_source_identity.py
+      - docs/engineering/gptmax_w4_collision_source_identity.md
+      - .github/workflows/test-gptmax-w4-collision-source-identity.yml
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      matrix:
+        python-version: ["3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - run: python -m pip install -r requirements.txt -r requirements-ci-v1228.txt
+      - name: Source-collision and wall equivalence regressions
+        run: |
+          PYTHONPATH=. python -m pytest -q tests/test_gptmax_w4_collision_source_identity.py tests/test_wall_room_topology_wall_assembly.py tests/test_physical_wall_equivalence_candidate_eligibility.py
+          PYTHONPATH=. python scripts/check_provider_gold_isolation.py
+          PYTHONPATH=. python scripts/check_full_plan_v2_integrity.py
+  exact-original-source-parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      matrix:
+        include:
+          - name: lot16
+            pdf: "documents/sources/1. Construction Plans - Lot 16 Power (REV E).pdf"
+            pages: "--page-id 3"
+            expected_sha: "10109b4b6e85e6e27af81f6399ce4b92abfdba80f87dc69dd5887bd6f3a65844"
+            expected_openings: 23
+            expected_hosts: 14
+            expected_frames: 9
+          - name: maryborough
+            pdf: "documents/sources/Arch_Combined_Maryborough_Service_Station.pdf"
+            pages: "--page-id 7 --page-id 30 --page-id 31"
+            expected_sha: "b1be53531412005f42937c89d0cfce66fbbe608315016bbb56731029ffc9e007"
+            expected_openings: 180
+            expected_hosts: 3
+            expected_frames: 0
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: python -m pip install -r requirements.txt -r requirements-ci-v1228.txt
+      - name: Independent original PR-base source proof
+        env:
+          SOURCE_PDF: "${{ matrix.pdf }}"
+          SOURCE_PAGES: "${{ matrix.pages }}"
+        run: |
+          git worktree add /tmp/original-w4-source-base "${{ github.event.pull_request.base.sha }}"
+          (
+            cd /tmp/original-w4-source-base
+            PYTHONPATH=. python -u tools/diag_opening_wall_face_preservation.py \
+              --pdf "$SOURCE_PDF" $SOURCE_PAGES --output "$GITHUB_WORKSPACE/original-w4-base.json"
+          )
+      - name: Run original-source candidate geometry without changed truth
+        env:
+          SOURCE_PDF: "${{ matrix.pdf }}"
+          SOURCE_PAGES: "${{ matrix.pages }}"
+        run: |
+          PYTHONPATH=. python -u tools/diag_opening_wall_face_preservation.py \
+            --pdf "$SOURCE_PDF" $SOURCE_PAGES --output original-w4-candidate.json
+      - name: Verify exact source, old host/frame receipts and no collided W4 identities
+        env:
+          EXPECTED_SHA: "${{ matrix.expected_sha }}"
+          EXPECTED_OPENINGS: "${{ matrix.expected_openings }}"
+          EXPECTED_HOSTS: "${{ matrix.expected_hosts }}"
+          EXPECTED_FRAMES: "${{ matrix.expected_frames }}"
+        run: |
+          PYTHONPATH=. python tools/gptmax_compare_source_face_retention.py \
+            --baseline original-w4-base.json \
+            --candidate original-w4-candidate.json \
+            --output w4-original-host-frame-retention.json
+          python - <<'PY'
+          import json, os
+          from collections import Counter
+          from pathlib import Path
+          base=json.loads(Path('original-w4-base.json').read_text())
+          candidate=json.loads(Path('original-w4-candidate.json').read_text())
+          assert base['source_sha256']==candidate['source_sha256']==os.environ['EXPECTED_SHA']
+          assert base['primitive_safety_cap']==candidate['primitive_safety_cap']==20000
+          assert len(base['opening_bindings']) == len(candidate['opening_bindings'])
+          for name, env in [('physical_existence_claims','EXPECTED_OPENINGS'), ('host_bindings','EXPECTED_HOSTS'),('host_frames','EXPECTED_FRAMES')]:
+              assert base['summary'][name]==candidate['summary'][name]==int(os.environ[env])
+          assert len(base['source_owned_wall_scope_results'])==len(candidate['source_owned_wall_scope_results'])
+          before_scopes={scope['decision_scope_id']:scope for scope in base['source_owned_wall_scope_results']}
+          after_scopes={scope['decision_scope_id']:scope for scope in candidate['source_owned_wall_scope_results']}
+          assert set(before_scopes)==set(after_scopes)
+          for scope_id, old in before_scopes.items():
+              new=after_scopes[scope_id]
+              assert len(old['records'])==len(new['records']), ('wall records discarded',scope_id)
+              old_groups={}
+              new_groups={}
+              for record in old['records']:
+                  old_groups.setdefault(record['wall_candidate_id'], []).append(record)
+              for record in new['records']:
+                  new_groups.setdefault(record['wall_candidate_id'], []).append(record)
+              conflicted={wid for wid, rows in old_groups.items() if len(rows)>1}
+              for wid, rows in old_groups.items():
+                  if wid not in conflicted:
+                      assert new_groups.get(wid)==rows, ('unrelated W4 identity changed',scope_id,wid)
+                  else:
+                      assert wid not in new_groups, ('collided key still silently reused',scope_id,wid)
+                      for record in rows:
+                          source_owner=(
+                              tuple(record['wall_candidate']['face_a_segment_ids']),
+                              tuple(record['wall_candidate']['end_node_ids']),
+                          )
+                          replacements=[
+                              row for row in new['records']
+                              if (tuple(row['wall_candidate']['face_a_segment_ids']),
+                                  tuple(row['wall_candidate']['end_node_ids']))==source_owner
+                          ]
+                          assert len(replacements)==1, ('source candidate missing/ambiguous',scope_id,wid)
+                          replacement=replacements[0]
+                          assert replacement['wall_candidate']['metadata']['precollision_w4_candidate_id']==wid
+                          assert replacement['physical_identity']['edge_ids']==record['wall_candidate']['face_a_segment_ids']
+          before_collisions=after_collisions=0
+          for scope in base['source_owned_wall_scope_results']:
+              ids=Counter(r['wall_candidate_id'] for r in scope['records'])
+              before_collisions += sum(v-1 for v in ids.values() if v>1)
+          for scope in candidate['source_owned_wall_scope_results']:
+              ids=Counter(r['wall_candidate_id'] for r in scope['records'])
+              after_collisions += sum(v-1 for v in ids.values() if v>1)
+          assert after_collisions==0, ('remaining W4 collisions',after_collisions)
+          print({'original_collisions':before_collisions, 'remaining_collisions':after_collisions, 'host_frame_receipt_retention':True})
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gptmax-w4-collision-${{ matrix.name }}
+          path: |
+            original-w4-*.json
+            w4-original-host-frame-retention.json
+          retention-days: 30

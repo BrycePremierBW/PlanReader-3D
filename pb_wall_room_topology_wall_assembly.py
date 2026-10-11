@@ -60,11 +60,15 @@ a false combined wall or silently disappearing.
 """
 from __future__ import annotations
 
+from collections import defaultdict
+from dataclasses import replace
+import math
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 from pb_geometry_takeoff_model import MeasurementAuthorityType
 from pb_migration_contracts import EvidenceResolutionStatus, stable_contract_id
 from pb_wall_room_topology_junction_classifier import deduplicate_coincident_edges
+from pb_wall_room_topology_primitive_lineage import LINEAGE_KEY
 from pb_wall_room_topology_contracts import (
     JunctionCandidate,
     JunctionType,
@@ -268,6 +272,102 @@ def _canonical_wall_candidate_id(
     )
 
 
+class W4SourceCandidateAddressCollision(ValueError):
+    """Producer-proven W4 address ambiguity; never select a last-writer wall."""
+
+
+def _source_owned_collision_candidate_addresses(
+    walls: Sequence[WallCandidate],
+    edges_by_id: Dict[str, Dict[str, Any]],
+    edge_to_wall: Dict[str, str],
+) -> tuple[list[WallCandidate], dict[str, str]]:
+    """Disambiguate only W4 *addresses* whose geometric hashes collided.
+
+    A new address is NOT evidence that walls are physically different.
+    Incomplete or indistinguishable original source evidence fails closed;
+    never choose one conflicting row by iteration order.
+    """
+    by_id: dict[str, list[WallCandidate]] = defaultdict(list)
+    for wall in walls:
+        by_id[wall.candidate_id].append(wall)
+    collisions = {cid: group for cid, group in by_id.items() if len(group) > 1}
+    if not collisions:
+        return list(walls), dict(edge_to_wall)
+
+    replacements: dict[int, WallCandidate] = {}
+    new_ids: set[str] = set()
+    unchanged_ids = set(by_id) - set(collisions)
+    for old_id, group in sorted(collisions.items()):
+        group_keys: set[str] = set()
+        group_edges: set[str] = set()
+        for wall in group:
+            edges = tuple(wall.face_a_segment_ids) + tuple(wall.face_b_segment_ids or ())
+            if not edges or len(set(edges)) != len(edges):
+                raise W4SourceCandidateAddressCollision("W4 collision has absent or duplicated source edges")
+            if group_edges.intersection(edges):
+                raise W4SourceCandidateAddressCollision("W4 collision has competing owners of one source edge")
+            group_edges.update(edges)
+            source_parts = []
+            for eid in edges:
+                edge = edges_by_id.get(str(eid))
+                if not isinstance(edge, dict):
+                    raise W4SourceCandidateAddressCollision("W4 collision has missing original source edge")
+                lineage = edge.get(LINEAGE_KEY) or {}
+                raw = lineage.get("source_primitive_ids") if isinstance(lineage, dict) else None
+                if (not isinstance(raw, (list, tuple)) or not raw
+                        or any(not isinstance(v, str) or not v.strip() for v in raw)):
+                    raise W4SourceCandidateAddressCollision("W4 collision lacks positive source ancestry")
+                try:
+                    a = (float(edge["x1"]), float(edge["y1"]))
+                    b = (float(edge["x2"]), float(edge["y2"]))
+                except (KeyError, ValueError, TypeError, OverflowError):
+                    raise W4SourceCandidateAddressCollision("W4 collision lacks original source geometry") from None
+                if (not all(math.isfinite(x) for x in (*a, *b)) or a == b):
+                    raise W4SourceCandidateAddressCollision("W4 collision has invalid source geometry")
+                source_parts.append({
+                    "positive_source_primitive_ids": sorted(set(raw)),
+                    "source_line": tuple(sorted((a, b))),
+                })
+            terminals = tuple(wall.end_node_ids)
+            if len(terminals) != 2 or any(not isinstance(x, str) or not x for x in terminals):
+                raise W4SourceCandidateAddressCollision("W4 collision lacks junction ownership")
+            new_id = stable_contract_id("wall", {
+                "geometric_candidate_id": old_id,
+                "viewport_id": wall.viewport_id,
+                "original_source_segments": sorted(source_parts, key=lambda p: str(p)),
+                "terminal_source_junction_ids": sorted(terminals),
+            })
+            if new_id in unchanged_ids or new_id in group_keys or new_id in new_ids:
+                raise W4SourceCandidateAddressCollision("W4 collision not uniquely source-disambiguated")
+            group_keys.add(new_id)
+            new_ids.add(new_id)
+            marked = replace(
+                wall, candidate_id=new_id,
+                metadata={**dict(wall.metadata), "precollision_w4_candidate_id": old_id},
+                reason_codes=tuple((*wall.reason_codes, "source_owned_w4_candidate_address_collision")),
+            )
+            replacements[id(wall)] = marked
+
+    revised = []
+    remapped = dict(edge_to_wall)
+    for wall in walls:
+        if wall.candidate_id not in collisions:
+            revised.append(wall)
+            continue
+        edges = tuple(wall.face_a_segment_ids) + tuple(wall.face_b_segment_ids or ())
+        converted = replacements.get(id(wall))
+        if converted is None:
+            raise W4SourceCandidateAddressCollision("W4 collided wall lost source edge ownership")
+        revised.append(converted)
+        for eid in edges:
+            if edge_to_wall.get(eid) != wall.candidate_id:
+                raise W4SourceCandidateAddressCollision("W4 source edge owner unexpectedly changed")
+            remapped[eid] = converted.candidate_id
+    if len({wall.candidate_id for wall in revised}) != len(revised):
+        raise W4SourceCandidateAddressCollision("W4 source candidate addresses remain duplicated")
+    return revised, remapped
+
+
 def assemble_wall_candidates(
     graph: Dict[str, Any],
     junctions: Sequence[JunctionCandidate],
@@ -384,7 +484,9 @@ def assemble_wall_candidates(
         for edge_id in edge_ids:
             edge_id_to_wall_candidate_id[edge_id] = candidate_id
 
-    return wall_candidates, edge_id_to_wall_candidate_id
+    return _source_owned_collision_candidate_addresses(
+        wall_candidates, edges_by_id, edge_id_to_wall_candidate_id
+    )
 
 
 def _chain_order_edge_ids(
