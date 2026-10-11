@@ -153,6 +153,15 @@ def _validate_common(
         blockers.append("entity_evidence_not_owned_by_document")
     if room.evidence and not set(room.evidence).issubset(set(document.evidence_ids)):
         blockers.append("room_evidence_not_owned_by_document")
+    if (
+        type(room.geometry_confidence) not in (int, float)
+        or not math.isfinite(float(room.geometry_confidence))
+        or not 0.0 <= float(room.geometry_confidence) <= 1.0
+        or type(entity.confidence) not in (int, float)
+        or not math.isfinite(float(entity.confidence))
+        or not 0.0 <= float(entity.confidence) <= 1.0
+    ):
+        blockers.append("room_area_source_confidence_invalid")
     if room.area_conflict:
         blockers.append("room_area_conflict")
     return tuple(blockers)
@@ -178,6 +187,12 @@ def _validate_explicit_area(
         blockers.append("explicit_area_viewport_mismatch")
     if evidence.status != EvidenceResolutionStatus.CORROBORATED:
         blockers.append("explicit_area_not_corroborated")
+    if (
+        type(evidence.confidence) not in (int, float)
+        or not math.isfinite(float(evidence.confidence))
+        or not 0.0 <= float(evidence.confidence) <= 1.0
+    ):
+        blockers.append("explicit_area_confidence_invalid")
     if evidence.normalized_value is None:
         blockers.append("explicit_area_missing_normalized_value")
     elif type(evidence.normalized_value) not in (int, float):
