@@ -1097,6 +1097,27 @@ def enrich_live_canonical_floor_finishes(
             enriched.append(floor)
             continue
         record = matches[0]
+        # Canonical floor ID agreement is necessary, not sufficient. Every
+        # producer-owned floor finish must retain exactly the same physical
+        # source room, floor surface and QuantityEvidence input ancestry.
+        physical_room_id = getattr(record, "physical_room_id", None)
+        quantity_inputs = getattr(
+            getattr(record, "quantity", None), "input_entity_ids", None
+        )
+        if (
+            not isinstance(physical_room_id, str) or not physical_room_id
+            or physical_room_id != physical_room_id.strip()
+            or record.physical_floor_surface_id != floor.physical_floor_surface_id
+            or record.source_room_face_record_id != floor.source_room_face_record_id
+            or _expected_floor_id(
+                document_id=floor.document_id,
+                physical_room_id=physical_room_id,
+            ) != floor.canonical_floor_id
+            or quantity_inputs != (floor.canonical_floor_id,)
+        ):
+            conflict = True
+            enriched.append(floor)
+            continue
         if floor.finish_descriptor not in (None, "", record.semantic_finish):
             conflict = True
             enriched.append(floor)
