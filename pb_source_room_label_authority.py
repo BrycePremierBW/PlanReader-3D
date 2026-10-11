@@ -499,10 +499,11 @@ def _unique_source_label_observation_owners(positive, split):
     )
     def safe(rec):
         ids=owned_ids(rec)
-        return bool(ids) and len(ids)==len(set(ids)) and all(
+        return bool(ids) and all(
             isinstance(obs,str) and bool(obs) and obs==obs.strip()
-            and counts[obs]==1
             for obs in ids
+        ) and len(ids)==len(set(ids)) and all(
+            counts[obs]==1 for obs in ids
         )
     kept_direct=tuple(rec for rec in direct if safe(rec))
     kept_unresolved=tuple(rec for rec in unresolved if safe(rec))
