@@ -51,16 +51,29 @@ def _physical_union_first_unclosed_gate(
     # Never let a dict overwrite competing physical face or producer receipt
     # identities. This read-only gate must mirror the production fail-closed
     # source identity contract before examining any geometry.
-    face_counts = Counter(getattr(rec, "face_id", None) for rec in room_scope.records)
-    receipt_counts = Counter(getattr(rec, "record_id", None) for rec in room_scope.records)
-    records = {rec.face_id: rec for rec in room_scope.records}
-    if any(face_id not in records for face_id in component):
+    # A malformed upstream receipt may be an unhashable object. It must not
+    # crash a source run or appear as an authentic physical room owner.
+    def genuine_id(value):
+        return isinstance(value, str) and bool(value) and value == value.strip()
+
+    face_counts = Counter(
+        rec.face_id for rec in room_scope.records
+        if genuine_id(getattr(rec, "face_id", None))
+    )
+    receipt_counts = Counter(
+        rec.record_id for rec in room_scope.records
+        if genuine_id(getattr(rec, "record_id", None))
+    )
+    records = {
+        rec.face_id: rec for rec in room_scope.records
+        if genuine_id(getattr(rec, "face_id", None))
+    }
+    if any(not genuine_id(face_id) or face_id not in records for face_id in component):
         result["physical_union_first_unclosed_gate"] = "source_component_face_missing"
         return result
     if any(
         face_counts[face_id] != 1
-        or not isinstance(records[face_id].record_id, str)
-        or not records[face_id].record_id
+        or not genuine_id(getattr(records[face_id], "record_id", None))
         or receipt_counts[records[face_id].record_id] != 1
         for face_id in component
     ):
