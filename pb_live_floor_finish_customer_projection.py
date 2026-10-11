@@ -6,6 +6,7 @@ from dataclasses import replace
 from typing import Any
 
 from pb_customer_output_verification import verify_sealed_customer_output
+from pb_geometry_takeoff_model import MeasurementAuthorityType
 
 from pb_live_floor_finish_area_source_closed_export import (
     build_live_floor_finish_area_source_traces,
@@ -15,6 +16,7 @@ from pb_migration_contracts import QuantityEvidence
 from pb_source_closed_run_export import seal_source_closed_run
 from pb_quantity_takeoff_adapter import (
     CommercialMeasurementAuthority,
+    MissingCommercialAuthorityError,
     quantities_to_takeoff_output_rows,
 )
 
@@ -28,16 +30,23 @@ def _clean(value: Any) -> str:
 
 def _measurement_authority(quantity: QuantityEvidence) -> CommercialMeasurementAuthority:
     metadata = quantity.metadata if isinstance(quantity.metadata, Mapping) else {}
-    raw = metadata.get("figured_dimension_ids") or ()
-    if isinstance(raw, (str, bytes)):
-        raw = (raw,)
-    if not isinstance(raw, (list, tuple)):
-        raw = ()
-    figured_ids = tuple(sorted({_clean(value) for value in raw if _clean(value)}))
-    if figured_ids:
+    # A source-authenticated figured floor area requires two distinct native
+    # dimension witnesses. Never reclassify a missing or malformed figured
+    # system as generic direct evidence during final customer publication.
+    if quantity.authority == MeasurementAuthorityType.DOCUMENTED_DIMENSION.value:
+        raw = metadata.get("figured_dimension_ids")
+        if (
+            not isinstance(raw, (tuple, list))
+            or len(raw) != 2
+            or any(type(value) is not str or not value.strip() for value in raw)
+            or len(set(raw)) != 2
+        ):
+            raise MissingCommercialAuthorityError(
+                "floor-finish figured measurement requires two distinct source dimensions"
+            )
         return CommercialMeasurementAuthority(
             method="figured_dimension",
-            figured_dimension_ids=figured_ids,
+            figured_dimension_ids=tuple(sorted(raw)),
             metadata={
                 "source": "live_floor_finish_customer_projection",
                 "quantity_id": quantity.quantity_id,
@@ -45,16 +54,21 @@ def _measurement_authority(quantity: QuantityEvidence) -> CommercialMeasurementA
                 "semantic_finish": metadata.get("semantic_finish"),
             },
         )
-    return CommercialMeasurementAuthority(
-        method="direct_evidence",
-        metadata={
-            "source": "live_floor_finish_customer_projection",
-            "quantity_id": quantity.quantity_id,
-            "quantity_authority": quantity.authority,
-            "source_dimension_page_id": metadata.get("source_dimension_page_id"),
-            "finish_code": metadata.get("finish_code"),
-            "semantic_finish": metadata.get("semantic_finish"),
-        },
+    if quantity.authority == MeasurementAuthorityType.PDF_SCALED.value:
+        scale_id = _clean(metadata.get("resolved_scale_id"))
+        scale_status = _clean(metadata.get("scale_status"))
+        if not scale_id or scale_status not in ("resolved", "verified"):
+            raise MissingCommercialAuthorityError(
+                "floor-finish scaled measurement requires original resolved physical scale"
+            )
+        return CommercialMeasurementAuthority(
+            method="scaled_geometry",
+            resolved_scale_id=scale_id,
+            scale_status=scale_status,
+            scale_conflicts=tuple(metadata.get("scale_conflicts") or ()),
+        )
+    raise MissingCommercialAuthorityError(
+        "floor-finish measurement is not source-authenticated"
     )
 
 
