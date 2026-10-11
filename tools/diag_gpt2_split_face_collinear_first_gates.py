@@ -12,6 +12,7 @@ from typing import Any
 from tools.diag_gpt2_split_label_wall_separators import (
     _finite_native_edge,
     _opposite_collinear_positive_overlap,
+    _authentic_source_wall_id,
 )
 
 EPS = 1e-6
@@ -81,7 +82,7 @@ def audit_collinear_candidates(candidate: Any, faces_by_record_id: dict[str, Any
                     result["candidate_shared_spans"] = []
                     return result
                 lid, ledge = left_row
-                if not str(lid).strip() or _finite_native_edge(ledge) is None:
+                if not _authentic_source_wall_id(lid) or _finite_native_edge(ledge) is None:
                     result["first_gate"] = "malformed_source_wall_edge"
                     result["candidate_shared_spans"] = []
                     return result
@@ -91,7 +92,7 @@ def audit_collinear_candidates(candidate: Any, faces_by_record_id: dict[str, Any
                         result["candidate_shared_spans"] = []
                         return result
                     rid, redge = right_row
-                    if not str(rid).strip() or _finite_native_edge(redge) is None:
+                    if not _authentic_source_wall_id(rid) or _finite_native_edge(redge) is None:
                         result["first_gate"] = "malformed_source_wall_edge"
                         result["candidate_shared_spans"] = []
                         return result
