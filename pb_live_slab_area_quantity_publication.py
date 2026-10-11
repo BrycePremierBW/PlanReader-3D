@@ -9,7 +9,12 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 
-from pb_live_canonical_slab_projection import LiveCanonicalSlabObject
+from pb_live_canonical_slab_projection import (
+    LIVE_CANONICAL_SLAB_SCHEMA_VERSION,
+    LiveCanonicalSlabObject,
+    _canonical_polygon_identity,
+    _verified_metric_slab_polygon_area,
+)
 from pb_migration_contracts import QuantityEvidence, stable_contract_id
 
 
@@ -25,28 +30,71 @@ def publish_live_slab_area_quantity(
     if type(slab) is not LiveCanonicalSlabObject:
         raise TypeError("slab must be LiveCanonicalSlabObject")
     if (
-        not slab.canonical_slab_id
+        slab.schema_version != LIVE_CANONICAL_SLAB_SCHEMA_VERSION
+        or slab.coordinate_space != "metres"
+        or slab.geometry_complete is not True
+        or type(slab.source_page) is not int
+        or slab.source_page < 0
+        or any(
+            type(value) is not str or not value or value != value.strip()
+            for value in (
+                slab.canonical_slab_id, slab.physical_slab_id, slab.document_id,
+                slab.revision_id, slab.snapshot_id, slab.boundary_id, slab.slab_id,
+            )
+        )
         or slab.canonical_slab_id != slab.physical_slab_id
-        or not slab.document_id
-        or not slab.revision_id
-        or not slab.source_sha256
-        or not slab.snapshot_id
-        or not slab.boundary_id
-        or not slab.slab_id
-        or not slab.geometry_complete
+        or type(slab.source_sha256) is not str
+        or len(slab.source_sha256) != 64
+        or any(ch not in "0123456789abcdef" for ch in slab.source_sha256)
+        or type(slab.area_m2) is bool
     ):
         return None
     try:
         value = float(slab.area_m2)
     except (TypeError, ValueError, OverflowError):
         return None
-    if not math.isfinite(value) or value <= 0.0:
+    metric_area = _verified_metric_slab_polygon_area(slab.polygon_m)
+    if (
+        not math.isfinite(value) or value <= 0.0
+        or metric_area is None
+        or not math.isclose(value, metric_area, rel_tol=1e-9, abs_tol=1e-6)
+    ):
+        return None
+
+    # Canonical identities encode the exact source-owned metre polygon, page
+    # and document. A replay can mutate an object's vertices while retaining
+    # an old ID; that must never mint an area under the old physical owner.
+    expected_physical_id = stable_contract_id(
+        "physical_slab",
+        {
+            "document_id": slab.document_id,
+            "source_page": slab.source_page,
+            "polygon_m": _canonical_polygon_identity(slab.polygon_m),
+        },
+        digest_chars=32,
+    )
+    if expected_physical_id != slab.physical_slab_id:
         return None
 
     provenance = slab.provenance if isinstance(slab.provenance, Mapping) else {}
-    provenance_boundary_id = str(provenance.get("boundary_id") or "").strip()
-    if provenance_boundary_id != slab.boundary_id:
+    raw_boundary_id = provenance.get("boundary_id")
+    if type(raw_boundary_id) is not str or raw_boundary_id != slab.boundary_id:
         return None
+    source_page = provenance.get("annotation_source_page")
+    if source_page is not None:
+        if type(source_page) not in (int, str):
+            return None
+        try:
+            if int(source_page) != slab.source_page:
+                return None
+        except (TypeError, ValueError, OverflowError):
+            return None
+    for optional_receipt in ("annotation_id", "dimension_evidence_id"):
+        receipt = provenance.get(optional_receipt)
+        if receipt is not None and (
+            type(receipt) is not str or not receipt or receipt != receipt.strip()
+        ):
+            return None
 
     evidence_ids = tuple(
         dict.fromkeys(

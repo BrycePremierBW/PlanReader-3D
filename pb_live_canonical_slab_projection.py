@@ -104,6 +104,29 @@ def _canonical_polygon_identity(
     return min(variants)
 
 
+def _verified_metric_slab_polygon_area(
+    polygon: Sequence[Sequence[float]] | None,
+) -> float | None:
+    """Area from genuine metric boundary vertices, never from PDF page points.
+
+    The original slab resolver has already authenticated metre units. This
+    re-check prevents imported/replayed area claims from diverging from their
+    source-owned metric footprint before the quantity boundary is reached.
+    """
+    if type(polygon) not in (tuple, list) or not validate_boundary_polygon(polygon):
+        return None
+    points = tuple((float(point[0]), float(point[1])) for point in polygon)
+    try:
+        twice_area = math.fsum(
+            x0 * y1 - x1 * y0
+            for (x0, y0), (x1, y1) in zip(points, (*points[1:], points[0]))
+        )
+    except (ValueError, OverflowError):
+        return None
+    area = abs(twice_area) / 2.0
+    return area if math.isfinite(area) and area > 0.0 else None
+
+
 def project_resolved_slab_entity(
     *,
     slab: ResolvedSlabEntity,
@@ -145,6 +168,29 @@ def project_resolved_slab_entity(
 
     provenance = dict(slab.provenance or {})
     provenance_boundary_id = str(provenance.get("boundary_id") or "").strip()
+    # These are real metre-space polygons. Source-reported area alone is not
+    # sufficient when the same source receipt can be replayed with changed
+    # coordinates or a stale value.
+    metric_area = _verified_metric_slab_polygon_area(boundary.polygon)
+    try:
+        boundary_value = float(boundary.area_m2)
+        resolved_value = float(slab.area_m2)
+    except (TypeError, ValueError, OverflowError):
+        boundary_value = resolved_value = float("nan")
+    if (
+        type(boundary.area_m2) is bool
+        or type(slab.area_m2) is bool
+        or metric_area is None
+        or not math.isfinite(boundary_value)
+        or not math.isfinite(resolved_value)
+        or not math.isclose(
+            metric_area, boundary_value, rel_tol=1e-9, abs_tol=1e-6
+        )
+    ):
+        return LiveCanonicalSlabProjection(
+            object=None,
+            reason_codes=(LIVE_CANONICAL_SLAB_BOUNDARY_MISMATCH,),
+        )
     if (
         not provenance_boundary_id
         or provenance_boundary_id != str(boundary.boundary_id)
@@ -174,12 +220,29 @@ def project_resolved_slab_entity(
         )
 
     source_page_raw = provenance.get("annotation_source_page", boundary.source_page)
-    try:
-        source_page = int(source_page_raw)
-    except (TypeError, ValueError):
+    # An annotation on an unrelated source page cannot silently own a metric
+    # boundary merely because its text and geometry happened to bind. Page
+    # numbers must be actual integral source-page receipts, not bool or float.
+    if (
+        type(boundary.source_page) is not int
+        or boundary.source_page < 0
+        or type(source_page_raw) not in (str, int)
+    ):
         return LiveCanonicalSlabProjection(
             object=None,
             reason_codes=(LIVE_CANONICAL_SLAB_UNAVAILABLE,),
+        )
+    try:
+        source_page = int(source_page_raw)
+    except (TypeError, ValueError, OverflowError):
+        return LiveCanonicalSlabProjection(
+            object=None,
+            reason_codes=(LIVE_CANONICAL_SLAB_UNAVAILABLE,),
+        )
+    if source_page < 0 or source_page != boundary.source_page:
+        return LiveCanonicalSlabProjection(
+            object=None,
+            reason_codes=(LIVE_CANONICAL_SLAB_LINEAGE_UNAVAILABLE,),
         )
 
     physical_polygon = _canonical_polygon_identity(slab.boundary_polygon)
