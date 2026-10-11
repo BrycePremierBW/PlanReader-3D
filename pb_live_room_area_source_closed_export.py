@@ -93,6 +93,15 @@ def _firm_room_area_quantities(
                 raise SourceClosedRunConflictError(
                     f"room-area source identity receipts are invalid: {quantity_id}"
                 )
+        if (
+            type(quantity.value) not in (int, float)
+            or type(quantity.confidence) not in (int, float)
+            or not math.isfinite(float(quantity.confidence))
+            or not 0.0 <= float(quantity.confidence) <= 1.0
+        ):
+            raise SourceClosedRunConflictError(
+                f"room-area quantity is not a typed source metric with valid confidence: {quantity_id}"
+            )
         try:
             numeric = float(quantity.value)
         except (TypeError, ValueError, OverflowError) as exc:
@@ -214,6 +223,10 @@ def build_live_room_area_source_traces(
                 f"room/floor source-face identity mismatch: {floor.canonical_floor_id}"
             )
 
+        if type(floor.metric_area_m2) not in (int, float):
+            raise SourceClosedRunConflictError(
+                f"room-area canonical floor has untyped metric area: {quantity_id}"
+            )
         try:
             quantity_value = float(quantity.value)
             floor_value = float(floor.metric_area_m2)
