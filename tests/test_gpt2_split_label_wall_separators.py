@@ -171,3 +171,16 @@ def test_gpt2_b01_overflowing_source_wall_coordinate_never_aborts_diagnostic():
         "malformed_source_wall_subedges"
     )
     assert row["merge_source_faces_authorized"] is False
+
+
+def test_gpt2_b01_invalid_w4_wall_addresses_are_not_source_separators():
+    for malformed in (None, 73, "", " ", "W4-wall-1 "):
+        original=sample()
+        original["face-right"]=face(
+            "face-right",malformed,((5.,10.),(5.,0.))
+        )
+        result=gate(candidate(),original)
+        pair=result["pairwise_source_wall_gates"][0]
+        assert pair["first_gate"]=="malformed_source_wall_subedges"
+        assert pair["matching_authenticated_wall_segments"]==[]
+        assert result["merge_source_faces_authorized"] is False
