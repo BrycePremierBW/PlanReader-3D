@@ -672,13 +672,27 @@ def _candidate_record(
         },
         digest_chars=32,
     )
-    label_evidence_ids = tuple(
-        dict.fromkeys(
-            (
-                *candidate.observation_ids,
-                *(str(word.authority_record_id) for word in candidate.word_evidence),
-            )
+    # Source word/line receipts must remain exact producer identities,
+    # not stringified None/numeric placeholders. A fake receipt must not
+    # survive into an otherwise plausible polygon/quantity ancestry chain.
+    raw_observations = getattr(candidate, "observation_ids", ()) or ()
+    raw_words = getattr(candidate, "word_evidence", ()) or ()
+    if not isinstance(raw_observations, (tuple, list)) or not isinstance(raw_words, (tuple, list)):
+        return None
+    authority_ids = tuple(
+        getattr(word, "authority_record_id", None) for word in raw_words
+    )
+    if (
+        not raw_observations or len(authority_ids) < 2
+        or any(
+            not isinstance(receipt, str) or not receipt
+            or receipt != receipt.strip()
+            for receipt in (*raw_observations, *authority_ids)
         )
+    ):
+        return None
+    label_evidence_ids = tuple(
+        dict.fromkeys((*raw_observations, *authority_ids))
     )
     grid_ids = tuple(sorted(grid_evidence_ids))
     evidence_ids = tuple(
