@@ -152,12 +152,13 @@ def _publish_one(
         raw_figured_ids = ceiling.figured_dimension_ids
         if (
             not isinstance(raw_figured_ids, (tuple, list))
-            or not all(isinstance(value, str) for value in raw_figured_ids)
+            or len(raw_figured_ids) != 2
+            or any(type(value) is not str or not value.strip()
+                   for value in raw_figured_ids)
+            or len(set(raw_figured_ids)) != 2
         ):
             return None
-        figured_ids = tuple(
-            sorted({_clean(value) for value in raw_figured_ids if _clean(value)})
-        )
+        figured_ids = tuple(sorted(raw_figured_ids))
         # One observed dimension cannot define a documented two-axis area.
         # This canonical adapter does not infer the missing orthogonal axis
         # from PDF points, a nominal sheet scale, or benchmark quantities.
