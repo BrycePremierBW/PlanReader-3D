@@ -11,7 +11,11 @@ from typing import Any
 from pb_viewport_segmentation import is_authoritative_derived_viewport
 
 def scoped_rcp_material_occurrence_gate(viewport: Any, result: Any) -> dict[str,Any]:
-    view_id=str(getattr(viewport,"view_id","") or "")
+    raw_view_id=getattr(viewport,"view_id",None)
+    view_id=(
+        raw_view_id if isinstance(raw_view_id,str) and raw_view_id
+        and raw_view_id==raw_view_id.strip() else ""
+    )
     view_type_field=getattr(viewport,"view_type","")
     kind=str(getattr(view_type_field,"value",view_type_field) or "")
     status=str(getattr(viewport,"status","") or "")
@@ -40,15 +44,18 @@ def scoped_rcp_material_occurrence_gate(viewport: Any, result: Any) -> dict[str,
         view_token == "derived" and is_authoritative_derived_viewport(viewport)
     )
     supported=(
-        kind=="reflected_ceiling_plan" and bbox_valid
+        kind=="reflected_ceiling_plan" and bool(view_id) and bbox_valid
         and (view_token=="resolved" or derived_authenticated)
     )
     # The occurrence producer authenticates ownership to an exact source
     # viewport. A valid occurrence on a *different* RCP cannot authenticate
     # this viewport (e.g. page9 proposed vs original drawing).
     owned_records=bool(records) and bool(view_id) and all(
-        str(getattr(record,"viewport_id","") or "")==view_id
-        and bool(str(getattr(record,"record_id","") or "").strip())
+        isinstance(getattr(record,"viewport_id",None),str)
+        and record.viewport_id==view_id
+        and isinstance(getattr(record,"record_id",None),str)
+        and bool(record.record_id)
+        and record.record_id==record.record_id.strip()
         for record in records
     )
     # Where the viewport producer exposes its exact source page, material
@@ -59,7 +66,12 @@ def scoped_rcp_material_occurrence_gate(viewport: Any, result: Any) -> dict[str,
     )
     record_identities_unique = (
         bool(material_ids) and len(material_ids) == len(set(material_ids))
-        and all(material_ids)
+        and all(
+            isinstance(getattr(record,"record_id",None),str)
+            and record.record_id
+            and record.record_id==record.record_id.strip()
+            for record in records
+        )
     )
     material_codes_valid = bool(records) and all(
         isinstance(getattr(record, "code", None), str)
