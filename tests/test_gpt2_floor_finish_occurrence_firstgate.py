@@ -158,3 +158,26 @@ def test_gpt2_untrusted_source_finish_material_code_or_semantic_abstains():
         }
         assert not row["room_finish_ownership_published"]
         assert not row["floor_finish_quantity_published"]
+
+
+def test_gpt2_two_material_rows_cannot_reuse_one_original_source_evidence_id():
+    left=rec(record_id="occurrence-one",source_evidence_id="one-original-receipt",
+             source_text_observation_ids=("one-native-word",))
+    right=rec(record_id="occurrence-two",source_evidence_id="one-original-receipt",
+              source_text_observation_ids=("other-native-word",))
+    result=run((left,right))
+    assert result["replayed_source_evidence_receipt_ids"]==[
+        "one-original-receipt"
+    ]
+    assert result["first_failure_counts"]=={
+        "material_occurrence_source_evidence_receipt_replayed":2
+    }
+    assert not result["room_finish_ownership_published"]
+    assert not result["floor_finish_quantity_published"]
+    unrelated=rec(record_id="third",source_evidence_id="third-source",
+                  source_text_observation_ids=("third-native",))
+    kept=run((left,unrelated))
+    assert kept["replayed_source_evidence_receipt_ids"]==[]
+    assert kept["first_failure_counts"]=={
+        "material_occurrence_authenticated_room_owner_unresolved":2
+    }
