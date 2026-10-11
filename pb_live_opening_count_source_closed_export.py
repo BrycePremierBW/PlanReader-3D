@@ -18,6 +18,7 @@ from typing import Mapping
 
 from pb_live_physical_net_wall_integration import LivePhysicalNetWallClaim
 from pb_migration_contracts import QuantityEvidence, stable_contract_id
+from pb_geometry_takeoff_model import AuthorityStatus, MeasurementAuthorityType
 from pb_opening_tag_normalization import normalize_opening_tag
 from pb_quantity_takeoff_adapter import CommercialTakeoffSourceTrace
 from pb_source_closed_run_export import (
@@ -126,6 +127,15 @@ def build_live_opening_count_source_traces(
             )
 
         metadata = quantity.metadata if isinstance(quantity.metadata, Mapping) else {}
+        if (
+            quantity.unit != "ea"
+            or quantity.status != AuthorityStatus.FIRM.value
+            or quantity.authority != MeasurementAuthorityType.PDF_SCALED.value
+            or metadata.get("commercial_projection_allowed") is not True
+        ):
+            raise SourceClosedRunConflictError(
+                "opening-count quantity lacks producer-owned commercial measurement authority"
+            )
         if metadata.get("schedule_corroborated") is not True:
             raise SourceClosedRunConflictError(
                 "opening-count sealing requires source schedule corroboration"
