@@ -98,13 +98,33 @@ def _build_opening_area_source_traces(
             raise SourceClosedRunConflictError(
                 f"opening area quantity lacks owned viewport: {canonical_id}"
             )
-        evidence_ids = tuple(
-            dict.fromkeys(
-                str(value).strip()
-                for value in opening.evidence_ids
-                if str(value).strip()
-            )
-        )
+        for receipts in (opening.evidence_ids, quantity.evidence_ids):
+            if (
+                not isinstance(receipts, (tuple, list))
+                or not receipts
+                or any(type(item) is not str or not item.strip() for item in receipts)
+                or len(set(receipts)) != len(receipts)
+            ):
+                raise SourceClosedRunConflictError(
+                    f"opening original source evidence is incomplete: {quantity.quantity_id}"
+                )
+        # An explicitly retained source owner cannot be replayed onto a
+        # different document/revision/snapshot even when metric area matches.
+        metadata = quantity.metadata if isinstance(quantity.metadata, Mapping) else {}
+        for name, source_value in (
+            ("document_id", opening.document_id),
+            ("revision_id", opening.revision_id),
+            ("source_sha256", opening.source_sha256),
+            ("snapshot_id", opening.snapshot_id),
+            ("viewport_id", opening.viewport_id),
+            ("canonical_opening_id", canonical_id),
+            ("physical_opening_id", opening.physical_opening_id),
+        ):
+            if metadata.get(name) is not None and str(metadata[name]).strip() != str(source_value).strip():
+                raise SourceClosedRunConflictError(
+                    f"opening source {name} identity mismatch: {quantity.quantity_id}"
+                )
+        evidence_ids = tuple(opening.evidence_ids)
         missing_evidence = set(quantity.evidence_ids) - set(evidence_ids)
         if missing_evidence:
             raise SourceClosedRunConflictError(
