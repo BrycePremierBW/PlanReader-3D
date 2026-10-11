@@ -267,6 +267,12 @@ jobs:
                       "native_text":candidate["native_text"],
                       "native_bbox_pdf_pts":candidate["native_bbox_pdf_pts"],
                       "first_source_face_gate":census["first_source_face_gate"],
+                      "competing_source_face_receipts":census.get(
+                          "ambiguous_source_face_record_ids",[]
+                      ),
+                      "malformed_source_face_receipts":census.get(
+                          "invalid_source_face_record_ids",[]
+                      )[:10],
                       "centre_face_candidate_count":len(census["centre_face_record_ids"]),
                       "fully_sampled_face_candidate_count":len(census["sampled_box_face_record_ids"]),
                       "first_10_centre_face_ids":census["centre_face_record_ids"][:10],
