@@ -31,3 +31,18 @@ def test_authentic_numeric_workspace_metadata_keeps_original_source_lineage(cano
     row=quantity_evidence_to_takeoff_output_row(q,trace=source,authority=authority())
     assert row is not None
     assert row["workspace_id"]==7
+
+
+@pytest.mark.parametrize("bad_source_workspace", [True,False,7.5,7.0,0,-3,7.2,"7.0"," 7","-1",{},[]])
+def test_source_trace_constructor_rejects_lossy_workspace_coercion(bad_source_workspace):
+    from pb_quantity_takeoff_adapter import MissingCommercialAuthorityError
+    q=quantity("qty-workspace","floor-workspace")
+    with pytest.raises(MissingCommercialAuthorityError,match="workspace_id"):
+        replace(trace(q),workspace_id=bad_source_workspace)
+
+
+@pytest.mark.parametrize("source_workspace",[7,"7","007"])
+def test_source_trace_constructor_preserves_canonical_integer_source_id(source_workspace):
+    q=quantity("qty-workspace","floor-workspace")
+    received=replace(trace(q),workspace_id=source_workspace)
+    assert received.workspace_id==7
