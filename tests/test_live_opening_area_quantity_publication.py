@@ -566,6 +566,12 @@ def test_opening_area_never_normalizes_corrupted_original_source_receipts(receip
     ("source_sha256", "f" * 64),
     ("snapshot_id", "foreign-snapshot"),
     ("viewport_id", "foreign-viewport"),
+    ("page_no", "foreign-page"),
+    ("host_wall_id", "foreign-wall"),
+    ("host_binding_record_id", "foreign-host-evidence"),
+    ("opening_kind", "door"),
+    ("area_basis", "unproven-geometry"),
+    ("measurement_record_id", "foreign-measurement"),
     ("canonical_opening_id", "foreign-opening"),
     ("physical_opening_id", "foreign-opening"),
 ))
