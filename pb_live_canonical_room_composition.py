@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass, field
+import math
 from typing import Collection, Mapping, Optional
 
 from pb_drawing_evidence_binding import DrawingViewType
@@ -32,6 +33,7 @@ from pb_source_visibility_authority import SourceVisibilityProducer
 from pb_source_room_label_authority import (
     SourceRoomLabelProducer,
     SourceRoomLabelRecord,
+    SourceRoomLabelWordEvidence,
     SourceRoomLabelSelector,
 )
 
@@ -275,8 +277,30 @@ def _canonical_polygon_identity(
         (round(float(point[0]), 6), round(float(point[1]), 6))
         for point in polygon
     )
-    if len(points) < 3:
-        return ()
+    # A NaN/Inf coordinate cannot identify a source-owned physical room.
+    # Do not hash JSON non-finite tokens into a persistent canonical ID.
+    if any(not (math.isfinite(x) and math.isfinite(y)) for x, y in points):
+        raise ValueError("non-finite source room polygon coordinate")
+
+    # An explicitly closed PDF ring and its otherwise identical open ring
+    # are one physical boundary, not two canonical room identities.
+    if len(points) > 1 and points[0] == points[-1]:
+        points = points[:-1]
+    # Consecutive duplicate source vertices represent a zero-length edge;
+    # normalize only identity hashing, never mutate the source geometry.
+    distinct_consecutive = []
+    for vertex in points:
+        if not distinct_consecutive or distinct_consecutive[-1] != vertex:
+            distinct_consecutive.append(vertex)
+    points = tuple(distinct_consecutive)
+    # An empty/collinear ring has no enclosed source-owned physical area.
+    # Refuse to generate a shared sentinel identity for degenerate rooms.
+    if len(set(points)) < 3 or math.fsum(
+        points[i][0] * points[(i + 1) % len(points)][1]
+        - points[(i + 1) % len(points)][0] * points[i][1]
+        for i in range(len(points))
+    ) == 0.0:
+        raise ValueError("degenerate source room polygon identity")
     variants: list[tuple[tuple[float, float], ...]] = []
     for start in range(len(points)):
         variants.append(
@@ -322,9 +346,34 @@ def _unique_source_room_labels_by_face(
     Competing records for one physical face revoke the semantic label only,
     never the producer-authenticated physical room geometry.
     """
+    candidates = tuple(
+        label for label in labels if type(label) is SourceRoomLabelRecord
+    )
+    # One producer source-label receipt cannot authenticate two different
+    # physical room faces, regardless of iteration order.
+    source_receipt_faces: dict[str, set[str]] = {}
+    for label in candidates:
+        if isinstance(label.record_id, str) and label.record_id.strip():
+            source_receipt_faces.setdefault(label.record_id, set()).add(
+                str(label.face_id or "").strip()
+            )
+    # The same original source word cannot belong to two different
+    # physical rooms. Detect aliasing across the entire sealed label universe.
+    source_word_faces: dict[str, set[str]] = {}
+    for label in candidates:
+        for observation_id in label.observation_ids:
+            if isinstance(observation_id, str) and observation_id.strip():
+                source_word_faces.setdefault(observation_id, set()).add(
+                    str(label.face_id or "").strip()
+                )
     owned: dict[str, SourceRoomLabelRecord] = {}
-    conflicted: set[str] = set()
-    for label in labels:
+    conflicted: set[str] = {
+        face
+        for faces in (*source_receipt_faces.values(), *source_word_faces.values())
+        if len(faces) > 1
+        for face in faces
+    }
+    for label in candidates:
         if type(label) is not SourceRoomLabelRecord:
             continue
         face_id = str(label.face_id or "").strip()
@@ -352,18 +401,49 @@ def _verified_source_room_label_for_face(
         return None
     if label.status is not EvidenceResolutionStatus.CORROBORATED:
         return None
-    if any(
-        str(getattr(record, attr, "") or "") != str(getattr(label, attr, "") or "")
-        for attr in (
-            "document_id", "revision_id", "source_sha256", "snapshot_id",
-            "page_id", "decision_scope_id", "face_id",
-        )
+    # Missing, padded, or non-string scope values must not become a
+    # superficially matching pair via str(None) or whitespace coercion.
+    for attr in (
+        "document_id", "revision_id", "source_sha256", "snapshot_id",
+        "page_id", "decision_scope_id", "face_id",
+    ):
+        expected = getattr(record, attr, None)
+        actual = getattr(label, attr, None)
+        if (
+            not isinstance(expected, str) or not expected
+            or expected != expected.strip() or actual != expected
+        ):
+            return None
+    source_receipt = getattr(record, "record_id", None)
+    if (
+        not isinstance(source_receipt, str) or not source_receipt
+        or source_receipt != source_receipt.strip()
+        or label.source_room_face_record_id != source_receipt
     ):
         return None
-    if str(getattr(record, "record_id", "") or "") != str(label.source_room_face_record_id or ""):
+    if (
+        not isinstance(label.record_id, str) or not label.record_id
+        or label.record_id != label.record_id.strip()
+        or not label.observation_ids or not label.word_evidence
+        or len(label.observation_ids) != len(label.word_evidence)
+        or len(set(label.observation_ids)) != len(label.observation_ids)
+    ):
         return None
-    if not str(label.record_id or "").strip() or not label.observation_ids or not label.word_evidence:
-        return None
+    for observation_id, word in zip(label.observation_ids, label.word_evidence):
+        if (
+            type(word) is not SourceRoomLabelWordEvidence
+            or not isinstance(observation_id, str) or not observation_id.strip()
+            or observation_id != observation_id.strip()
+            or word.observation_id != observation_id
+            or not isinstance(word.receipt_id, str) or not word.receipt_id.strip()
+            or not isinstance(word.authority_record_id, str)
+            or not word.authority_record_id.strip()
+            or not isinstance(word.trusted_text, str) or not word.trusted_text.strip()
+            or word.authority_kind not in {
+                "native_text_integrity", "raster_text_corroboration"
+            }
+        ):
+            return None
     return label
 
 
