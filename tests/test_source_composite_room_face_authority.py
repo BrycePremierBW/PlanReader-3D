@@ -960,3 +960,49 @@ def test_gpt2_b02_invalid_w4_source_key_cannot_impersonate_grid_wall():
     grid,receipts=_fully_grid_opposed_wall_evidence(amended)
     assert grid=={"w_left"}
     assert receipts["w_left"]
+
+
+def test_gpt2_split_label_exact_word_face_source_receipts_required():
+    """B01: Native word owners cannot borrow foreign face record ancestry."""
+    from dataclasses import replace
+    wall_scope = _wall_scope((_grid_atom("e_sep"),))
+    room_scope = _room_scope()
+    label_scope = _label_scope()
+    positive = compose_grid_separated_room_faces(
+        wall_scope=wall_scope, room_scope=room_scope, label_scope=label_scope
+    )
+    assert len(positive.records) == 1
+    original = label_scope.split_face_candidates[0]
+    for invalid in (
+        ("foreign-a", "record_right"),
+        ("record_right", "record_left"),
+        ("record_left",),
+        (),
+        ("record_left", "record_right", "unexpected"),
+    ):
+        tampered = SimpleNamespace(**vars(original))
+        tampered.source_room_face_record_ids = invalid
+        label_scope_invalid = replace(
+            label_scope, split_face_candidates=(tampered,)
+        )
+        rejected = compose_grid_separated_room_faces(
+            wall_scope=wall_scope, room_scope=room_scope,
+            label_scope=label_scope_invalid,
+        )
+        assert rejected.records == ()
+        assert rejected.status is EvidenceResolutionStatus.ABSTAINED
+    for field, stale in (
+        ("source_sha256", "b" * 64),
+        ("snapshot_id", "different-room-snapshot"),
+        ("page_id", "another-page"),
+        ("decision_scope_id", "foreign-floor-viewport"),
+    ):
+        tampered = SimpleNamespace(**vars(original))
+        setattr(tampered, field, stale)
+        rejected = compose_grid_separated_room_faces(
+            wall_scope=wall_scope, room_scope=room_scope,
+            label_scope=replace(
+                label_scope, split_face_candidates=(tampered,)
+            ),
+        )
+        assert rejected.records == ()
