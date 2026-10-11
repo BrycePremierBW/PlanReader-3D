@@ -1189,3 +1189,28 @@ def test_gpt2_b01_source_atomic_wall_edge_multiplicity_remains_untrusted():
     )
     assert not invalid["new_room_geometry_published"]
     assert not invalid["new_metric_area_published"]
+
+
+def test_gpt2_b01_union_diagnostic_rejects_duplicate_original_face_receipts():
+    from dataclasses import replace
+    from tools.diag_gpt2_grid_component_first_failure import (
+        _physical_union_first_unclosed_gate,
+    )
+    room=_room_scope()
+    left,right=room.records
+    for contaminated in (
+        replace(room, records=(left,right,replace(left,record_id="alternate"))),
+        replace(room, records=(left,replace(right,record_id=left.record_id))),
+    ):
+        detail=_physical_union_first_unclosed_gate(
+            ("face_left","face_right"),
+            room_scope=contaminated,
+            fully_grid_wall_ids={"w_sep"},
+            grid_evidence={"w_sep":("source-w4-grid-receipt",)},
+            local_counts={},
+        )
+        assert detail["physical_union_first_unclosed_gate"]==(
+            "source_component_face_receipt_conflict"
+        )
+        assert detail["new_room_geometry_published"] is False
+        assert detail["new_metric_area_published"] is False
