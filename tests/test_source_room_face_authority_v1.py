@@ -506,3 +506,27 @@ def test_gpt2_b02_publication_exact_wall_owner_requires_real_original_subedge():
         ring,edge_owner=owners,wall_edges=missing,
         ownership_grid={},ownership_oversized=[]
     ) is None
+
+
+def test_gpt2_upstream_exact_indexed_w4_owner_must_have_original_edge():
+    from pb_source_room_face_authority import _unique_containing_wall_owner, _edge
+
+    edge = _edge((0.,0.),(10.,0.))
+    independent = _edge((0.,10.),(10.,10.))
+    good={"W4-original":(edge,),"other-source-wall":(independent,)}
+    assert _unique_containing_wall_owner(
+        edge,edge_owner={edge:"W4-original"},wall_edges=good
+    )=="W4-original"
+    for invalid in (None,17,""," W4-original","W4-foreign"):
+        assert _unique_containing_wall_owner(
+            edge,edge_owner={edge:invalid},wall_edges=good
+        ) is None
+    assert _unique_containing_wall_owner(
+        edge,edge_owner={edge:"W4-original"},
+        wall_edges={"W4-original":(independent,)}
+    ) is None
+    # Real source-contained original W4 fallback still works unchanged.
+    subedge=_edge((2.,0.),(8.,0.))
+    assert _unique_containing_wall_owner(
+        subedge,edge_owner={},wall_edges=good
+    )=="W4-original"
