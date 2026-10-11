@@ -90,10 +90,24 @@ def build_live_opening_count_source_traces(
     traces: dict[str, CommercialTakeoffSourceTrace] = {}
 
     for quantity in _validated_count_quantities(claim):
-        identities = tuple(_clean(v) for v in quantity.input_entity_ids if _clean(v))
+        raw_members = quantity.input_entity_ids
+        if (
+            not isinstance(raw_members, (tuple, list))
+            or not raw_members
+            or any(type(value) is not str or not value.strip() for value in raw_members)
+            or len(set(raw_members)) != len(raw_members)
+        ):
+            raise SourceClosedRunConflictError(
+                "opening-count quantity requires unique physical member identities"
+            )
+        identities = tuple(raw_members)
         if not identities or len(identities) != len(set(identities)):
             raise SourceClosedRunConflictError(
                 "opening-count quantity requires unique physical member identities"
+            )
+        if type(quantity.value) not in (int, float):
+            raise SourceClosedRunConflictError(
+                "opening-count quantity value must be a numeric physical count"
             )
         try:
             count_value = float(quantity.value)
@@ -125,6 +139,15 @@ def build_live_opening_count_source_traces(
 
         members = []
         physical_evidence: set[str] = set()
+        if (
+            not isinstance(quantity.evidence_ids, (tuple, list))
+            or not quantity.evidence_ids
+            or any(type(v) is not str or not v.strip() for v in quantity.evidence_ids)
+            or len(set(quantity.evidence_ids)) != len(quantity.evidence_ids)
+        ):
+            raise SourceClosedRunConflictError(
+                "opening-count source evidence receipts are incomplete"
+            )
         for identity in identities:
             opening = openings.get(identity)
             if opening is None:
@@ -140,11 +163,18 @@ def build_live_opening_count_source_traces(
                 raise SourceClosedRunConflictError(
                     f"opening-count member {identity} lacks owned viewport"
                 )
-            physical_evidence.update(
-                _clean(value)
-                for value in opening.source_observation_ids
-                if _clean(value)
-            )
+            source_observations = opening.source_observation_ids
+            if (
+                not isinstance(source_observations, (tuple, list))
+                or not source_observations
+                or any(type(value) is not str or not value.strip()
+                       for value in source_observations)
+                or len(set(source_observations)) != len(source_observations)
+            ):
+                raise SourceClosedRunConflictError(
+                    f"opening-count member {identity} lacks original source observation evidence"
+                )
+            physical_evidence.update(source_observations)
             members.append(opening)
 
         first = members[0]
