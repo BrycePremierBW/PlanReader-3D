@@ -235,3 +235,68 @@ def test_immutable_producer_metadata_cannot_bypass_source_flag_rules():
 @pytest.mark.parametrize("code",["source_stale_snapshot","quantity_superseded","wall_host_conflict"])
 def test_firm_status_with_stale_or_conflicting_reason_is_not_published(code):
     assert handoff._non_abstained((_q(reason_codes=(code,)),))==()
+
+
+
+@pytest.mark.parametrize("sealed_ids", [
+    ("qty-forged",),
+    ("q-floor","qty-extra-unpublished"),
+    (),
+])
+def test_source_publisher_to_family_seal_quantity_id_bijection(sealed_ids,tmp_path,monkeypatch):
+    from types import SimpleNamespace
+    import hashlib
+    source=tmp_path/"source.pdf"
+    source.write_bytes(b"original-verified-source")
+    sha=hashlib.sha256(source.read_bytes()).hexdigest()
+    claim=_core_opening_claim()
+    monkeypatch.setattr(handoff,"_source_page_scopes",lambda _:((0,),(),1))
+    monkeypatch.setattr(handoff,"collect_live_physical_net_wall_claim",
+                        lambda *_args,**_kwargs:claim)
+    monkeypatch.setattr(handoff,"seal_live_opening_area_claim_run",
+        lambda *_args,**_kwargs:SimpleNamespace(
+            run_id="sealed-mutated",
+            source_sha256s=(sha,),
+            quantities=tuple(
+                SimpleNamespace(quantity_id=qid,abstained=False,lineage_ok=True)
+                for qid in sealed_ids
+            ),
+            to_json=lambda:"{}",
+        ))
+    output=tmp_path/"out"
+    with pytest.raises(RuntimeError,match="sealed quantities differ from authenticated publisher receipts"):
+        handoff.generate_project_handoff(
+            pdf_path=source,project_id="project-a",workspace_id=1,
+            output_dir=output,family_group="core",
+        )
+    assert not (output/"family_runs").exists()
+    assert not (output/"project-a.core.json").exists()
+    report=json.loads((output/"production_summary.json").read_text())
+    assert report["status"]=="family_quantity_identity_conflict"
+    assert "family_quantity_identity_conflict:opening_area" in report["claim_reason_codes"]
+
+
+@pytest.mark.parametrize("abstained,lineage_ok",[(True,True),(False,False)])
+def test_unpublishable_sealed_row_cannot_ride_firm_family_count(abstained,lineage_ok,tmp_path,monkeypatch):
+    from types import SimpleNamespace
+    import hashlib
+    source=tmp_path/"source.pdf"
+    source.write_bytes(b"original-verified-source")
+    sha=hashlib.sha256(source.read_bytes()).hexdigest()
+    monkeypatch.setattr(handoff,"_source_page_scopes",lambda _:((0,),(),1))
+    monkeypatch.setattr(handoff,"collect_live_physical_net_wall_claim",
+                        lambda *_args,**_kwargs:_core_opening_claim())
+    monkeypatch.setattr(handoff,"seal_live_opening_area_claim_run",
+        lambda *_args,**_kwargs:SimpleNamespace(
+            run_id="invalid-firm",source_sha256s=(sha,),to_json=lambda:"{}",
+            quantities=(SimpleNamespace(
+                quantity_id="q-floor",abstained=abstained,lineage_ok=lineage_ok,
+            ),),
+        ))
+    output=tmp_path/"out"
+    with pytest.raises(RuntimeError,match="sealed quantities differ"):
+        handoff.generate_project_handoff(
+            pdf_path=source,project_id="project-a",workspace_id=1,
+            output_dir=output,family_group="core",
+        )
+    assert not (output/"family_runs").exists()
