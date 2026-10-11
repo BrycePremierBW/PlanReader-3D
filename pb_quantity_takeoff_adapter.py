@@ -252,14 +252,19 @@ def _validate_quantity_trace(
         raise MissingCommercialAuthorityError(
             "QuantityEvidence carries publication blockers: " + ", ".join(quantity.blocking_reasons)
         )
-    status = _norm(quantity.status)
-    if quantity_status_not_publishable(quantity.status):
-        raise MissingCommercialAuthorityError(
-            "nonpublishable QuantityEvidence status cannot enter commercial projection"
-        )
+    status = _norm(getattr(quantity.status, "value", quantity.status))
     reasons = {_norm(reason) for reason in quantity.reason_codes}
     if "conflict" in status or any("conflict" in reason for reason in reasons):
         raise CommercialTakeoffConflictError("conflicting QuantityEvidence cannot enter commercial projection")
+    # Source-closed seals require firm/corroborated evidence; unapproved AI
+    # *review drafts* intentionally admit provisional/review_required source
+    # evidence after full trace, scale, shadow and publication-permission checks.
+    # This function only returns an origin=AI / To review row. It does not
+    # authorize estimator approval, pricing, JobHub publication, or a V2 seal.
+    if status not in {"firm", "corroborated", "provisional", "review_required"}:
+        raise MissingCommercialAuthorityError(
+            "nonpublishable QuantityEvidence status cannot enter commercial projection"
+        )
     if not _unit_is_valid(quantity.unit):
         raise MissingCommercialAuthorityError(
             f"unit {quantity.unit!r} is not valid for the commercial takeoff projection"
