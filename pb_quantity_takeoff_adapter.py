@@ -244,6 +244,13 @@ def _validate_quantity_trace(
     authority: CommercialMeasurementAuthority,
 ) -> None:
     metadata = quantity.metadata if isinstance(quantity.metadata, Mapping) else {}
+    # Explicit canonical supersession flags are authoritative publication
+    # blockers. An invalid non-Boolean marker is not permission to publish.
+    for flag in ("is_stale", "is_superseded"):
+        if flag in metadata and metadata[flag] is not False:
+            raise CommercialTakeoffConflictError(
+                f"QuantityEvidence {flag} cannot enter commercial projection"
+            )
     if metadata.get("shadow_only") is True:
         raise MissingCommercialAuthorityError(
             "shadow-only QuantityEvidence cannot enter commercial projection"
