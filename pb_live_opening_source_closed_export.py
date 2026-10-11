@@ -14,6 +14,7 @@ from types import MappingProxyType
 from typing import Mapping, Sequence
 
 from pb_live_opening_area_quantity_publication import (
+    _opening_quantity,
     publish_live_opening_area_quantities,
 )
 from pb_live_physical_opening_void_composition import (
@@ -91,6 +92,25 @@ def _build_opening_area_source_traces(
         if opening.physical_opening_id != canonical_id:
             raise SourceClosedRunConflictError(
                 f"canonical/physical opening identity mismatch: {canonical_id}"
+            )
+        # A final live claim can reach this exporter without re-running the
+        # canonical publisher. Re-derive source-authenticated measurement and
+        # identity before sealing: possession of old evidence IDs alone does
+        # not authorize a different numeric area or measurement method.
+        authenticated = _opening_quantity(opening)
+        if (
+            authenticated is None
+            or quantity.quantity_id != authenticated.quantity_id
+            or type(quantity.value) not in (int, float)
+            or quantity.value != authenticated.value
+            or quantity.authority != authenticated.authority
+            or quantity.semantic_key != authenticated.semantic_key
+            or quantity.unit != authenticated.unit
+            or quantity.input_entity_ids != authenticated.input_entity_ids
+            or quantity.status != authenticated.status
+        ):
+            raise SourceClosedRunConflictError(
+                f"opening area claim differs from original source measurement: {canonical_id}"
             )
 
         viewport_id = str(opening.viewport_id or "").strip()
