@@ -295,7 +295,8 @@ jobs:
           # witness endpoints may form CONTACT CANDIDATES. This does not
           # grant room dimension ownership, metric scale or area quantities.
           from tools.diag_gpt2_room_wall_dimension_endpoints import (
-              inspect_source_face_dimension_endpoints
+              inspect_source_face_dimension_endpoints,
+              source_native_dimension_text_room_locality,
           )
           from collections import Counter
           contact_rows=[]
@@ -317,7 +318,33 @@ jobs:
               for label in labels:
                   source_face=actual_faces.get(label["source_room_face_record_id"])
                   assert source_face is not None, "room label lacks its source face"
+                  locality_rows=[
+                      source_native_dimension_text_room_locality(source_face,observation)
+                      for observation in dimension_bundle.observations
+                  ]
+                  room_local_observation_ids={
+                      row["observation_id"] for row in locality_rows
+                      if row["native_room_text_spatial_candidate_only"]
+                  }
+                  local_witness_rows=[
+                      inspect_source_face_dimension_endpoints(source_face,binding)
+                      for binding in dimension_bundle.bindings
+                      if binding.observation_id in room_local_observation_ids
+                  ]
+                  assert all(
+                      not row["room_dimension_owned"] and not row["metric_area_published"]
+                      for row in local_witness_rows
+                  )
                   contact_rows.append({
+                      "native_text_locality_first_gates":dict(sorted(Counter(
+                          row["first_spatial_gate"] for row in locality_rows
+                      ).items())),
+                      "spatially_local_native_dimension_observation_ids_candidate_only":sorted(
+                          room_local_observation_ids
+                      ),
+                      "room_local_unowned_dimension_witness_first_gates":dict(
+                          sorted(Counter(row["first_authority_gate"] for row in local_witness_rows).items())
+                      ),
                       "room_label":label["room_label"],
                       "source_face_record_id":source_face.record_id,
                       "source_label_record_id":label["source_label_record_id"],
@@ -335,6 +362,15 @@ jobs:
               "native_dimension_binding_count":len(dimension_bundle.bindings),
               "rooms":[{
                   "room_label":entry["room_label"],
+                  "native_dimension_text_locality_first_gates":entry[
+                      "native_text_locality_first_gates"
+                  ],
+                  "spatially_local_native_dimension_observation_ids_candidate_only":entry[
+                      "spatially_local_native_dimension_observation_ids_candidate_only"
+                  ],
+                  "room_local_unowned_dimension_witness_first_gates":entry[
+                      "room_local_unowned_dimension_witness_first_gates"
+                  ],
                   "source_face_record_id":entry["source_face_record_id"],
                   "source_label_record_id":entry["source_label_record_id"],
                   "source_wall_subedge_count":entry["source_wall_subedge_count"],
