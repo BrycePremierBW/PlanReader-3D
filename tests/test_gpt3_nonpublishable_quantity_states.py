@@ -80,3 +80,29 @@ def test_explicit_positive_projection_metadata_and_nonshadow_remain_valid():
         q,trace=trace(),authority=CommercialMeasurementAuthority(method="direct_evidence")
     )
     assert row and row["quantity_id"]=="qty-1"
+
+
+@pytest.mark.parametrize("enum_value", [
+    __import__("pb_migration_contracts").EvidenceResolutionStatus.RAW,
+    __import__("pb_migration_contracts").EvidenceResolutionStatus.CANDIDATE,
+    __import__("pb_migration_contracts").EvidenceResolutionStatus.ABSTAINED,
+    __import__("pb_migration_contracts").EvidenceResolutionStatus.CONFLICT,
+])
+def test_provisional_evidence_enum_status_is_never_commercially_firm(enum_value):
+    q=quantity(status=enum_value)
+    assert quantity_status_not_publishable(enum_value)
+    sealed=seal_source_closed_quantity(q,trace=trace())
+    assert sealed.lineage_ok is False
+    assert "quantity_status_not_publishable" in sealed.lineage_reason_codes
+    with pytest.raises(MissingCommercialAuthorityError, match="nonpublishable"):
+        quantity_evidence_to_takeoff_output_row(
+            q,trace=trace(),
+            authority=CommercialMeasurementAuthority(method="direct_evidence"),
+        )
+
+
+def test_corroborated_evidence_enum_remains_eligible():
+    from pb_migration_contracts import EvidenceResolutionStatus
+    q=quantity(status=EvidenceResolutionStatus.CORROBORATED)
+    assert not quantity_status_not_publishable(q.status)
+    assert seal_source_closed_quantity(q,trace=trace()).lineage_ok is True
