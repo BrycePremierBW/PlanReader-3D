@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from copy import copy
 
 from pb_geometry_takeoff_model import AuthorityStatus, MeasurementAuthorityType
 from pb_live_floor_area_quantity_publication import (
@@ -576,3 +577,111 @@ def test_unmeasured_other_room_using_same_source_face_quarantines_firm() -> None
     assert publish_live_floor_area_quantities(
         replace(claim, canonical_floors=(unresolved, authentic))
     ) == ()
+
+
+def test_floor_quantity_rejects_missing_or_duplicate_source_room_owner_receipts() -> None:
+    source = _source_area()
+    for fields in (
+        {"input_entity_ids": ()},
+        {"input_entity_ids": ("source-room-1", "source-room-1")},
+        {"input_entity_ids": ("   ",)},
+        {"evidence_ids": ("ev-room", "ev-room")},
+        {"evidence_ids": ("ev-room", "")},
+    ):
+        untrusted = copy(source)
+        for field, value in fields.items():
+            object.__setattr__(untrusted, field, value)
+        assert publish_live_floor_area_quantities(_claim_with(untrusted)) == (), fields
+    assert len(publish_live_floor_area_quantities(_claim_with(source))) == 1
+
+
+def test_floor_quantity_rejects_replayed_foreign_document_metadata() -> None:
+    source = _source_area()
+    foreign = replace(
+        source,
+        metadata={**dict(source.metadata), "document_id": "foreign-document"},
+    )
+    assert publish_live_floor_area_quantities(_claim_with(foreign)) == ()
+    authentic = replace(
+        source,
+        metadata={**dict(source.metadata), "document_id": _floor().document_id},
+    )
+    assert len(publish_live_floor_area_quantities(_claim_with(authentic))) == 1
+
+
+def test_floor_quantity_rejects_duplicate_or_untyped_floor_evidence_ids() -> None:
+    source = _source_area()
+    for receipts in (
+        ("ev-room", "ev-room", "ev-area"),
+        ("ev-room", "", "ev-area"),
+        ("ev-room", "   ", "ev-area"),
+    ):
+        claim = replace(
+            _claim_with(source),
+            canonical_floors=(replace(_floor(), evidence_ids=receipts),),
+        )
+        assert publish_live_floor_area_quantities(claim) == ()
+
+
+def test_floor_area_rejects_boolean_and_nonfinite_quantities_or_confidence():
+    source = _source_area()
+    for bad in (
+        {"value": True},
+        {"value": float("nan")},
+        {"confidence": True},
+        {"confidence": float("nan")},
+        {"confidence": float("inf")},
+        {"confidence": -0.1},
+        {"confidence": 1.1},
+    ):
+        replay = copy(source)
+        for field, value in bad.items():
+            object.__setattr__(replay, field, value)
+        assert publish_live_floor_area_quantities(_claim_with(replay)) == (), bad
+    for value in (True, False):
+        corrupted_floor = replace(_floor(), metric_area_m2=value)
+        claim = replace(_claim_with(source), canonical_floors=(corrupted_floor,))
+        assert publish_live_floor_area_quantities(claim) == ()
+    assert len(publish_live_floor_area_quantities(_claim_with(source))) == 1
+
+
+def test_sealed_floor_area_rejects_missing_nonfinite_or_degenerate_source_polygon():
+    from pb_live_floor_area_source_closed_export import build_live_floor_area_source_traces
+    from pb_source_closed_run_export import SourceClosedRunConflictError
+    import pytest
+
+    source = _source_area()
+    for polygon in (
+        (),
+        ((1.0, 1.0), (1.0, 2.0), (1.0, 3.0)),
+        ((0.0, 0.0), (float("nan"), 1.0), (2.0, 2.0)),
+        ((0.0, 0.0), (float("inf"), 1.0), (2.0, 2.0)),
+    ):
+        corrupted = replace(_floor(), polygon_pdf_pts=polygon)
+        claim = replace(_claim_with(source), canonical_floors=(corrupted,))
+        with pytest.raises(SourceClosedRunConflictError):
+            build_live_floor_area_source_traces(
+                claim, workspace_id=1, project_id="original-source",
+            )
+
+    original_claim = _claim_with(source)
+    traces = build_live_floor_area_source_traces(
+        original_claim, workspace_id=1, project_id="original-source",
+    )
+    assert len(traces) == 1
+
+
+def test_sealed_floor_area_rejects_duplicate_original_floor_face_evidence():
+    from pb_live_floor_area_source_closed_export import build_live_floor_area_source_traces
+    from pb_source_closed_run_export import SourceClosedRunConflictError
+    import pytest
+
+    source = _source_area()
+    bad_floor = replace(_floor(), evidence_ids=("ev-room", "ev-area", "ev-room"))
+    # The upstream quantity publisher already quarantines this source face;
+    # sealing receives zero positive quantities, not a fabricated empty trace.
+    result = build_live_floor_area_source_traces(
+        replace(_claim_with(source), canonical_floors=(bad_floor,)),
+        workspace_id=1, project_id="original-source",
+    )
+    assert result == {}

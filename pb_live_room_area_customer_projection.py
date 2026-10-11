@@ -82,15 +82,14 @@ def _figured_measurement_authority(
 
     metadata = quantity.metadata if isinstance(quantity.metadata, Mapping) else {}
     raw_ids = metadata.get("figured_dimension_ids")
-    if isinstance(raw_ids, (str, bytes)):
-        raw_ids = (raw_ids,)
-    elif not isinstance(raw_ids, (list, tuple)):
-        raw_ids = ()
-    figured_ids = tuple(
-        sorted({_clean(value) for value in raw_ids if _clean(value)})
-    )
-    if not figured_ids:
+    if (
+        not isinstance(raw_ids, (tuple, list))
+        or len(raw_ids) != 2
+        or any(type(value) is not str or not value.strip() for value in raw_ids)
+        or len(set(raw_ids)) != 2
+    ):
         return None
+    figured_ids = tuple(sorted(raw_ids))
 
     return CommercialMeasurementAuthority(
         method="figured_dimension",

@@ -644,3 +644,37 @@ def test_missing_customer_authority_never_converts_seal_to_verified_row(
     assert proof["customer_review_row_count"] == 0
     assert proof["customer_projection_failure_type"] == "MissingCommercialAuthorityError"
     assert proof["benchmark_accuracy"] is None
+
+
+def test_floor_customer_figured_authority_requires_two_distinct_typed_source_axes(live_claim):
+    original = _firm_quantity(live_claim)
+    valid = tuple(original.metadata.get("figured_dimension_ids") or ())
+    assert len(valid) == 2
+    assert floor_customer_projection._measurement_authority(original) is not None
+    for ids in (
+        (), (valid[0],), (valid[0], valid[0]),
+        (valid[0], valid[1], "unrelated-source-system"),
+        valid[0], (valid[0], 42),
+    ):
+        replay = replace(
+            original,
+            metadata={**dict(original.metadata), "figured_dimension_ids": ids},
+        )
+        assert floor_customer_projection._measurement_authority(replay) is None
+
+
+def test_room_customer_figured_measurement_requires_unique_horizontal_vertical_receipts(live_claim):
+    source = _firm_quantity(live_claim)
+    valid = tuple(source.metadata.get("figured_dimension_ids") or ())
+    assert len(valid) == 2
+    assert customer_projection._figured_measurement_authority(source) is not None
+    for invalid in (
+        (), (valid[0],), (valid[0], valid[0]),
+        (valid[0], valid[1], "foreign-dimension"),
+        "one-raw-string", (valid[0], None),
+    ):
+        damaged = replace(
+            source,
+            metadata={**dict(source.metadata), "figured_dimension_ids": invalid},
+        )
+        assert customer_projection._figured_measurement_authority(damaged) is None

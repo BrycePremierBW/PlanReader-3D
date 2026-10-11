@@ -145,10 +145,21 @@ def publish_live_floor_area_quantities(
             continue
         if len(physical_floor_claim_ids.get(_clean(floor.physical_floor_surface_id), ())) != 1:
             continue
+        # Booleans are Python integers, but never metric measurements.
+        # Quantities must arrive as genuinely typed, finite source numbers.
+        if (
+            type(quantity.value) not in (int, float)
+            or type(floor.metric_area_m2) not in (int, float)
+            or type(quantity.confidence) not in (int, float)
+        ):
+            continue
         try:
             qvalue = float(quantity.value)
             fvalue = float(floor.metric_area_m2)
+            confidence = float(quantity.confidence)
         except (TypeError, ValueError, OverflowError):
+            continue
+        if not math.isfinite(confidence) or confidence < 0.0 or confidence > 1.0:
             continue
         if (
             not math.isfinite(qvalue)
@@ -161,6 +172,33 @@ def publish_live_floor_area_quantities(
             continue
 
         metadata = quantity.metadata if isinstance(quantity.metadata, Mapping) else {}
+        # Reject malformed source evidence instead of allowing an empty or
+        # repeated receipt to pass set-based lineage membership.  A room-area
+        # quantity without a positive source-owning entity is not a floor-area
+        # measurement, even when its numeric area happens to match.
+        if (
+            not isinstance(quantity.input_entity_ids, (tuple, list))
+            or not quantity.input_entity_ids
+            or any(type(value) is not str or not value.strip()
+                   for value in quantity.input_entity_ids)
+            or len(set(quantity.input_entity_ids)) != len(quantity.input_entity_ids)
+            or not isinstance(quantity.evidence_ids, (tuple, list))
+            or not quantity.evidence_ids
+            or any(type(value) is not str or not value.strip()
+                   for value in quantity.evidence_ids)
+            or len(set(quantity.evidence_ids)) != len(quantity.evidence_ids)
+            or not isinstance(floor.evidence_ids, (tuple, list))
+            or any(type(value) is not str or not value.strip()
+                   for value in floor.evidence_ids)
+            or len(set(floor.evidence_ids)) != len(floor.evidence_ids)
+        ):
+            continue
+        # Some upstream source-area producers retain the original document
+        # identity in metadata. When present it cannot be replayed onto a
+        # different canonical-floor document.
+        source_document_id = metadata.get("document_id")
+        if source_document_id is not None and _clean(source_document_id) != floor.document_id:
+            continue
         if _clean(metadata.get("source_sha256")).lower() != floor.source_sha256.lower():
             continue
         if _clean(metadata.get("revision_id")) != floor.revision_id:

@@ -49,16 +49,17 @@ def _measurement_authority(
         "figured_dimension",
         "documented/figured",
     } or "figured" in authority:
-        raw_ids = metadata.get("figured_dimension_ids") or ()
-        if isinstance(raw_ids, (str, bytes)):
-            raw_ids = (raw_ids,)
-        if not isinstance(raw_ids, (list, tuple)):
-            raw_ids = ()
-        figured_ids = tuple(
-            sorted({_clean(value) for value in raw_ids if _clean(value)})
-        )
-        if not figured_ids:
+        raw_ids = metadata.get("figured_dimension_ids")
+        if (
+            not isinstance(raw_ids, (tuple, list))
+            or len(raw_ids) != 2
+            or any(type(value) is not str or not value.strip() for value in raw_ids)
+            or len(set(raw_ids)) != 2
+        ):
+            # One raw string, one source tick, or competing dimension
+            # systems cannot authorize physical m² at customer projection.
             return None
+        figured_ids = tuple(sorted(raw_ids))
         return CommercialMeasurementAuthority(
             method="figured_dimension",
             figured_dimension_ids=figured_ids,
