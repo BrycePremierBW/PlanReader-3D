@@ -453,6 +453,25 @@ def _unique_documented_area_owner_receipts(
             disputed.add(source_id)
         elif low:
             selected[source_id] = low[0]
+
+    # A producer-owned figured area receipt cannot independently authenticate
+    # the metric finish quantity of two different physical source rooms.
+    # Quarantine both owners rather than choosing first/last or copying area.
+    evidence_owners = {}
+    for source_id, record in tuple(selected.items()):
+        evidence_id = getattr(
+            getattr(record, "area_evidence", None), "evidence_id", None
+        )
+        if not valid(evidence_id):
+            disputed.add(source_id)
+            del selected[source_id]
+            continue
+        evidence_owners.setdefault(evidence_id, set()).add(source_id)
+    for source_ids in evidence_owners.values():
+        if len(source_ids) > 1:
+            disputed.update(source_ids)
+            for source_id in source_ids:
+                selected.pop(source_id, None)
     return selected, tuple(sorted(disputed))
 
 
