@@ -12,6 +12,8 @@ commercial claims.
 from __future__ import annotations
 
 import math
+
+from pb_geometry_takeoff_model import MeasurementAuthorityType
 from types import MappingProxyType
 from typing import Mapping
 
@@ -73,6 +75,33 @@ def _firm_room_area_quantities(
             raise SourceClosedRunConflictError(
                 f"room-area quantity has unsupported unit: {quantity_id}"
             )
+        if quantity.blocking_reasons or quantity.authority not in {
+            MeasurementAuthorityType.DOCUMENTED_DIMENSION.value,
+            MeasurementAuthorityType.PDF_SCALED.value,
+        }:
+            raise SourceClosedRunConflictError(
+                f"room-area quantity lacks admissible metric authority: {quantity_id}"
+            )
+        for receipts in (quantity.input_entity_ids, quantity.evidence_ids):
+            if (
+                not isinstance(receipts, (tuple, list))
+                or not receipts
+                or any(type(value) is not str or not value.strip()
+                       for value in receipts)
+                or len(set(receipts)) != len(receipts)
+            ):
+                raise SourceClosedRunConflictError(
+                    f"room-area source identity receipts are invalid: {quantity_id}"
+                )
+        if (
+            type(quantity.value) not in (int, float)
+            or type(quantity.confidence) not in (int, float)
+            or not math.isfinite(float(quantity.confidence))
+            or not 0.0 <= float(quantity.confidence) <= 1.0
+        ):
+            raise SourceClosedRunConflictError(
+                f"room-area quantity is not a typed source metric with valid confidence: {quantity_id}"
+            )
         try:
             numeric = float(quantity.value)
         except (TypeError, ValueError, OverflowError) as exc:
@@ -113,6 +142,22 @@ def _source_bbox(
         )
     bbox = (min(xs), min(ys), max(xs), max(ys))
     if bbox[2] <= bbox[0] or bbox[3] <= bbox[1]:
+        raise SourceClosedRunConflictError(
+            f"canonical floor polygon is degenerate: {floor.canonical_floor_id}"
+        )
+    # A nonzero bounding rectangle is insufficient proof of an enclosed
+    # physical source room. Collinear and self-cancelling PDF-point rings can
+    # retain a figured metric quantity but must not be sealed as a floor.
+    try:
+        twice_area = math.fsum(
+            xs[i] * ys[(i + 1) % len(xs)] - xs[(i + 1) % len(xs)] * ys[i]
+            for i in range(len(xs))
+        )
+    except (ValueError, OverflowError) as exc:
+        raise SourceClosedRunConflictError(
+            f"canonical floor polygon is invalid: {floor.canonical_floor_id}"
+        ) from exc
+    if not math.isfinite(twice_area) or abs(twice_area) <= 2e-9:
         raise SourceClosedRunConflictError(
             f"canonical floor polygon is degenerate: {floor.canonical_floor_id}"
         )
@@ -175,6 +220,17 @@ def build_live_room_area_source_traces(
                 f"canonical floor {floor.canonical_floor_id} references unknown room"
             )
         if (
+            room.document_id != floor.document_id
+            or room.revision_id != floor.revision_id
+            or room.source_sha256 != floor.source_sha256
+            or room.snapshot_id != floor.snapshot_id
+            or str(room.page_id) != str(floor.page_id)
+            or _clean(room.viewport_id) != _clean(floor.viewport_id)
+        ):
+            raise SourceClosedRunConflictError(
+                f"room and canonical floor have inconsistent original source lineage: {floor.canonical_floor_id}"
+            )
+        if (
             _clean(room.source_room_face_record_id)
             != _clean(floor.source_room_face_record_id)
         ):
@@ -182,6 +238,10 @@ def build_live_room_area_source_traces(
                 f"room/floor source-face identity mismatch: {floor.canonical_floor_id}"
             )
 
+        if type(floor.metric_area_m2) not in (int, float):
+            raise SourceClosedRunConflictError(
+                f"room-area canonical floor has untyped metric area: {quantity_id}"
+            )
         try:
             quantity_value = float(quantity.value)
             floor_value = float(floor.metric_area_m2)
@@ -202,6 +262,19 @@ def build_live_room_area_source_traces(
             )
 
         metadata = _quantity_metadata(quantity)
+        # A source room-area producer may carry additional original room
+        # identity. If supplied, it must describe this exact canonical face.
+        for metadata_key, original_owner in (
+            ("document_id", floor.document_id),
+            ("room_snapshot_id", floor.snapshot_id),
+            ("source_room_face_record_id", floor.source_room_face_record_id),
+        ):
+            if metadata.get(metadata_key) is not None and (
+                _clean(metadata[metadata_key]) != _clean(original_owner)
+            ):
+                raise SourceClosedRunConflictError(
+                    f"room-area original source {metadata_key} mismatch: {quantity_id}"
+                )
         if _clean(metadata.get("source_sha256")).lower() != floor.source_sha256.lower():
             raise SourceClosedRunConflictError(
                 f"room-area quantity source hash mismatch: {quantity_id}"
@@ -225,13 +298,22 @@ def build_live_room_area_source_traces(
                 f"room-area quantity/floor viewport mismatch: {quantity_id}"
             )
 
-        evidence_ids = tuple(
-            dict.fromkeys(
-                _clean(value)
-                for value in floor.evidence_ids
-                if _clean(value)
+        if (
+            not floor.geometry_complete
+            or not floor.physical_floor_surface_identity_resolved
+            or not _clean(floor.physical_floor_surface_id)
+        ):
+            raise SourceClosedRunConflictError(
+                f"room-area canonical floor lacks authenticated physical geometry: {quantity_id}"
             )
-        )
+        if not isinstance(floor.evidence_ids, (tuple, list)) or not floor.evidence_ids or (
+            any(type(v) is not str or not v.strip() for v in floor.evidence_ids)
+            or len(set(floor.evidence_ids)) != len(floor.evidence_ids)
+        ):
+            raise SourceClosedRunConflictError(
+                f"room-area source floor evidence is invalid: {quantity_id}"
+            )
+        evidence_ids = tuple(floor.evidence_ids)
         missing_evidence = set(quantity.evidence_ids) - set(evidence_ids)
         if missing_evidence:
             raise SourceClosedRunConflictError(
