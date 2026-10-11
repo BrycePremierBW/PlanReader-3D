@@ -524,11 +524,17 @@ def quantities_to_takeoff_output_rows(
     duplicate publication while preventing distinct rooms/openings/surfaces from
     being erased merely because they share a semantic quantity type.
     """
-    seen: dict[str, list[tuple[frozenset[str], tuple[float, str], str]]] = {}
+    seen: dict[tuple[str, str], list[tuple[frozenset[str], tuple[float, str], str]]] = {}
+    seen_quantity_ids: set[str] = set()
     output: list[dict[str, Any]] = []
     for quantity in quantities:
         if not isinstance(quantity, QuantityEvidence):
             raise TypeError("quantities must contain only QuantityEvidence records")
+        if quantity.quantity_id in seen_quantity_ids:
+            raise CommercialTakeoffConflictError(
+                f"duplicate commercial QuantityEvidence ID: {quantity.quantity_id}"
+            )
+        seen_quantity_ids.add(quantity.quantity_id)
         trace = traces_by_quantity_id.get(quantity.quantity_id)
         row = quantity_evidence_to_takeoff_output_row(
             quantity,
@@ -539,7 +545,7 @@ def quantities_to_takeoff_output_rows(
             continue
         assert trace is not None  # required by successful commercial projection
 
-        key = quantity.semantic_key
+        key = (_norm(quantity.family), quantity.semantic_key)
         claim = (float(quantity.value), _norm(quantity.unit))
         identities = _commercial_claim_identity_refs(quantity, trace)
         for prior_identities, prior_claim, prior_quantity_id in seen.get(key, ()):
