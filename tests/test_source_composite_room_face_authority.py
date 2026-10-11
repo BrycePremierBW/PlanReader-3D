@@ -1239,3 +1239,35 @@ def test_gpt2_b01_exterior_grid_owned_source_wall_ids_are_reported_not_assumed()
     assert row["physical_union_external_grid_w4_id_count"]>=1
     assert row["new_room_geometry_published"] is False
     assert row["new_metric_area_published"] is False
+
+
+def test_gpt2_dry_store_competing_room_label_receipts_are_source_face_owned():
+    from dataclasses import replace
+    from tools.diag_gpt2_grid_component_first_failure import (
+        inspect_split_grid_component_first_failure,
+    )
+    rooms=_room_scope()
+    walls=_wall_scope((_grid_atom("e_sep"),))
+    labels=_label_scope()
+    original=labels.split_face_candidates[0]
+    disputed=SimpleNamespace(
+        record_id="actual-other-label-receipt",
+        face_id="face_left",
+        label="OTHER ROOM",
+    )
+    scope=replace(labels,records=(disputed,))
+    row=inspect_split_grid_component_first_failure(
+        original,wall_scope=walls,room_scope=rooms,label_scope=scope,
+    )
+    assert row["first_unclosed_gate"]==(
+        "grid_connected_component_has_competing_room_label"
+    )
+    assert row["competing_original_label_receipt_count"]==1
+    assert row["competing_original_label_receipts_diagnostic_only"]==[{
+        "producer_receipt_id":"actual-other-label-receipt",
+        "native_room_label":"OTHER ROOM",
+        "competing_source_face_ids":["face_left"],
+        "source_direct_room_label_record_only":True,
+    }]
+    assert row["source_room_composite_published_by_diagnostic"] is False
+    assert row["source_room_metric_area_published"] is False
