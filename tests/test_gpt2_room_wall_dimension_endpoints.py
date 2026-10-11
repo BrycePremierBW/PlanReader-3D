@@ -216,3 +216,60 @@ def test_gpt2_missing_native_dimension_text_bbox_does_not_prove_room_locality(bb
     assert result["first_spatial_gate"]=="native_dimension_text_geometry_unavailable"
     assert not result["native_room_text_spatial_candidate_only"]
     assert not result["room_dimension_owned"]
+
+
+def test_gpt2_external_native_dimension_text_nearest_wall_is_diagnostic_only():
+    from tools.diag_gpt2_room_wall_dimension_endpoints import (
+        native_dimension_text_boundary_distance as measure,
+    )
+    room=face()
+    outside=NS(dimension_id="fig-outside",bbox=(-5.,4.,-3.,6.))
+    proof=measure(room,outside)
+    assert proof["nearest_native_room_boundary_distance_pdf_pts"]==4.0
+    assert proof["competing_nearest_wall_ids_diagnostic_only"]==[
+        "source-wall-left"
+    ]
+    assert proof["first_gate"]=="source_nearest_wall_only_no_dimension_witness_owner"
+    assert proof["source_room_dimension_owned"] is False
+    assert proof["metric_area_published"] is False
+
+
+def test_gpt2_nearest_source_dimension_wall_ties_are_not_resolved():
+    from tools.diag_gpt2_room_wall_dimension_endpoints import (
+        native_dimension_text_boundary_distance as measure,
+    )
+    room=face()
+    middle=NS(dimension_id="fig-middle",bbox=(9.,4.,11.,6.))
+    report=measure(room,middle)
+    assert report["nearest_native_room_boundary_distance_pdf_pts"]==10.0
+    assert report["competing_nearest_wall_ids_diagnostic_only"]==[
+        "source-wall-left","source-wall-right"
+    ]
+    assert report["source_room_dimension_owned"] is False
+
+
+@pytest.mark.parametrize("bbox", [
+    None,(),("not-native",1,2,3),(0.,0.,0.,2.),
+    (0.,0.,float("nan"),2.),(0.,0.,float("inf"),2.),
+])
+def test_gpt2_unavailable_source_text_bbox_cannot_select_room_wall(bbox):
+    from tools.diag_gpt2_room_wall_dimension_endpoints import (
+        native_dimension_text_boundary_distance as measure,
+    )
+    result=measure(face(),NS(dimension_id="fig",bbox=bbox))
+    assert result["first_gate"]=="source_native_dimension_or_wall_geometry_unavailable"
+    assert result["nearest_native_room_boundary_distance_pdf_pts"] is None
+    assert not result["source_room_dimension_owned"]
+
+
+def test_gpt2_invalid_wall_id_and_nonfinite_wall_geometry_are_not_distance_proof():
+    from tools.diag_gpt2_room_wall_dimension_endpoints import (
+        native_dimension_text_boundary_distance as measure,
+    )
+    row=measure(face((
+        (None,((0.,0.),(0.,10.))),
+        ("source-edge",((float("inf"),0.),(1.,10.))),
+    )),NS(dimension_id="fig",bbox=(0.,4.,2.,6.)))
+    assert row["nearest_native_room_boundary_distance_pdf_pts"] is None
+    assert row["competing_nearest_wall_ids_diagnostic_only"]==[]
+    assert not row["metric_area_published"]
