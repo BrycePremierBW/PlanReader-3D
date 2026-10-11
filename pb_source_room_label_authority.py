@@ -485,6 +485,32 @@ def _unique_source_faces_for_label_ownership(records):
     )
 
 
+def _unique_source_label_observation_owners(positive, split):
+    """Never publish one original text observation under competing room labels."""
+    direct=tuple(positive)
+    unresolved=tuple(split)
+    all_claims=direct+unresolved
+    def owned_ids(rec):
+        ids=getattr(rec,"observation_ids",None)
+        return tuple(ids) if isinstance(ids,(tuple,list)) else ()
+    counts=Counter(
+        obs for rec in all_claims for obs in owned_ids(rec)
+        if isinstance(obs,str) and obs
+    )
+    def safe(rec):
+        ids=owned_ids(rec)
+        return bool(ids) and len(ids)==len(set(ids)) and all(
+            isinstance(obs,str) and bool(obs) and obs==obs.strip()
+            and counts[obs]==1
+            for obs in ids
+        )
+    kept_direct=tuple(rec for rec in direct if safe(rec))
+    kept_unresolved=tuple(rec for rec in unresolved if safe(rec))
+    return kept_direct,kept_unresolved, (
+        len(kept_direct)!=len(direct) or len(kept_unresolved)!=len(unresolved)
+    )
+
+
 class SourceRoomLabelProducer:
     def __init__(
         self,
@@ -1151,6 +1177,18 @@ class SourceRoomLabelProducer:
                         _seal=_RECORD_SEAL,
                     )
                 )
+
+            # Original native text observations are producer-owned receipts;
+            # no one word may simultaneously establish two room labels,
+            # including a resolved single-face and unresolved split label.
+            clean_positive, clean_split, word_owner_conflict = (
+                _unique_source_label_observation_owners(
+                    positive, split_face_candidates
+                )
+            )
+            positive = list(clean_positive)
+            split_face_candidates = list(clean_split)
+            conflict = conflict or word_owner_conflict
 
             reasons = (
                 [SOURCE_ROOM_LABEL_SCOPE_RESOLVED]
