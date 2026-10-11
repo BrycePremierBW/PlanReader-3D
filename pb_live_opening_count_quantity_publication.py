@@ -131,6 +131,7 @@ def publish_live_authenticated_opening_count_quantities(
     # this bridge never narrows the universe to the convenient members.
     binding_selectors: dict[str, ScheduleOpeningInstanceBindingSelector] = {}
     binding_results = {}
+    physical_receipts: dict[str, tuple[str, ...]] = {}
     for observation_id in representatives:
         opening_selector = ObservationSelector(
             document_id=published.revision.document_id,
@@ -171,7 +172,17 @@ def publish_live_authenticated_opening_count_quantities(
             # Two representatives resolving to one physical opening cannot
             # silently overwrite a binding and certify complete count coverage.
             return ()
+        if (
+            not isinstance(opening.source_observation_ids, (tuple, list))
+            or not opening.source_observation_ids
+            or any(type(receipt) is not str or not receipt.strip()
+                   for receipt in opening.source_observation_ids)
+            or len(set(opening.source_observation_ids))
+            != len(opening.source_observation_ids)
+        ):
+            return ()
         binding_selectors[opening.record_id] = selector
+        physical_receipts[opening.record_id] = tuple(opening.source_observation_ids)
         binding_results[opening.record_id] = binding_producer.publish_scope(
             opening_selector=opening_selector,
             decision_scope_id=scope_id,
@@ -333,6 +344,10 @@ def publish_live_authenticated_opening_count_quantities(
             or quantity.unit != "ea"
             or quantity.value != float(record.count)
             or tuple(quantity.input_entity_ids) != tuple(member_ids)
+            or any(
+                not set(physical_receipts[opening_id]).issubset(set(quantity.evidence_ids))
+                for opening_id in member_ids
+            )
             or quantity.metadata.get("schedule_corroborated") is not True
             or quantity.metadata.get("commercial_projection_allowed") is not True
         ):
