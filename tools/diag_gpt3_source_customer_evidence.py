@@ -15,6 +15,27 @@ from pb_customer_output_verification import verify_sealed_customer_output
 from pb_source_closed_run_export import sealed_source_closed_run_from_dict
 
 
+def _reject_duplicate_payload_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate source/customer JSON key: {key}")
+        result[key] = value
+    return result
+
+
+def _reject_nonfinite_json_number(token: str) -> None:
+    raise ValueError(f"non-finite source/customer JSON number: {token}")
+
+
+def _read_strict_evidence_json(path: Path) -> Any:
+    return json.loads(
+        path.read_text(encoding="utf-8"),
+        object_pairs_hook=_reject_duplicate_payload_keys,
+        parse_constant=_reject_nonfinite_json_number,
+    )
+
+
 def build_source_customer_evidence_report(
     sealed_payload: Mapping[str, Any],
     customer_rows: Sequence[Mapping[str, Any]],
@@ -70,8 +91,8 @@ def main() -> None:
     parser.add_argument("--customer-rows", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    sealed_payload = json.loads(args.sealed_run.read_text(encoding="utf-8"))
-    rows = json.loads(args.customer_rows.read_text(encoding="utf-8"))
+    sealed_payload = _read_strict_evidence_json(args.sealed_run)
+    rows = _read_strict_evidence_json(args.customer_rows)
     if not isinstance(rows, list):
         raise TypeError("customer-rows JSON must be an array")
     report = build_source_customer_evidence_report(sealed_payload, rows)
