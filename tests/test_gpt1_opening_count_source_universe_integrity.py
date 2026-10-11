@@ -61,3 +61,50 @@ def test_schedule_count_cannot_convert_invalid_or_nonfinite_source_quantity(inva
 @pytest.mark.parametrize("real_count", [1, 2, 1.0, 5.0])
 def test_exact_source_integer_counts_remain_supported(real_count):
     assert _valid_explicit_source_count(real_count) is True
+
+
+
+def test_existing_source_inventory_with_unresolved_existence_remains_without_count(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from pb_migration_contracts import EvidenceResolutionStatus
+    from pb_physical_opening_authority import PhysicalOpeningAuthority
+    from pb_live_opening_count_quantity_publication import (
+        publish_live_authenticated_opening_count_quantities,
+    )
+    from pb_live_wall_opening_authority_composition import compose_live_wall_opening_authority
+    from pb_source_visibility_authority import SourceVisibilityProducer
+
+    payload = _floor_plan_with_schedule_quantity(quantity=1)
+    source = SourceVisibilityProducer(
+        producer_method="opening-count-universe-regression",
+        producer_version="1",
+    )
+    published = source.ingest_native_pdf_bytes(
+        document_id="opening-count-universe",
+        source_bytes=payload,
+        source_locator="memory://opening-count-universe.pdf",
+    )
+    walls = compose_live_wall_opening_authority(
+        source_visibility_producer=source,
+        revision_id=published.revision.revision_id,
+        page_ids=("1",),
+    )
+    # Control: original producer has a complete, explicitly quantified W1.
+    control = publish_live_authenticated_opening_count_quantities(
+        source_visibility_producer=source, wall_opening_composition=walls,
+    )
+    assert len(control) == 1
+    assert control[0].value == 1.0
+
+    def missing_physical_existence(_self, _selector):
+        return SimpleNamespace(
+            status=EvidenceResolutionStatus.ABSTAINED,
+            existence_record=None,
+        )
+
+    monkeypatch.setattr(
+        PhysicalOpeningAuthority, "prove_existence", missing_physical_existence,
+    )
+    assert publish_live_authenticated_opening_count_quantities(
+        source_visibility_producer=source, wall_opening_composition=walls,
+    ) == ()
