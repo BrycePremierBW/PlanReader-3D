@@ -85,6 +85,7 @@ def _quantity() -> QuantityEvidence:
             "finish_occurrence_record_id": "occ-1",
             "finish_occurrence_evidence_id": "ev-occ",
             "source_dimension_page_id": "2",
+            "figured_dimension_ids": ("dim-h-source", "dim-v-source"),
         },
     )
 
@@ -472,3 +473,34 @@ def test_floor_finish_customer_projection_uses_canonical_not_physical_floor_join
     assert verify_sealed_customer_output(sealed, rows).verified_quantity_ids == (
         corrected.quantity_id,
     )
+
+
+@pytest.mark.parametrize("dimensions", (
+    (), ("dim-h-source",), ("dim-h-source", "dim-h-source"),
+    ("dim-h-source", ""), "dim-h-source", None,
+))
+def test_floor_finish_customer_rejects_unowned_figured_measurement(dimensions):
+    from pb_quantity_takeoff_adapter import MissingCommercialAuthorityError
+    claim = _claim()
+    original = claim.floor_finish_quantity_evidence[0]
+    forged = replace(
+        original,
+        metadata={**dict(original.metadata), "figured_dimension_ids": dimensions},
+    )
+    with pytest.raises(MissingCommercialAuthorityError):
+        project_live_floor_finish_customer_rows(
+            replace(claim, floor_finish_quantity_evidence=(forged,)),
+            workspace_id=1, project_id="project-1",
+        )
+
+
+def test_floor_finish_customer_retains_two_original_figured_dimensions():
+    claim = _claim()
+    rows = project_live_floor_finish_customer_rows(
+        claim, workspace_id=1, project_id="project-1",
+    )
+    assert len(rows) == 1
+    assert rows[0]["measurement_method"] == "figured_dimension"
+    assert set(rows[0]["figured_dimension_ids"]) == {
+        "dim-h-source", "dim-v-source",
+    }
