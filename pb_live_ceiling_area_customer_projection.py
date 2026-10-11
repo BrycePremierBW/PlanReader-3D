@@ -106,6 +106,8 @@ def project_live_ceiling_area_customer_rows(
     """Project every final sealable legacy canonical ceiling to one AI-review row."""
     if type(result) is not LiveCeilingLiningResult:
         raise TypeError("result must be LiveCeilingLiningResult")
+    if type(workspace_id) is not int or workspace_id <= 0:
+        raise ValueError("workspace_id must be an authenticated positive integer")
 
     original = tuple(
         quantity
@@ -145,7 +147,7 @@ def project_live_ceiling_area_customer_rows(
 
     traces = build_live_ceiling_area_source_traces(
         result,
-        workspace_id=int(workspace_id),
+        workspace_id=workspace_id,
         project_id=project_id,
     )
     rows = tuple(
