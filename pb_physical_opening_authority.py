@@ -2328,17 +2328,62 @@ class PhysicalOpeningAuthority:
         collapsed = sorted(last_by_geometry.values(), key=lambda row: row[0])
         scoped = tuple(row[1] for row in collapsed)
         cached_lines = tuple(row[2] for row in collapsed)
-        breaks: list[_FaceBreak] = []
-        for first_index, second_index in _candidate_collinear_record_pairs(
+        collinear_pairs = _candidate_collinear_record_pairs(
             scoped, line_geometries=cached_lines
-        ):
+        )
+        collinear_neighbors: dict[int, set[int]] = {}
+        for first_index, second_index in collinear_pairs:
+            collinear_neighbors.setdefault(first_index, set()).add(second_index)
+            collinear_neighbors.setdefault(second_index, set()).add(first_index)
+
+        breaks: list[_FaceBreak] = []
+        for first_index, second_index in collinear_pairs:
             found = _face_break(
                 scoped[first_index],
                 scoped[second_index],
                 first_line=cached_lines[first_index],
                 second_line=cached_lines[second_index],
             )
-            if found is not None:
+            if found is None:
+                continue
+
+            # Positive collinear wall continuation inside a proposed gap means
+            # these two segments are not adjacent face boundaries. Historically
+            # all-pairs discovery could jump across an intervening solid wall
+            # stub and mint a false spanning opening. Only a source-visible gap
+            # with no intervening collinear coverage may become a face break.
+            continuation = False
+            for other_index in (
+                collinear_neighbors.get(first_index, set())
+                | collinear_neighbors.get(second_index, set())
+            ):
+                if other_index in {first_index, second_index}:
+                    continue
+                other = cached_lines[other_index]
+                values = sorted(
+                    (
+                        _projection((other[0], other[1]), found.direction),
+                        _projection((other[2], other[3]), found.direction),
+                    )
+                )
+                overlap = min(values[1], found.gap_end) - max(
+                    values[0], found.gap_start
+                )
+                # A boundary-anchored cap is not independent proof of
+                # physical wall continuation: native dimension ticks and jamb
+                # decoration may start at either gap endpoint. Preserve that
+                # structural hypothesis for the producer-owned annotation
+                # opposition/integrity checks (which can only ABSTAIN).
+                # A positive source-visible stub strictly INSIDE the proposed
+                # gap does prove these are not adjacent wall faces.
+                interior_stub = (
+                    values[0] > found.gap_start + _COORD_EQ_ABS_TOL
+                    and values[1] < found.gap_end - _COORD_EQ_ABS_TOL
+                )
+                if interior_stub and overlap > _COORD_EQ_ABS_TOL:
+                    continuation = True
+                    break
+            if not continuation:
                 breaks.append(found)
 
         if not breaks:
