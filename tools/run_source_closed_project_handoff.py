@@ -542,6 +542,33 @@ def generate_project_handoff(
         _write_json(output_dir / "production_summary.json", summary)
         raise RuntimeError("source PDF SHA changed during production handoff")
 
+    expected_by_family = {
+        "floor_area": floor_quantities,
+        "floor_finish_area": floor_finish_quantities,
+        "opening_area": opening_area_quantities,
+        "opening_count": opening_count_quantities,
+        "ceiling_area": ceiling_quantities,
+    }
+    for family, run in family_runs:
+        expected_quantities = expected_by_family[family]
+        expected_ids = tuple(q.quantity_id for q in expected_quantities)
+        actual_ids = tuple(q.quantity_id for q in run.quantities)
+        if (
+            len(set(expected_ids)) != len(expected_ids)
+            or len(set(actual_ids)) != len(actual_ids)
+            or set(expected_ids) != set(actual_ids)
+            or any(q.abstained or not q.lineage_ok for q in run.quantities)
+        ):
+            summary["status"] = "family_quantity_identity_conflict"
+            summary["claim_reason_codes"] = [
+                *summary["claim_reason_codes"],
+                f"family_quantity_identity_conflict:{family}",
+            ]
+            _write_json(output_dir / "production_summary.json", summary)
+            raise RuntimeError(
+                f"{family} sealed quantities differ from authenticated publisher receipts"
+            )
+
     # Validate *all* families before writing a single sealed file: checking
     # after _write_run would leave a plausible but unauthenticated artifact.
     # This production command accepts exactly one PDF; sibling source digests
