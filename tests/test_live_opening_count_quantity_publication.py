@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from copy import copy
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -294,3 +295,105 @@ def test_opening_count_sealing_rejects_missing_member_evidence(tmp_path) -> None
             workspace_id=7,
             project_id="source-project",
         )
+
+
+@pytest.mark.parametrize("corruption", (
+    "blank_member", "whitespace_member", "untyped_member",
+    "boolean_count", "fractional_count", "empty_quantity_receipt", "duplicate_quantity_receipt",
+))
+def test_count_sealing_never_drops_corrupt_original_member_or_quantity_evidence(
+    tmp_path, corruption,
+):
+    path = tmp_path / f"opening-count-integrity-{corruption}.pdf"
+    path.write_bytes(_floor_plan_with_schedule_quantity(quantity=1))
+    claim = collect_live_physical_net_wall_claim(path, pages=(0,))
+    assert len(claim.opening_count_quantity_evidence) == 1
+    original = claim.opening_count_quantity_evidence[0]
+    opening_id = original.input_entity_ids[0]
+    forged = copy(original)
+    if corruption in {"blank_member", "whitespace_member", "untyped_member"}:
+        bad = {"blank_member": "", "whitespace_member": "   ", "untyped_member": 42}[corruption]
+        object.__setattr__(forged, "input_entity_ids", (opening_id, bad))
+    elif corruption == "boolean_count":
+        object.__setattr__(forged, "value", True)
+    elif corruption == "fractional_count":
+        object.__setattr__(forged, "value", 1.0000000005)
+    elif corruption == "empty_quantity_receipt":
+        object.__setattr__(forged, "evidence_ids", ())
+    else:
+        object.__setattr__(forged, "evidence_ids", (*original.evidence_ids, original.evidence_ids[0]))
+    with pytest.raises(SourceClosedRunConflictError):
+        build_live_opening_count_source_traces(
+            replace(claim, opening_count_quantity_evidence=(forged,)),
+            workspace_id=7, project_id="source-project",
+        )
+    assert len(build_live_opening_count_source_traces(
+        claim, workspace_id=7, project_id="source-project",
+    )) == 1
+
+
+@pytest.mark.parametrize("bad_sources", (
+    (), ("",), ("   ",), ("source-A", "source-A"), (42,),
+))
+def test_count_sealing_requires_real_original_observation_ids_per_physical_member(
+    tmp_path, bad_sources,
+):
+    path = tmp_path / "count-source-observation-replay.pdf"
+    path.write_bytes(_floor_plan_with_schedule_quantity(quantity=1))
+    claim = collect_live_physical_net_wall_claim(path, pages=(0,))
+    assert len(claim.canonical_openings) == 1
+    corrupted = replace(claim.canonical_openings[0], source_observation_ids=bad_sources)
+    with pytest.raises(SourceClosedRunConflictError, match="original source observation"):
+        build_live_opening_count_source_traces(
+            replace(claim, canonical_openings=(corrupted,)),
+            workspace_id=7, project_id="source-project",
+        )
+
+
+@pytest.mark.parametrize("field,forged_value", (
+    ("unit", "m2"),
+    ("unit", "each"),
+    ("status", "provisional"),
+    ("status", "conflict"),
+    ("authority", "model_derived"),
+))
+def test_opening_count_source_seal_requires_producer_owned_commercial_units_and_status(
+    tmp_path, field, forged_value,
+):
+    from copy import copy
+    path = tmp_path / "count-commercial-source-trace.pdf"
+    path.write_bytes(_floor_plan_with_schedule_quantity(quantity=1))
+    claim = collect_live_physical_net_wall_claim(path, pages=(0,))
+    source = claim.opening_count_quantity_evidence[0]
+    forged = copy(source)
+    object.__setattr__(forged, field, forged_value)
+    with pytest.raises(SourceClosedRunConflictError, match="commercial measurement authority"):
+        build_live_opening_count_source_traces(
+            replace(claim, opening_count_quantity_evidence=(forged,)),
+            workspace_id=7, project_id="source-project",
+        )
+    assert len(build_live_opening_count_source_traces(
+        claim, workspace_id=7, project_id="source-project",
+    )) == 1
+
+
+def test_opening_count_source_seal_requires_explicit_commercial_publication_permission(
+    tmp_path,
+):
+    path = tmp_path / "count-commercial-permission.pdf"
+    path.write_bytes(_floor_plan_with_schedule_quantity(quantity=1))
+    claim = collect_live_physical_net_wall_claim(path, pages=(0,))
+    source = claim.opening_count_quantity_evidence[0]
+    for permission in (False, None, "true"):
+        forged = replace(
+            source,
+            metadata={
+                **dict(source.metadata),
+                "commercial_projection_allowed": permission,
+            },
+        )
+        with pytest.raises(SourceClosedRunConflictError, match="commercial measurement authority"):
+            build_live_opening_count_source_traces(
+                replace(claim, opening_count_quantity_evidence=(forged,)),
+                workspace_id=7, project_id="source-project",
+            )
