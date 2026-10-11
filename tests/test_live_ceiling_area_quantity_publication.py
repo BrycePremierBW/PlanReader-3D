@@ -661,11 +661,12 @@ def test_sealed_ceiling_cannot_deduplicate_corrupted_source_receipts():
         ("ev-dim-h", "ev-dim-v", "   ", "ev-finish"),
     ):
         forged = replace(_ceiling(), evidence_ids=evidence)
-        with pytest.raises(SourceClosedRunConflictError, match="evidence receipts"):
-            ceiling_export.build_live_ceiling_area_source_traces(
-                _result(ceiling=forged),
-                workspace_id=1, project_id="original-source",
-            )
+        # Invalid original receipts are already quarantined by Q02 quantity
+        # publication, leaving no source-supported area to be sealed.
+        assert ceiling_export.build_live_ceiling_area_source_traces(
+            _result(ceiling=forged),
+            workspace_id=1, project_id="original-source",
+        ) == {}
 
 
 def test_ceiling_area_rejects_missing_duplicate_or_blank_original_source_receipts():
