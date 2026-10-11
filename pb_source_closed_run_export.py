@@ -58,7 +58,19 @@ def _lineage_reasons(
     }
     if not quantity.abstained and metadata.get("shadow_only") is True:
         reasons.append("shadow_only_quantity")
-    if not quantity.abstained and metadata.get("commercial_projection_allowed") is False:
+    if (
+        not quantity.abstained
+        and metadata.get("commercial_projection_allowed") is False
+        and not (
+            metadata.get("quantity_handoff_only") is True
+            and not quantity_status_not_publishable(quantity.status)
+            and metadata.get("shadow_only") is not True
+        )
+    ):
+        # Published floor/ceiling QuantityEvidence may be explicitly marked
+        # handoff-only: its producer authenticates a final quantity for sealing,
+        # then a separate customer adapter adds presentation/AI-review metadata.
+        # This flag is NOT permission to project raw shadow/provisional rows.
         reasons.append("commercial_projection_forbidden")
 
     for key, authoritative in expected.items():
