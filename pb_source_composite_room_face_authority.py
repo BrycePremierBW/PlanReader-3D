@@ -570,11 +570,16 @@ def _candidate_record(
     for record in constituent:
         for item in tuple(getattr(record, "boundary_wall_edges", ()) or ()):
             try:
-                wall_id = str(item[0] or "").strip()
+                wall_id = item[0]
                 edge = _edge_key(item[1])
-            except (IndexError, TypeError):
+            except (IndexError, TypeError, ValueError, OverflowError):
                 return None
-            if not wall_id or edge is None:
+            # Never stringify numeric producer IDs, trim padded W4 addresses,
+            # or accept an original receipt with no native wall identity.
+            if (
+                not isinstance(wall_id, str) or not wall_id
+                or wall_id != wall_id.strip() or edge is None
+            ):
                 return None
 
     if local_counts is None:
