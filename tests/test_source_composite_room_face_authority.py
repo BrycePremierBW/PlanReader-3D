@@ -1327,12 +1327,14 @@ def test_gpt2_w4_collision_reports_both_original_source_records_without_equivale
         SimpleNamespace(
             wall_candidate_id="w4-reused",
             wall_candidate=SimpleNamespace(centerline_pts=((0.,0.),(1.,0.))),
-            source_edge_fragments=(SimpleNamespace(source_observation_id="native-1"),),
+            source_edge_fragments=(SimpleNamespace(edge_id="source-edge-1",
+                source_primitive_ids=("native-primitive-1",)),),
         ),
         SimpleNamespace(
             wall_candidate_id="w4-reused",
             wall_candidate=SimpleNamespace(centerline_pts=((5.,5.),(6.,5.))),
-            source_edge_fragments=(SimpleNamespace(source_observation_id="native-2"),),
+            source_edge_fragments=(SimpleNamespace(edge_id="source-edge-2",
+                source_primitive_ids=("native-primitive-2",)),),
         ),
         SimpleNamespace(
             wall_candidate_id="independent",
@@ -1352,9 +1354,13 @@ def test_gpt2_w4_collision_reports_both_original_source_records_without_equivale
         "original_collision_records_diagnostic_only"
     ]]==[0,1]
     assert [
-        row["source_fragment_observation_ids_sample"]
+        row["source_fragment_primitive_ids_sample"]
         for row in report["original_collision_records_diagnostic_only"]
-    ]==[["native-1"],["native-2"]]
+    ]==[[["native-primitive-1"]],[["native-primitive-2"]]]
+    assert [
+        row["source_fragment_edge_ids_sample"]
+        for row in report["original_collision_records_diagnostic_only"]
+    ]==[["source-edge-1"],["source-edge-2"]]
     assert report["original_collision_records_diagnostic_only"][0][
         "original_centerline_points_diagnostic_only"
     ] != report["original_collision_records_diagnostic_only"][1][
