@@ -423,6 +423,29 @@ def _candidate_record(
         for face_id in seed_face_ids
     ):
         return None
+    # A split label producer seals the first-seen, distinct physical face
+    # receipt for each word owner. Never use word-facing geometry from one
+    # source face with record ancestry belonging to another or older face.
+    distinct_word_faces = tuple(dict.fromkeys(seed_face_ids))
+    actual_word_face_receipts = tuple(
+        getattr(candidate, "source_room_face_record_ids", ()) or ()
+    )
+    expected_word_face_receipts = tuple(
+        str(room_by_face[face_id].record_id) for face_id in distinct_word_faces
+    )
+    if (
+        len(distinct_word_faces) < 2
+        or actual_word_face_receipts != expected_word_face_receipts
+        or any(not receipt.strip() for receipt in expected_word_face_receipts)
+        or any(
+            getattr(candidate, name, None) != getattr(room_scope, name, None)
+            for name in (
+                "document_id", "revision_id", "source_sha256",
+                "snapshot_id", "page_id", "decision_scope_id",
+            )
+        )
+    ):
+        return None
     constituent_face_ids = _grid_connected_component(
         seed_face_ids,
         room_scope=room_scope,
