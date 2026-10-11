@@ -1045,3 +1045,63 @@ def test_gpt2_b02_composite_rejects_stringified_missing_source_receipts():
     )
     assert result.records == ()
     assert result.status is EvidenceResolutionStatus.ABSTAINED
+
+
+def test_gpt2_b01_grid_component_first_gate_uses_real_producer_not_synthetic_merger():
+    from tools.diag_gpt2_grid_component_first_failure import (
+        inspect_split_grid_component_first_failure,
+    )
+    source_walls=_wall_scope((_grid_atom("e_sep"),))
+    source_rooms=_room_scope()
+    source_labels=_label_scope()
+    label=source_labels.split_face_candidates[0]
+    row=inspect_split_grid_component_first_failure(
+        label,wall_scope=source_walls,room_scope=source_rooms,
+        label_scope=source_labels,
+    )
+    assert row["first_unclosed_gate"]=="production_grid_composite_available"
+    assert row["production_composite_record_id_observed_only"]
+    assert row["source_room_composite_published_by_diagnostic"] is False
+    assert row["source_room_metric_area_published"] is False
+
+    no_grid=inspect_split_grid_component_first_failure(
+        label,wall_scope=_wall_scope(()),room_scope=source_rooms,
+        label_scope=source_labels,
+    )
+    assert no_grid["first_unclosed_gate"]=="no_producer_authenticated_grid_opposed_w4"
+    gap=inspect_split_grid_component_first_failure(
+        label,wall_scope=source_walls,room_scope=_room_scope(disconnected=True),
+        label_scope=source_labels,
+    )
+    assert gap["first_unclosed_gate"]=="split_words_not_connected_by_exact_grid_owned_edges"
+    assert not gap["connected_component_source_face_ids_diagnostic_only"]
+
+
+def test_gpt2_b01_grid_component_first_gate_rejects_stale_label_face_receipt():
+    from tools.diag_gpt2_grid_component_first_failure import (
+        inspect_split_grid_component_first_failure,
+    )
+    from dataclasses import replace
+    walls=_wall_scope((_grid_atom("e_sep"),))
+    rooms=_room_scope()
+    labels=_label_scope()
+    original=labels.split_face_candidates[0]
+    forged=SimpleNamespace(**vars(original))
+    forged.source_room_face_record_ids=("foreign-source-face", "record_right")
+    first=inspect_split_grid_component_first_failure(
+        forged,wall_scope=walls,room_scope=rooms,
+        label_scope=replace(labels,split_face_candidates=(forged,)),
+    )
+    assert first["first_unclosed_gate"]=="split_label_source_face_receipt_mismatch"
+    for bad in ((),("face_left",),("face_left",73),("face_left","missing")):
+        forged=SimpleNamespace(**vars(original))
+        forged.word_face_ids=bad
+        row=inspect_split_grid_component_first_failure(
+            forged,wall_scope=walls,room_scope=rooms,
+            label_scope=replace(labels,split_face_candidates=(forged,)),
+        )
+        assert row["first_unclosed_gate"] in (
+            "split_source_word_face_identity_unresolved",
+            "split_source_face_or_receipt_ambiguous",
+        )
+        assert row["source_room_metric_area_published"] is False
