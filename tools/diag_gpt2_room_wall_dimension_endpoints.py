@@ -113,6 +113,59 @@ def source_native_dimension_text_room_locality(face: Any, observation: Any) -> d
     return result
 
 
+def native_dimension_text_boundary_distance(face: Any, observation: Any) -> dict[str, Any]:
+    """Rank original source-native figured TEXT near a proven room boundary.
+
+    Native annotation text often lies outside its measured room. This returns
+    distance ONLY, and never selects a wall/dimension/witness, extends source
+    geometry, estimates scale, or publishes a metric quantity.
+    """
+    result={
+        "observation_id":getattr(observation,"dimension_id",None),
+        "source_face_record_id":getattr(face,"record_id",None),
+        "nearest_native_room_boundary_distance_pdf_pts":None,
+        "competing_nearest_wall_ids_diagnostic_only":[],
+        "first_gate":"source_native_dimension_or_wall_geometry_unavailable",
+        "source_room_dimension_owned":False,
+        "metric_area_published":False,
+    }
+    raw_box=getattr(observation,"bbox",None)
+    if not isinstance(raw_box,(tuple,list)) or len(raw_box)!=4:
+        return result
+    try:
+        box=tuple(float(v) for v in raw_box)
+    except (TypeError,ValueError,OverflowError):
+        return result
+    if (not all(math.isfinite(v) for v in box)
+        or box[2]<=box[0] or box[3]<=box[1]):
+        return result
+    centre=((box[0]+box[2])/2,(box[1]+box[3])/2)
+    if not all(math.isfinite(v) for v in centre):
+        return result
+    distances=[]
+    for row in tuple(getattr(face,"boundary_wall_edges",()) or ()):
+        if not isinstance(row,(tuple,list)) or len(row)!=2:
+            continue
+        wall_id,edge=row
+        if (not isinstance(wall_id,str) or not wall_id
+            or wall_id!=wall_id.strip()):
+            continue
+        distance=_native_point_to_source_subedge_distance(centre,edge)
+        if distance is not None:
+            distances.append((distance,wall_id))
+    if not distances:
+        return result
+    nearest=min(distance for distance,owner in distances)
+    result["nearest_native_room_boundary_distance_pdf_pts"]=round(nearest,6)
+    # Multiple source wall owners at the same exact distance remain competing
+    # diagnostic observations, not a convenient first/nearest owner choice.
+    result["competing_nearest_wall_ids_diagnostic_only"]=sorted({
+        owner for distance,owner in distances if abs(distance-nearest)<=1e-9
+    })
+    result["first_gate"]="source_nearest_wall_only_no_dimension_witness_owner"
+    return result
+
+
 def inspect_source_face_dimension_endpoints(
     face: Any,
     binding: Any,
