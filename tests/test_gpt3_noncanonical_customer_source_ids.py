@@ -42,3 +42,27 @@ def test_valid_original_source_ids_continue_to_project_one_review_row():
     assert row["quantity_id"]=="qty-1"
     assert row["quantity_status"]=="To review"
     assert row["canonical_entity_ids"]==["entity-1"]
+
+
+@pytest.mark.parametrize("malformed_bbox", [
+    (True,2.0,20.0,30.0),
+    (1.0,False,20.0,30.0),
+    ("1.0",2.0,20.0,30.0),
+    (1.0,2.0,"20.0",30.0),
+    (10**400,2.0,20.0,30.0),
+    {"1":0,"2":1,"3":2,"4":3},
+])
+def test_source_trace_rejects_nonphysical_boolean_text_or_oversized_bbox(malformed_bbox):
+    from dataclasses import replace
+    with pytest.raises(adapter.MissingCommercialAuthorityError,match="source_bbox"):
+        replace(source_trace(),source_bbox=malformed_bbox)
+
+
+def test_exact_source_bbox_numeric_coordinates_still_enter_review_projection():
+    q=quantity()
+    row=adapter.quantity_evidence_to_takeoff_output_row(
+        q,trace=source_trace(source_bbox=[10,20.0,300,420.0]),
+        authority=figured(),
+    )
+    assert row is not None
+    assert row["source_bbox"]==[10.0,20.0,300.0,420.0]
