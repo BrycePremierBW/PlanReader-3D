@@ -1129,3 +1129,246 @@ def test_gpt2_b01_precomputed_source_w4_grid_indexes_preserve_first_gate():
     )
     assert indexed==unindexed
     assert indexed["source_room_composite_published_by_diagnostic"] is False
+
+def test_gpt2_b01_original_grid_union_first_failure_preserves_real_boundary():
+    from tools.diag_gpt2_grid_component_first_failure import (
+        _physical_union_first_unclosed_gate,
+    )
+    from pb_source_composite_room_face_authority import (
+        _atomic_source_wall_edge_counts, _fully_grid_opposed_wall_evidence,
+    )
+    room=_room_scope()
+    wall=_wall_scope((_grid_atom("e_sep"),))
+    grid,evidence=_fully_grid_opposed_wall_evidence(wall)
+    indexed=_atomic_source_wall_edge_counts(room,grid)
+    ids=("face_left","face_right")
+    actual=_physical_union_first_unclosed_gate(
+        ids,room_scope=room,fully_grid_wall_ids=grid,
+        grid_evidence=evidence,local_counts=indexed,
+    )
+    assert actual["physical_union_first_unclosed_gate"]==(
+        "source_boundary_gates_passed_candidate_only"
+    )
+    assert actual["physical_union_internal_separator_edge_count"]>0
+    assert actual["physical_union_external_grid_edge_count"]==0
+    assert actual["new_room_geometry_published"] is False
+    assert actual["new_metric_area_published"] is False
+
+    invalid=_physical_union_first_unclosed_gate(
+        ids,room_scope=_room_scope(disconnected=True),
+        fully_grid_wall_ids=grid,grid_evidence=evidence,local_counts=None,
+    )
+    assert invalid["physical_union_first_unclosed_gate"]==(
+        "source_union_disconnected_overlapping_or_has_holes"
+    )
+    assert invalid["new_metric_area_published"] is False
+
+
+
+def test_gpt2_b01_source_atomic_wall_edge_multiplicity_remains_untrusted():
+    from tools.diag_gpt2_grid_component_first_failure import (
+        _physical_union_first_unclosed_gate,
+    )
+    from pb_source_composite_room_face_authority import (
+        _atomic_source_wall_edge_counts, _fully_grid_opposed_wall_evidence,
+    )
+    room=_room_scope()
+    grid,evidence=_fully_grid_opposed_wall_evidence(
+        _wall_scope((_grid_atom("e_sep"),))
+    )
+    local=_atomic_source_wall_edge_counts(room,grid)
+    edge=next(iter(local))
+    contaminated={**local,edge:{"face_left":3}}
+    invalid=_physical_union_first_unclosed_gate(
+        ("face_left","face_right"),
+        room_scope=room,fully_grid_wall_ids=grid,
+        grid_evidence=evidence,local_counts=contaminated,
+    )
+    assert invalid["physical_union_first_unclosed_gate"]==(
+        "source_atomic_wall_edge_multiplicity_invalid"
+    )
+    assert not invalid["new_room_geometry_published"]
+    assert not invalid["new_metric_area_published"]
+
+
+
+def test_gpt2_b01_union_diagnostic_rejects_duplicate_original_face_receipts():
+    from dataclasses import replace
+    from tools.diag_gpt2_grid_component_first_failure import (
+        _physical_union_first_unclosed_gate,
+    )
+    room=_room_scope()
+    left,right=room.records
+    for contaminated in (
+        replace(room, records=(left,right,replace(left,record_id="alternate"))),
+        replace(room, records=(left,replace(right,record_id=left.record_id))),
+    ):
+        detail=_physical_union_first_unclosed_gate(
+            ("face_left","face_right"),
+            room_scope=contaminated,
+            fully_grid_wall_ids={"w_sep"},
+            grid_evidence={"w_sep":("source-w4-grid-receipt",)},
+            local_counts={},
+        )
+        assert detail["physical_union_first_unclosed_gate"]==(
+            "source_component_face_receipt_conflict"
+        )
+        assert detail["new_room_geometry_published"] is False
+        assert detail["new_metric_area_published"] is False
+
+
+
+def test_gpt2_b01_exterior_grid_owned_source_wall_ids_are_reported_not_assumed():
+    from tools.diag_gpt2_grid_component_first_failure import (
+        _physical_union_first_unclosed_gate,
+    )
+    from pb_source_composite_room_face_authority import (
+        _atomic_source_wall_edge_counts,_fully_grid_opposed_wall_evidence,
+    )
+    room=_room_scope()
+    walls=_wall_scope((_grid_atom("e_sep"),_grid_atom("e_left")))
+    grid,evidence=_fully_grid_opposed_wall_evidence(walls)
+    assert "w_left" in grid and "w_sep" in grid
+    row=_physical_union_first_unclosed_gate(
+        ("face_left","face_right"),room_scope=room,
+        fully_grid_wall_ids=grid,grid_evidence=evidence,
+        local_counts=_atomic_source_wall_edge_counts(room,grid),
+    )
+    assert row["physical_union_first_unclosed_gate"]==(
+        "source_external_grid_owned_subedge_room_incomplete"
+    )
+    assert "w_left" in row["physical_union_external_grid_w4_ids_diagnostic_only"]
+    assert row["physical_union_external_grid_w4_id_count"]>=1
+    assert row["new_room_geometry_published"] is False
+    assert row["new_metric_area_published"] is False
+
+
+
+def test_gpt2_dry_store_competing_room_label_receipts_are_source_face_owned():
+    from dataclasses import replace
+    from tools.diag_gpt2_grid_component_first_failure import (
+        inspect_split_grid_component_first_failure,
+    )
+    rooms=_room_scope()
+    walls=_wall_scope((_grid_atom("e_sep"),))
+    labels=_label_scope()
+    original=labels.split_face_candidates[0]
+    disputed=SimpleNamespace(
+        record_id="actual-other-label-receipt",
+        face_id="face_left",
+        label="OTHER ROOM",
+    )
+    scope=replace(labels,records=(disputed,))
+    row=inspect_split_grid_component_first_failure(
+        original,wall_scope=walls,room_scope=rooms,label_scope=scope,
+    )
+    assert row["first_unclosed_gate"]==(
+        "grid_connected_component_has_competing_room_label"
+    )
+    assert row["competing_original_label_receipt_count"]==1
+    assert row["competing_original_label_receipts_diagnostic_only"]==[{
+        "producer_receipt_id":"actual-other-label-receipt",
+        "native_room_label":"OTHER ROOM",
+        "competing_source_face_ids":["face_left"],
+        "source_direct_room_label_record_only":True,
+    }]
+    assert row["source_room_composite_published_by_diagnostic"] is False
+    assert row["source_room_metric_area_published"] is False
+
+
+
+def test_gpt2_union_diagnostic_unhashable_source_receipt_stays_unavailable():
+    from dataclasses import replace
+    from tools.diag_gpt2_grid_component_first_failure import (
+        _physical_union_first_unclosed_gate,
+    )
+    room=_room_scope()
+    left,right=room.records
+    for bad_receipt in ([],{"unsafe":"value"},73,None," record_right"):
+        bad=replace(room,records=(left,replace(right,record_id=bad_receipt)))
+        report=_physical_union_first_unclosed_gate(
+            ("face_left","face_right"),room_scope=bad,
+            fully_grid_wall_ids={"w_sep"},grid_evidence={"w_sep":("authentic-grid",)},
+            local_counts=None,
+        )
+        assert report["physical_union_first_unclosed_gate"]==(
+            "source_component_face_receipt_conflict"
+        )
+        assert not report["new_room_geometry_published"]
+        assert not report["new_metric_area_published"]
+
+
+
+def test_gpt2_grid_first_gate_requires_nonempty_aggregate_separator_evidence():
+    from tools.diag_gpt2_grid_component_first_failure import (
+        _internal_grid_source_evidence_present,
+    )
+    edges=(
+        ("w_a",((0.,0.),(1.,0.))),
+        ("w_b",((1.,0.),(2.,0.))),
+    )
+    assert _internal_grid_source_evidence_present(
+        edges,{"w_a":(),"w_b":("source-w4-grid-b",)}
+    )
+    assert _internal_grid_source_evidence_present(
+        edges,{"w_a":("source-w4-grid-a",),"w_b":()}
+    )
+    assert not _internal_grid_source_evidence_present(
+        edges,{"w_a":(),"w_b":()}
+    )
+    assert not _internal_grid_source_evidence_present(edges,{})
+
+
+def test_gpt2_w4_collision_reports_both_original_source_records_without_equivalence():
+    from tools.diag_gpt2_grid_component_first_failure import (
+        diagnose_original_w4_address_collisions,
+    )
+    source=(
+        SimpleNamespace(
+            wall_candidate_id="w4-reused",
+            wall_candidate=SimpleNamespace(centerline_pts=((0.,0.),(1.,0.))),
+            source_edge_fragments=(SimpleNamespace(edge_id="source-edge-1",
+                source_primitive_ids=("native-primitive-1",)),),
+        ),
+        SimpleNamespace(
+            wall_candidate_id="w4-reused",
+            wall_candidate=SimpleNamespace(centerline_pts=((5.,5.),(6.,5.))),
+            source_edge_fragments=(SimpleNamespace(edge_id="source-edge-2",
+                source_primitive_ids=("native-primitive-2",)),),
+        ),
+        SimpleNamespace(
+            wall_candidate_id="independent",
+            wall_candidate=SimpleNamespace(centerline_pts=((3.,2.),(4.,2.))),
+            source_edge_fragments=(),
+        ),
+        SimpleNamespace(
+            wall_candidate_id=[],
+            wall_candidate=SimpleNamespace(centerline_pts=((0.,0.),(0.,1.))),
+            source_edge_fragments=(),
+        ),
+    )
+    report=diagnose_original_w4_address_collisions(source)
+    assert report["colliding_original_w4_ids"]==["w4-reused"]
+    assert report["individual_original_record_count"]==2
+    assert [row["source_record_ordinal"] for row in report[
+        "original_collision_records_diagnostic_only"
+    ]]==[0,1]
+    assert [
+        row["source_fragment_primitive_ids_sample"]
+        for row in report["original_collision_records_diagnostic_only"]
+    ]==[[["native-primitive-1"]],[["native-primitive-2"]]]
+    assert [
+        row["source_fragment_edge_ids_sample"]
+        for row in report["original_collision_records_diagnostic_only"]
+    ]==[["source-edge-1"],["source-edge-2"]]
+    assert report["original_collision_records_diagnostic_only"][0][
+        "original_centerline_points_diagnostic_only"
+    ] != report["original_collision_records_diagnostic_only"][1][
+        "original_centerline_points_diagnostic_only"
+    ]
+    assert not report["physical_wall_equivalence_proven"]
+    assert all(
+        row["physical_wall_equivalence_proven"] is False
+        and row["source_room_boundary_published"] is False
+        for row in report["original_collision_records_diagnostic_only"]
+    )
