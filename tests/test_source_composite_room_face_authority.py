@@ -1292,3 +1292,23 @@ def test_gpt2_union_diagnostic_unhashable_source_receipt_stays_unavailable():
         )
         assert not report["new_room_geometry_published"]
         assert not report["new_metric_area_published"]
+
+
+def test_gpt2_grid_first_gate_requires_nonempty_aggregate_separator_evidence():
+    from tools.diag_gpt2_grid_component_first_failure import (
+        _internal_grid_source_evidence_present,
+    )
+    edges=(
+        ("w_a",((0.,0.),(1.,0.))),
+        ("w_b",((1.,0.),(2.,0.))),
+    )
+    assert _internal_grid_source_evidence_present(
+        edges,{"w_a":(),"w_b":("source-w4-grid-b",)}
+    )
+    assert _internal_grid_source_evidence_present(
+        edges,{"w_a":("source-w4-grid-a",),"w_b":()}
+    )
+    assert not _internal_grid_source_evidence_present(
+        edges,{"w_a":(),"w_b":()}
+    )
+    assert not _internal_grid_source_evidence_present(edges,{})
