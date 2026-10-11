@@ -158,6 +158,24 @@ def build_live_floor_area_source_traces(
                     raise SourceClosedRunConflictError(
                         f"floor source polygon is invalid: {quantity.quantity_id}"
                     )
+                # Bounding extents are not a closed room/floor face: an
+                # oblique collinear chain or crossed ring has a nonzero box
+                # but zero actual source-polygon area. Never promote either
+                # to FIRM square metres using its upstream room-area number.
+                try:
+                    twice_area = math.fsum(
+                        xs[i] * ys[(i + 1) % len(xs)]
+                        - xs[(i + 1) % len(xs)] * ys[i]
+                        for i in range(len(xs))
+                    )
+                except (ValueError, OverflowError) as exc:
+                    raise SourceClosedRunConflictError(
+                        f"floor source polygon is invalid: {quantity.quantity_id}"
+                    ) from exc
+                if not math.isfinite(twice_area) or abs(twice_area) <= 2e-9:
+                    raise SourceClosedRunConflictError(
+                        f"floor source polygon is degenerate: {quantity.quantity_id}"
+                    )
                 source_bbox = (min(xs), min(ys), max(xs), max(ys))
 
         trace = CommercialTakeoffSourceTrace(
