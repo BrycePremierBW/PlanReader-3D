@@ -46,7 +46,9 @@ def _has_firm_metric_floor_receipt(floor) -> bool:
 
 
 
-def _floor_quantity_first_failure(floor, room, area_quantity_ids: set[str]) -> str:
+def _floor_quantity_first_failure(
+    floor, room, area_quantity_ids: set[str], *, duplicate_room_owner: bool = False
+) -> str:
     """Identify the earliest unresolved floor-to-measurement stage.
 
     A PDF polygon area is never a physical m² measurement. A correctly
@@ -56,6 +58,8 @@ def _floor_quantity_first_failure(floor, room, area_quantity_ids: set[str]) -> s
         return "physical_floor_identity_unresolved"
     if not floor.source_room_face_record_id or not floor.evidence_ids:
         return "source_room_face_evidence_unavailable"
+    if duplicate_room_owner:
+        return "duplicate_canonical_room_source_owner_conflict"
     if room is None:
         return "canonical_room_owner_unavailable"
     # A separately source-authenticated physical scale can close metric area
@@ -79,6 +83,9 @@ def _floor_quantity_diagnostic(claim) -> dict:
         str(room.canonical_room_id): room
         for room in claim.canonical_rooms
     }
+    # Do not let a dict's last-writer-wins normalization conceal duplicate
+    # authenticated canonical rooms in a diagnostic claiming a floor is ready.
+    room_owner_counts = Counter(str(room.canonical_room_id) for room in claim.canonical_rooms)
     # The raw room-area source universe is NOT proof of a publishable floor
     # quantity. Reuse the exact production floor publisher, which validates
     # physical face, canonical/physical floor uniqueness, area, units, source
@@ -100,7 +107,8 @@ def _floor_quantity_diagnostic(claim) -> dict:
     rows = []
     for floor in claim.canonical_floors:
         reason = _floor_quantity_first_failure(
-            floor, rooms_by_id.get(str(floor.room_entity_id)), areas
+            floor, rooms_by_id.get(str(floor.room_entity_id)), areas,
+            duplicate_room_owner=room_owner_counts[str(floor.room_entity_id)] > 1,
         )
         rows.append({
             "canonical_floor_id": floor.canonical_floor_id,
