@@ -77,3 +77,28 @@ def test_malformed_scaled_authority_cannot_be_relabelled_proven():
     rows[0]["notes"]=json.dumps(prov)
     with pytest.raises(CustomerOutputVerificationError,match="unverified scaled measurement authority"):
         verify_sealed_customer_output(sealed,rows)
+
+
+@pytest.mark.parametrize("persisted", ["0.99", " 0.99 ", 0.99])
+def test_persisted_finite_confidence_matches_signed_producer(persisted):
+    sealed, rows = sealed_and_rows()
+    rows = [dict(row) for row in rows]
+    rows[0]["confidence"] = persisted
+    assert verify_sealed_customer_output(sealed, rows).valid_quantity_count == 2
+
+
+@pytest.mark.parametrize("invalid", ["", "   ", "NaN", "Infinity", "-Infinity", True, False, "unverified"])
+def test_bad_persisted_confidence_fails_closed(invalid):
+    sealed, rows = sealed_and_rows()
+    rows = [dict(row) for row in rows]
+    rows[0]["confidence"] = invalid
+    with pytest.raises(CustomerOutputVerificationError, match="invalid confidence"):
+        verify_sealed_customer_output(sealed, rows)
+
+
+def test_persisted_confidence_disagreement_with_signed_quantity_is_rejected():
+    sealed, rows = sealed_and_rows()
+    rows = [dict(row) for row in rows]
+    rows[0]["confidence"] = "0.98"
+    with pytest.raises(CustomerOutputVerificationError, match="confidence mismatch"):
+        verify_sealed_customer_output(sealed, rows)
