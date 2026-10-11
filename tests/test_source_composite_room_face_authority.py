@@ -1107,3 +1107,24 @@ def test_gpt2_duplicated_split_label_producer_id_cannot_evade_competing_label_ga
     )
     assert actual.records == ()
     assert actual.status is EvidenceResolutionStatus.ABSTAINED
+
+
+def test_gpt2_b01_repeated_exact_source_label_producer_receipt_is_not_unique():
+    from dataclasses import replace
+    from pb_source_composite_room_face_authority import (
+        _component_has_conflicting_label,
+    )
+    labels=_label_scope()
+    single=labels.split_face_candidates[0]
+    component=("face_left","face_right")
+    # One exact producer-sealed native line may be used once, but two
+    # occurrences in the same sealed scope cannot create two rooms.
+    assert not _component_has_conflicting_label(component,single,label_scope=labels)
+    duplicated=replace(labels,split_face_candidates=(single,single))
+    assert _component_has_conflicting_label(component,single,label_scope=duplicated)
+    published=compose_grid_separated_room_faces(
+        wall_scope=_wall_scope((_grid_atom("e_sep"),)),
+        room_scope=_room_scope(),label_scope=duplicated,
+    )
+    assert published.records==()
+    assert published.status is EvidenceResolutionStatus.ABSTAINED
