@@ -83,3 +83,18 @@ def test_collinear_audit_rejects_forged_or_nontext_split_source_lineage():
     faces["left"].snapshot_id=None
     faces["right"].snapshot_id=None
     assert audit_collinear_candidates(split,faces)["first_gate"]=="source_lineage_conflict"
+
+
+def test_gpt2_collinear_audit_malformed_w4_ids_cannot_authenticate_source():
+    lineage=dict(document_id="doc",revision_id="rev",source_sha256="a"*64,
+                 snapshot_id="snap",page_id="7",decision_scope_id="view")
+    split=O(label="ROOM",source_room_face_record_ids=("a","b"),**lineage)
+    left=O(record_id="a",boundary_wall_edges=(
+        ("valid-source-wall",((0.,0.),(10.,0.))),),**lineage)
+    for bad in (None, 73, "", " ", "other-wall "):
+        right=O(record_id="b",boundary_wall_edges=(
+            (bad,((10.,0.),(0.,0.))),),**lineage)
+        row=audit_collinear_candidates(split,{"a":left,"b":right})
+        assert row["first_gate"]=="malformed_source_wall_edge"
+        assert row["candidate_shared_spans"]==[]
+        assert row["metric_quantity_published"] is False
