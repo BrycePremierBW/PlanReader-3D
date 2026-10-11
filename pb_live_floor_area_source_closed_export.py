@@ -119,19 +119,27 @@ def build_live_floor_area_source_traces(
                 f"floor quantity viewport mismatch: {quantity.quantity_id}"
             )
 
-        evidence_ids = tuple(
-            dict.fromkeys(
-                _clean(value)
-                for value in floor.evidence_ids
-                if _clean(value)
-            )
-        )
+        for receipts in (floor.evidence_ids, quantity.evidence_ids):
+            if (
+                not isinstance(receipts, (tuple, list))
+                or not receipts
+                or any(type(value) is not str or not value.strip() for value in receipts)
+                or len(set(receipts)) != len(receipts)
+            ):
+                raise SourceClosedRunConflictError(
+                    f"floor source evidence receipts are incomplete: {quantity.quantity_id}"
+                )
+        evidence_ids = tuple(floor.evidence_ids)
         if not set(quantity.evidence_ids).issubset(set(evidence_ids)):
             raise SourceClosedRunConflictError(
                 f"floor source trace does not cover quantity evidence: {quantity.quantity_id}"
             )
 
         points = tuple(floor.polygon_pdf_pts or ())
+        if not floor.geometry_complete or len(points) < 3:
+            raise SourceClosedRunConflictError(
+                f"floor source geometry is missing or incomplete: {quantity.quantity_id}"
+            )
         source_bbox = None
         if points:
             try:
@@ -142,6 +150,14 @@ def build_live_floor_area_source_traces(
                     f"floor source polygon is invalid: {quantity.quantity_id}"
                 ) from exc
             if xs and ys:
+                if (
+                    not all(math.isfinite(value) for value in (*xs, *ys))
+                    or max(xs) <= min(xs)
+                    or max(ys) <= min(ys)
+                ):
+                    raise SourceClosedRunConflictError(
+                        f"floor source polygon is invalid: {quantity.quantity_id}"
+                    )
                 source_bbox = (min(xs), min(ys), max(xs), max(ys))
 
         trace = CommercialTakeoffSourceTrace(
