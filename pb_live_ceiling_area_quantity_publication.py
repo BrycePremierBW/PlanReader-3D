@@ -104,6 +104,20 @@ def _publish_one(
     ):
         return None
 
+    for receipts in (ceiling.evidence_ids, source.evidence_ids):
+        if (
+            not isinstance(receipts, (tuple, list))
+            or not receipts
+            or any(type(item) is not str or not item.strip() for item in receipts)
+            or len(set(receipts)) != len(receipts)
+        ):
+            return None
+    for key, canonical_value in (
+        ("document_id", ceiling.document_id),
+        ("room_snapshot_id", ceiling.snapshot_id),
+    ):
+        if meta.get(key) is not None and _clean(meta[key]) != _clean(canonical_value):
+            return None
     if (
         _clean(meta.get("upstream_area_quantity_id"))
         != _clean(ceiling.room_area_quantity_id)
@@ -136,7 +150,7 @@ def _publish_one(
         # One observed dimension cannot define a documented two-axis area.
         # This canonical adapter does not infer the missing orthogonal axis
         # from PDF points, a nominal sheet scale, or benchmark quantities.
-        if len(figured_ids) < 2:
+        if len(figured_ids) != 2:
             return None
         resolved_scale_id = None
     elif measurement_authority == MeasurementAuthorityType.PDF_SCALED.value:
