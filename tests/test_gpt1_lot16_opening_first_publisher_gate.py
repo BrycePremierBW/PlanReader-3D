@@ -150,3 +150,46 @@ def test_authentic_lot16_wall_ledger_classifies_real_metric_fields_as_ready():
 def test_lot16_wall_quantity_diagnostic_does_not_claim_ready_on_bad_source(field, value, expected):
     from tools.diag_lot16_room_face_scope import _wall_metric_first_failure
     assert _wall_metric_first_failure(_metric_wall(**{field: value})) == expected
+
+
+
+def test_lot16_opening_diagnostic_identifies_replayed_area_with_same_object_owner():
+    opening = _opening()
+    real = _opening_quantity(opening)
+    assert real is not None
+    foreign_area = replace(real, value=real.value + 0.5)
+    original = SimpleNamespace(
+        canonical_openings=(opening,),
+        opening_quantity_evidence=(real,),
+        opening_count_quantity_evidence=(),
+    )
+    replay = SimpleNamespace(
+        canonical_openings=(opening,),
+        opening_quantity_evidence=(foreign_area,),
+        opening_count_quantity_evidence=(),
+    )
+    positive = _opening_quantity_diagnostic(original)
+    bad = _opening_quantity_diagnostic(replay)
+    assert positive["production_matched_area_quantity_count"] == 1
+    assert positive["published_area_claim_drift_count"] == 0
+    assert bad["production_matched_area_quantity_count"] == 0
+    assert bad["published_area_claim_drift_count"] == 1
+    assert bad["per_opening"][0]["first_missing_prerequisite"] == (
+        "opening_area_published_claim_drift"
+    )
+
+
+def test_lot16_opening_diagnostic_identifies_colliding_source_quantity_receipts():
+    opening = _opening()
+    real = _opening_quantity(opening)
+    assert real is not None
+    claim = SimpleNamespace(
+        canonical_openings=(opening,),
+        opening_quantity_evidence=(real, real),
+        opening_count_quantity_evidence=(),
+    )
+    report = _opening_quantity_diagnostic(claim)
+    assert report["published_area_claim_drift_count"] == 1
+    assert report["per_opening"][0]["first_missing_prerequisite"] == (
+        "opening_area_published_claim_drift"
+    )
