@@ -75,10 +75,21 @@ def _publish_one(
     ):
         return None
 
+    # Producer-sealed numeric evidence must remain a real metric value at
+    # final quantity publication. Python's float(True) == 1 is not source m².
+    if (
+        type(ceiling.area_m2) not in (int, float)
+        or type(source.value) not in (int, float)
+        or type(source.confidence) not in (int, float)
+    ):
+        return None
     try:
         area = float(ceiling.area_m2)
         source_value = float(source.value)
+        confidence = float(source.confidence)
     except (TypeError, ValueError, OverflowError):
+        return None
+    if not math.isfinite(confidence) or not (0.0 <= confidence <= 1.0):
         return None
     if (
         not math.isfinite(area)
@@ -104,6 +115,20 @@ def _publish_one(
     ):
         return None
 
+    for receipts in (ceiling.evidence_ids, source.evidence_ids):
+        if (
+            not isinstance(receipts, (tuple, list))
+            or not receipts
+            or any(type(item) is not str or not item.strip() for item in receipts)
+            or len(set(receipts)) != len(receipts)
+        ):
+            return None
+    for key, canonical_value in (
+        ("document_id", ceiling.document_id),
+        ("room_snapshot_id", ceiling.snapshot_id),
+    ):
+        if meta.get(key) is not None and _clean(meta[key]) != _clean(canonical_value):
+            return None
     if (
         _clean(meta.get("upstream_area_quantity_id"))
         != _clean(ceiling.room_area_quantity_id)
@@ -127,16 +152,17 @@ def _publish_one(
         raw_figured_ids = ceiling.figured_dimension_ids
         if (
             not isinstance(raw_figured_ids, (tuple, list))
-            or not all(isinstance(value, str) for value in raw_figured_ids)
+            or len(raw_figured_ids) != 2
+            or any(type(value) is not str or not value.strip()
+                   for value in raw_figured_ids)
+            or len(set(raw_figured_ids)) != 2
         ):
             return None
-        figured_ids = tuple(
-            sorted({_clean(value) for value in raw_figured_ids if _clean(value)})
-        )
+        figured_ids = tuple(sorted(raw_figured_ids))
         # One observed dimension cannot define a documented two-axis area.
         # This canonical adapter does not infer the missing orthogonal axis
         # from PDF points, a nominal sheet scale, or benchmark quantities.
-        if len(figured_ids) < 2:
+        if len(figured_ids) != 2:
             return None
         resolved_scale_id = None
     elif measurement_authority == MeasurementAuthorityType.PDF_SCALED.value:
