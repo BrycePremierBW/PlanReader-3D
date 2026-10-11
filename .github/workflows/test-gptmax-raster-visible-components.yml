@@ -1,0 +1,75 @@
+name: GPT MAX Original Raster Component Receipts
+on:
+  pull_request:
+    paths:
+      - tools/diag_gptmax_raster_visible_components.py
+      - tests/test_gptmax_raster_visible_components.py
+      - docs/engineering/gptmax_raster_visible_component_source.md
+      - .github/workflows/test-gptmax-raster-visible-components.yml
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      matrix:
+        python-version: ["3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - run: python -m pip install -r requirements.txt -r requirements-ci-v1228.txt
+      - name: Original detector parity and component-negative regressions
+        run: |
+          PYTHONPATH=. python -m pytest -q tests/test_gptmax_raster_visible_components.py
+          PYTHONPATH=. python scripts/check_provider_gold_isolation.py
+          PYTHONPATH=. python scripts/check_full_plan_v2_integrity.py
+  original-lot16:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: python -m pip install -r requirements.txt -r requirements-ci-v1228.txt
+      - name: Original PDF render and unmodified detector output
+        run: |
+          PYTHONPATH=. python -u tools/diag_gptmax_raster_visible_components.py \
+            --pdf "documents/sources/1. Construction Plans - Lot 16 Power (REV E).pdf" \
+            --page-id 3 \
+            --expected-source-sha 10109b4b6e85e6e27af81f6399ce4b92abfdba80f87dc69dd5887bd6f3a65844 \
+            --output lot16-original-component-filter-source.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          x=json.loads(Path("lot16-original-component-filter-source.json").read_text())
+          assert x["source_sha256"]=="10109b4b6e85e6e27af81f6399ce4b92abfdba80f87dc69dd5887bd6f3a65844"
+          assert x["render_sha256"]=="64e58ab817b1b89d3c83e0e04a972f5e4e48fa3816d346af9cc809b9b56357ab"
+          assert x["original_source_render_reauthenticated"]
+          assert x["original_detector_output_unchanged"]
+          assert x["observed_original_segment_count"]==2356
+          assert x["primitive_safety_cap"]==20000
+          for k in ("source_universe_completeness_proven","source_ownership_proven",
+                    "physical_equivalence_proven","host_publication_allowed",
+                    "opening_count_publication_allowed","metric_quantity_publication_allowed"):
+              assert x[k] is False
+          assert x["benchmark_accuracy"] is None
+          assert x["observed_component_receipts"]
+          for r in x["observed_component_receipts"]:
+              assert not r["host_publication_allowed"]
+              assert not r["source_ownership_proven"]
+          print({"original_detector_unchanged":True,"source_component_receipts":len(x["observed_component_receipts"])})
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gptmax-original-raster-component-source-lot16
+          path: lot16-original-component-filter-source.json
+          retention-days: 30
