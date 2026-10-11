@@ -299,7 +299,7 @@ def test_opening_count_sealing_rejects_missing_member_evidence(tmp_path) -> None
 
 @pytest.mark.parametrize("corruption", (
     "blank_member", "whitespace_member", "untyped_member",
-    "boolean_count", "empty_quantity_receipt", "duplicate_quantity_receipt",
+    "boolean_count", "fractional_count", "empty_quantity_receipt", "duplicate_quantity_receipt",
 ))
 def test_count_sealing_never_drops_corrupt_original_member_or_quantity_evidence(
     tmp_path, corruption,
@@ -316,6 +316,8 @@ def test_count_sealing_never_drops_corrupt_original_member_or_quantity_evidence(
         object.__setattr__(forged, "input_entity_ids", (opening_id, bad))
     elif corruption == "boolean_count":
         object.__setattr__(forged, "value", True)
+    elif corruption == "fractional_count":
+        object.__setattr__(forged, "value", 1.0000000005)
     elif corruption == "empty_quantity_receipt":
         object.__setattr__(forged, "evidence_ids", ())
     else:
