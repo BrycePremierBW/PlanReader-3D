@@ -8,6 +8,20 @@ from test_source_closed_project_handoff import _quantity
 from tools import run_source_closed_project_handoff as handoff
 
 
+
+
+def _signed_row_for_fixture(q):
+    from types import SimpleNamespace
+    return SimpleNamespace(
+        quantity_id=q.quantity_id, family=q.family, semantic_key=q.semantic_key,
+        value=q.value, unit=q.unit, status=q.status, authority=q.authority,
+        confidence=q.confidence, abstained=q.abstained, lineage_ok=True,
+        object_identity_refs=tuple(sorted(q.input_entity_ids)),
+        evidence_ids=tuple(sorted(q.evidence_ids)),
+        blocking_reasons=tuple(sorted(q.blocking_reasons)),
+        reason_codes=tuple(sorted(q.reason_codes)),
+    )
+
 def _q(status="firm", **overrides):
     return replace(_quantity("q-floor", "floor_area"), status=status, **overrides)
 
@@ -166,7 +180,7 @@ def test_combined_source_envelope_conflict_never_writes_project_handoff(tmp_path
                         lambda *_args,**_kwargs:claimed)
     run=SimpleNamespace(
         run_id="valid-family",source_sha256s=(sha,),
-        quantities=(),to_json=lambda:"{}",
+        quantities=(_signed_row_for_fixture(_q("firm")),),to_json=lambda:"{}",
     )
     monkeypatch.setattr(handoff,"seal_live_opening_area_claim_run",
                         lambda *_args,**_kwargs:run)
