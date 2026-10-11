@@ -225,7 +225,7 @@ def test_project_handoff_combines_only_available_source_closed_families(
             project_id=project_id,
             source_sha256=source_sha,
             family="floor_area",
-            quantity_id="sealed-floor",
+            quantity_id="q-floor",
         ),
     )
     monkeypatch.setattr(
@@ -235,7 +235,7 @@ def test_project_handoff_combines_only_available_source_closed_families(
             project_id=project_id,
             source_sha256=source_sha,
             family="floor_finish_area",
-            quantity_id="sealed-floor-finish",
+            quantity_id="q-floor-finish",
         ),
     )
     monkeypatch.setattr(
@@ -245,7 +245,7 @@ def test_project_handoff_combines_only_available_source_closed_families(
             project_id=project_id,
             source_sha256=source_sha,
             family="opening_area",
-            quantity_id="sealed-opening",
+            quantity_id="q-opening",
         ),
     )
     monkeypatch.setattr(
@@ -255,7 +255,7 @@ def test_project_handoff_combines_only_available_source_closed_families(
             project_id=project_id,
             source_sha256=source_sha,
             family="opening_count",
-            quantity_id="sealed-count",
+            quantity_id="q-count",
         ),
     )
     monkeypatch.setattr(
@@ -265,7 +265,7 @@ def test_project_handoff_combines_only_available_source_closed_families(
             project_id=project_id,
             source_sha256=source_sha,
             family="ceiling_lining",
-            quantity_id="sealed-ceiling",
+            quantity_id="q-ceiling",
         ),
     )
 
@@ -557,13 +557,13 @@ def test_project_handoff_rejects_family_run_from_different_source(
             project_id="project-a",
             source_sha256="f" * 64,
             family="floor_area",
-            quantity_id="sealed-floor",
+            quantity_id="q-floor",
         ),
     )
 
     with pytest.raises(
         RuntimeError,
-        match="does not bind to input source SHA",
+        match="conflicting source SHA envelope",
     ):
         handoff.generate_project_handoff(
             pdf_path=pdf,
@@ -624,7 +624,7 @@ def test_project_handoff_combined_filename_matches_suite_scoreboard_contract(
             project_id=project_id,
             source_sha256=source_sha,
             family="floor_area",
-            quantity_id="sealed-floor",
+            quantity_id="q-floor",
         ),
     )
 
@@ -808,7 +808,7 @@ def test_core_family_group_uses_only_proven_topology_scope_and_skips_surfaces(
             project_id=project_id,
             source_sha256=source_sha,
             family="opening_area",
-            quantity_id="sealed-opening",
+            quantity_id="q-opening",
         ),
     )
     monkeypatch.setattr(
@@ -818,7 +818,7 @@ def test_core_family_group_uses_only_proven_topology_scope_and_skips_surfaces(
             project_id=project_id,
             source_sha256=source_sha,
             family="opening_count",
-            quantity_id="sealed-count",
+            quantity_id="q-count",
         ),
     )
 
