@@ -106,3 +106,34 @@ def test_corroborated_evidence_enum_remains_eligible():
     q=quantity(status=EvidenceResolutionStatus.CORROBORATED)
     assert not quantity_status_not_publishable(q.status)
     assert seal_source_closed_quantity(q,trace=trace()).lineage_ok is True
+
+
+
+@pytest.mark.parametrize("untrusted_status", [
+    "provisional", "review_required", "excluded", "unknown",
+    "future_status", "shadow_firm", "firm_pending", "corroborated_but_unresolved",
+])
+def test_unknown_or_future_statuses_fail_closed_instead_of_self_certifying(untrusted_status):
+    q = quantity(status=untrusted_status)
+    source = trace()
+    assert quantity_status_not_publishable(untrusted_status)
+    sealed = seal_source_closed_quantity(q, trace=source)
+    assert sealed.lineage_ok is False
+    assert "quantity_status_not_publishable" in sealed.lineage_reason_codes
+    with pytest.raises(MissingCommercialAuthorityError, match="nonpublishable"):
+        quantity_evidence_to_takeoff_output_row(
+            q, trace=source,
+            authority=CommercialMeasurementAuthority(method="direct_evidence"),
+        )
+
+
+@pytest.mark.parametrize("firm_status", ["firm", "FIRM", "corroborated", "CORROBORATED"])
+def test_known_proven_statuses_keep_existing_publication_authority(firm_status):
+    q = quantity(status=firm_status)
+    source = trace()
+    assert not quantity_status_not_publishable(firm_status)
+    assert seal_source_closed_quantity(q, trace=source).lineage_ok
+    assert quantity_evidence_to_takeoff_output_row(
+        q, trace=source,
+        authority=CommercialMeasurementAuthority(method="direct_evidence"),
+    )["quantity_id"] == "qty-1"
