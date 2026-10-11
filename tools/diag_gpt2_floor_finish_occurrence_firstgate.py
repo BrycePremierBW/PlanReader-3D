@@ -8,6 +8,7 @@ from __future__ import annotations
 from collections import Counter
 import math
 from typing import Any
+from pb_migration_contracts import EvidenceResolutionStatus
 
 
 def _owned_text(value: Any) -> bool:
@@ -51,6 +52,9 @@ def inspect_floor_finish_occurrence_first_gates(scope: Any, viewport: Any, *, sh
         obs=getattr(record,"source_text_observation_ids",()) or ()
         own_box=_native_bbox(getattr(record,"bbox_pdf_pts",None))
         reason=(
+            "material_occurrence_scope_unresolved"
+            if getattr(scope,"status",None) is not EvidenceResolutionStatus.CORROBORATED
+            or getattr(scope,"scope_complete",None) is not True else
             "source_floor_plan_viewport_unresolved"
             if not owner_valid else
             "material_occurrence_source_scope_conflict"
