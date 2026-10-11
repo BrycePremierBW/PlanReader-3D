@@ -100,6 +100,20 @@ def _floor_quantity_diagnostic(claim) -> dict:
         for quantity in approved_floor_quantities
         if quantity.metadata.get("upstream_room_area_quantity_id")
     }
+    # Report asserted source-finish evidence separately from source-trace-
+    # validated finish evidence. Raw claims are not sealed customer quantities.
+    # This diagnostic executes no side-effecting export or benchmark scoring.
+    from pb_live_floor_finish_area_source_closed_export import (
+        build_live_floor_finish_area_source_traces,
+    )
+    try:
+        finish_source_traces = build_live_floor_finish_area_source_traces(
+            claim, workspace_id=1, project_id="gpt1-lot16-source-diagnostic",
+        )
+        finish_source_trace_failure = None
+    except (TypeError, ValueError) as error:
+        finish_source_traces = {}
+        finish_source_trace_failure = str(error)
     finishes: dict[str, list[str]] = {}
     for quantity in claim.floor_finish_quantity_evidence:
         for entity_id in quantity.input_entity_ids:
@@ -124,6 +138,10 @@ def _floor_quantity_diagnostic(claim) -> dict:
             "published_finish_quantity_ids": sorted(
                 finishes.get(str(floor.canonical_floor_id), [])
             ),
+            "source_trace_validated_finish_quantity_ids": sorted(
+                qid for qid in finishes.get(str(floor.canonical_floor_id), [])
+                if qid in finish_source_traces
+            ),
             "first_missing_prerequisite": reason,
         })
     return {
@@ -134,6 +152,8 @@ def _floor_quantity_diagnostic(claim) -> dict:
         "area_quantity_count": len(claim.room_area_quantity_evidence),
         "source_closed_floor_quantity_count": len(approved_floor_quantities),
         "finish_quantity_count": len(claim.floor_finish_quantity_evidence),
+        "source_trace_validated_finish_quantity_count": len(finish_source_traces),
+        "finish_source_trace_failure": finish_source_trace_failure,
         "per_floor": rows,
     }
 
