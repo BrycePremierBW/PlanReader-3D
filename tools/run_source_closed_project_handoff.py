@@ -607,16 +607,24 @@ def generate_project_handoff(
                 f"{family} sealed quantities differ from authenticated publisher receipts"
             )
 
-    for family, run in family_runs:
-        run_path = _write_run(output_dir, family, run)
-        summary["family_run_ids"][family] = run.run_id
-        summary["family_run_files"][family] = str(run_path)
-
+    # Project-level reconciliation is another source authority gate. Do not
+    # publish even individually valid family files until the complete combined
+    # seal passes duplicate, lineage and source-envelope checks.
+    combined = None
     if family_runs:
-        combined = combine_source_closed_runs(
-            tuple(run for _, run in family_runs),
-            project_id=project_id,
-        )
+        try:
+            combined = combine_source_closed_runs(
+                tuple(run for _, run in family_runs),
+                project_id=project_id,
+            )
+        except Exception as exc:
+            summary["status"] = "sealed_project_combination_failed"
+            summary["claim_reason_codes"] = [
+                *summary["claim_reason_codes"],
+                f"sealed_project_combination_error:{type(exc).__name__}",
+            ]
+            _write_json(output_dir / "production_summary.json", summary)
+            raise
         if set(combined.source_sha256s) != {source_sha256}:
             summary["status"] = "source_envelope_conflict"
             summary["claim_reason_codes"] = [
@@ -624,6 +632,13 @@ def generate_project_handoff(
             ]
             _write_json(output_dir / "production_summary.json", summary)
             raise RuntimeError("combined sealed run has conflicting source SHA envelope")
+
+    for family, run in family_runs:
+        run_path = _write_run(output_dir, family, run)
+        summary["family_run_ids"][family] = run.run_id
+        summary["family_run_files"][family] = str(run_path)
+
+    if combined is not None:
         combined_filename = (
             f"{project_id}.json"
             if clean_family_group == "all"
