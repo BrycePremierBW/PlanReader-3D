@@ -146,16 +146,21 @@ def test_split_label_diagnostic_rejects_missing_or_forged_lineage():
 
 
 def test_gpt2_b01_native_near_reverse_edges_are_not_exact_separator_proof():
-    for shifted in (
-        ((5.0000001,10.),(5.0000001,0.)),
-        ((5.,10.0000001),(5.,0.)),
-        ((5.,10.),(5.,0.0000001)),
+    for shifted,expected in (
+        (((5.0000001,10.),(5.0000001,0.)),
+         "no_exact_shared_source_wall_separator"),
+        # These retain an actual positive original collinear subspan but
+        # do NOT prove whole-edge physical ownership or room composition.
+        (((5.,10.0000001),(5.,0.)),
+         "partial_collinear_source_span_requires_w4_proof"),
+        (((5.,10.),(5.,0.0000001)),
+         "partial_collinear_source_span_requires_w4_proof"),
     ):
         faces=sample()
         faces["face-right"]=face("face-right","W4-wall-1",shifted)
         report=gate(candidate(),faces)
         pair=report["pairwise_source_wall_gates"][0]
-        assert pair["first_gate"]=="no_exact_shared_source_wall_separator"
+        assert pair["first_gate"]==expected
         assert pair["matching_authenticated_wall_segments"]==[]
         assert report["merge_source_faces_authorized"] is False
         assert report["metric_quantity_published"] is False
