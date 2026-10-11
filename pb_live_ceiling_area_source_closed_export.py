@@ -152,6 +152,24 @@ def build_live_ceiling_area_source_traces(
                     raise SourceClosedRunConflictError(
                         f"ceiling source polygon is invalid: {quantity.quantity_id}"
                     )
+                # A positive bounding box does not establish a physical face:
+                # three collinear or self-cancelling points occupy a box but
+                # enclose zero source-area. Only use PDF points as topology,
+                # never to infer square metres.
+                try:
+                    twice_area = math.fsum(
+                        xs[i] * ys[(i + 1) % len(xs)]
+                        - xs[(i + 1) % len(xs)] * ys[i]
+                        for i in range(len(xs))
+                    )
+                except (ValueError, OverflowError) as exc:
+                    raise SourceClosedRunConflictError(
+                        f"ceiling source polygon is invalid: {quantity.quantity_id}"
+                    ) from exc
+                if not math.isfinite(twice_area) or abs(twice_area) <= 2e-9:
+                    raise SourceClosedRunConflictError(
+                        f"ceiling source polygon is degenerate: {quantity.quantity_id}"
+                    )
                 source_bbox = (min(xs), min(ys), max(xs), max(ys))
 
         trace = CommercialTakeoffSourceTrace(
