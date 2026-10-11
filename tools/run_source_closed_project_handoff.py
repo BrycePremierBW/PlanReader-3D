@@ -14,7 +14,9 @@ import argparse
 from dataclasses import replace
 import hashlib
 import json
+import math
 import re
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -122,9 +124,16 @@ def _non_abstained(
     for quantity in quantities:
         if not isinstance(quantity, QuantityEvidence) or quantity.abstained or quantity.value is None:
             continue
+        if type(quantity.value) not in (int, float):
+            continue
+        try:
+            if not math.isfinite(quantity.value):
+                continue
+        except OverflowError:
+            continue
         status = getattr(quantity.status, "value", quantity.status)
         status = str(status).strip().lower().replace("-", "_").replace(" ", "_")
-        metadata = quantity.metadata if isinstance(quantity.metadata, dict) else {}
+        metadata = quantity.metadata if isinstance(quantity.metadata, Mapping) else {}
         if status not in {"firm", "corroborated"}:
             continue
         if quantity.blocking_reasons or any("conflict" in str(code).lower() for code in quantity.reason_codes):
