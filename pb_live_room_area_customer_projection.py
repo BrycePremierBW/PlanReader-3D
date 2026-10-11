@@ -167,6 +167,8 @@ def project_live_room_area_customer_rows(
     """
     if type(claim) is not LivePhysicalNetWallClaim:
         raise TypeError("claim must be LivePhysicalNetWallClaim")
+    if type(workspace_id) is not int or workspace_id <= 0:
+        raise ValueError("workspace_id must be an authenticated positive integer")
 
     quantities = _firm_room_area_quantities(claim)
     if not quantities:
