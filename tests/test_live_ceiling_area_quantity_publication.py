@@ -628,3 +628,40 @@ def test_final_ceiling_area_does_not_use_figured_guard_to_block_scaled_source() 
     published = publish_live_ceiling_area_quantities(_result(ceiling=candidate))
     assert len(published) == 1
     assert published[0].metadata["resolved_scale_id"] == "authenticated-scale-1"
+
+
+def test_sealed_ceiling_source_polygon_must_be_complete_finite_and_non_degenerate():
+    from pb_source_closed_run_export import SourceClosedRunConflictError
+    import pytest
+
+    for bad_polygon in (
+        (),
+        ((1., 1.), (1., 2.), (1., 3.)),
+        ((0., 0.), (float("nan"), 1.), (2., 2.)),
+        ((0., 0.), (float("inf"), 1.), (2., 2.)),
+    ):
+        forged_ceiling = replace(_ceiling(), polygon_pdf_pts=bad_polygon)
+        with pytest.raises(SourceClosedRunConflictError):
+            ceiling_export.build_live_ceiling_area_source_traces(
+                _result(ceiling=forged_ceiling),
+                workspace_id=1, project_id="original-source",
+            )
+    assert len(ceiling_export.build_live_ceiling_area_source_traces(
+        _result(), workspace_id=1, project_id="original-source",
+    )) == 1
+
+
+def test_sealed_ceiling_cannot_deduplicate_corrupted_source_receipts():
+    from pb_source_closed_run_export import SourceClosedRunConflictError
+    import pytest
+
+    for evidence in (
+        ("ev-dim-h", "ev-dim-h", "ev-dim-v", "ev-finish"),
+        ("ev-dim-h", "ev-dim-v", "   ", "ev-finish"),
+    ):
+        forged = replace(_ceiling(), evidence_ids=evidence)
+        with pytest.raises(SourceClosedRunConflictError, match="evidence receipts"):
+            ceiling_export.build_live_ceiling_area_source_traces(
+                _result(ceiling=forged),
+                workspace_id=1, project_id="original-source",
+            )
