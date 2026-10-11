@@ -14,6 +14,7 @@ import argparse
 from dataclasses import replace
 import hashlib
 import json
+import re
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -112,13 +113,30 @@ def _source_topology_pages(path: Path) -> tuple[tuple[int, ...], int]:
 def _non_abstained(
     quantities: Iterable[QuantityEvidence],
 ) -> tuple[QuantityEvidence, ...]:
-    return tuple(
-        quantity
-        for quantity in quantities
-        if isinstance(quantity, QuantityEvidence)
-        and not quantity.abstained
-        and quantity.value is not None
-    )
+    """Only source-closed eligible quantities may enter a sealed handoff.
+
+    Non-ABSTAIN with a numeric value is not itself a publication grant.
+    Shadow and conflicted provisional records remain unavailable, not zero.
+    """
+    retained = []
+    for quantity in quantities:
+        if not isinstance(quantity, QuantityEvidence) or quantity.abstained or quantity.value is None:
+            continue
+        status = getattr(quantity.status, "value", quantity.status)
+        status = str(status).strip().lower().replace("-", "_").replace(" ", "_")
+        metadata = quantity.metadata if isinstance(quantity.metadata, dict) else {}
+        if status not in {"firm", "corroborated"}:
+            continue
+        if quantity.blocking_reasons or any("conflict" in str(code).lower() for code in quantity.reason_codes):
+            continue
+        if metadata.get("shadow_only") is True or metadata.get("commercial_projection_allowed") is False:
+            continue
+        if metadata.get("is_stale") is not None and metadata.get("is_stale") is not False:
+            continue
+        if metadata.get("is_superseded") is not None and metadata.get("is_superseded") is not False:
+            continue
+        retained.append(quantity)
+    return tuple(retained)
 
 
 def _write_json(path: Path, payload: Any) -> None:
@@ -150,10 +168,11 @@ def generate_project_handoff(
 ) -> dict[str, Any]:
     if not pdf_path.is_file():
         raise FileNotFoundError(pdf_path)
-    project_id = _clean(project_id)
-    if not project_id:
-        raise ValueError("project_id must be non-empty")
-    if isinstance(workspace_id, bool) or int(workspace_id) <= 0:
+    if type(project_id) is not str or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", project_id):
+        raise ValueError("project_id must be a single filename-safe source identity")
+    # A fractional/Boolean ID cannot be converted into a different producer's
+    # workspace before source authentication. CLI already supplies an integer.
+    if type(workspace_id) is not int or workspace_id <= 0:
         raise ValueError("workspace_id must be a positive integer")
 
     clean_family_group = str(family_group or "").strip().lower()
@@ -491,6 +510,14 @@ def generate_project_handoff(
             )
         )
         family_runs.append(("ceiling_area", ceiling_run))
+
+    # The extractor may reread the file across page/source passes. Reject
+    # replaced input PDFs before writing *any* family/customer seal artifact.
+    if _sha256(pdf_path) != source_sha256:
+        summary["status"] = "source_changed_during_production"
+        summary["claim_reason_codes"] = [*summary["claim_reason_codes"], "source_sha_changed"]
+        _write_json(output_dir / "production_summary.json", summary)
+        raise RuntimeError("source PDF SHA changed during production handoff")
 
     for family, run in family_runs:
         run_path = _write_run(output_dir, family, run)
