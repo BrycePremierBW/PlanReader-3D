@@ -56,3 +56,26 @@ def test_replayed_untyped_printed_area_does_not_mint_firm_room_metric(bad_area):
     quantity = source_area(atom)
     assert quantity.abstained
     assert "explicit_area_invalid" in quantity.blocking_reasons
+
+
+
+@pytest.mark.parametrize("bad_confidence", [True, False, "0.95", float("nan"), 1.2, -0.5])
+def test_source_explicit_area_with_invalid_confidence_cannot_be_firm(bad_confidence):
+    atom = copy(_explicit_area(25.0))
+    object.__setattr__(atom, "confidence", bad_confidence)
+    quantity = source_area(atom)
+    assert quantity.abstained is True
+    assert "explicit_area_confidence_invalid" in quantity.blocking_reasons
+
+
+@pytest.mark.parametrize("bad_confidence", [True, "0.95", float("nan"), -0.1, 1.1])
+def test_original_room_geometry_confidence_is_not_a_boolean_or_unbounded_number(bad_confidence):
+    room = copy(_room())
+    object.__setattr__(room, "geometry_confidence", bad_confidence)
+    result = build_room_area_quantity(
+        room=room, context=_context(), document=_document(),
+        viewport=_viewport(), entity=_entity(), page_no=1,
+        explicit_area_evidence=_explicit_area(25.0),
+    )
+    assert result.abstained is True
+    assert "room_area_source_confidence_invalid" in result.blocking_reasons
