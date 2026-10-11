@@ -1,6 +1,6 @@
 # Original raster detector source dispositions
 
-Observed: `SourceVisibilityProducer.capture_raster_visible_segments` obtains an
+Observed: `SourceVisibilityProducer.augment_with_raster_visible_segments` obtains an
 immutable full-page render from `SourceObservationProducer.render_native_page_png`
 at the existing `RASTER_RENDER_DPI`, then calls
 `detect_axis_aligned_raster_segments`. The detector selects foreground, opens

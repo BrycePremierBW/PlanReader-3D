@@ -403,3 +403,29 @@ def test_foreign_duplicate_or_untyped_pixel_runs_fail_closed(xs,ys,foreground,or
     from tools.diag_gptmax_raster_detector_dispositions import _positive_pixel_runs
     with pytest.raises(ValueError):
         _positive_pixel_runs(xs,ys,foreground,orientation=orientation)
+
+
+def test_pixel_component_addresses_cannot_substitute_for_real_source_authority_receipts():
+    from pb_source_observation_authority import ObservationSelector
+    from pb_source_visibility_authority import SourceVisibilityProducer
+    from tools.diag_gptmax_raster_detector_dispositions import original_source_detector_dispositions
+    data = source_pdf()
+    digest = sha256(data).hexdigest()
+    producer = SourceVisibilityProducer(producer_method="test-pixel-source-boundary",producer_version="1")
+    published = producer.ingest_native_pdf_bytes(document_id="source:pixel-boundary",source_bytes=data,
+        source_locator="memory://pixel-boundary.pdf",page_ids=("1",))
+    visibility = producer.authority()
+    def selector(oid):
+        return ObservationSelector(document_id=published.revision.document_id,
+            revision_id=published.revision.revision_id,source_sha256=digest,
+            snapshot_id=published.snapshot.snapshot_id,observation_id=oid)
+    assert len(published.visible_observation_ids) == 1
+    genuine = visibility.resolve_visible(selector(published.visible_observation_ids[0]))
+    assert genuine.status is EvidenceResolutionStatus.CORROBORATED and genuine.observation is not None
+    report = original_source_detector_dispositions(data,page_id="1",expected_source_sha=digest)
+    assert report["component_receipts"]
+    for component in report["component_receipts"]:
+        for result in (visibility.resolve_visible(selector(component["component_id"])),
+                       visibility.resolve_raster_opening_primitive(selector(component["component_id"]))):
+            assert result.status is EvidenceResolutionStatus.ABSTAINED
+            assert result.observation is None
