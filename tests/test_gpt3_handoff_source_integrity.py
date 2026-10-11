@@ -213,3 +213,25 @@ def test_original_source_deleted_during_extraction_never_seals(tmp_path,monkeypa
     report=json.loads((output/"production_summary.json").read_text())
     assert report["status"]=="source_unavailable_during_production"
     assert "source_read_failed_during_production" in report["claim_reason_codes"]
+
+
+@pytest.mark.parametrize("marker",[
+    {"shadow_only":"true"},
+    {"shadow_only":None},
+    {"commercial_projection_allowed":"false"},
+    {"commercial_projection_allowed":None},
+    {"commercial_projection_allowed":0},
+])
+def test_nonboolean_publication_permissions_never_count_as_source_authority(marker):
+    assert handoff._non_abstained((_q(metadata=marker),))==()
+
+
+def test_immutable_producer_metadata_cannot_bypass_source_flag_rules():
+    from types import MappingProxyType
+    q=_q(metadata=MappingProxyType({"is_superseded":True}))
+    assert handoff._non_abstained((q,))==()
+
+
+@pytest.mark.parametrize("code",["source_stale_snapshot","quantity_superseded","wall_host_conflict"])
+def test_firm_status_with_stale_or_conflicting_reason_is_not_published(code):
+    assert handoff._non_abstained((_q(reason_codes=(code,)),))==()
