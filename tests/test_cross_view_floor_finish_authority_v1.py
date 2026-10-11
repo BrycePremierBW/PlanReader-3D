@@ -1012,3 +1012,60 @@ def test_gpt2_invalid_figured_area_receipt_quarantines_only_its_source_room():
         )
         assert kept=={"room-valid":good}
         assert disputed==("room-unsupported",)
+
+
+def test_gpt2_room_label_source_observation_cannot_own_two_floor_finishes():
+    from types import SimpleNamespace as R
+    from pb_cross_view_floor_finish_authority import (
+        _unique_documented_area_owner_receipts,
+    )
+    def room(face,evidence,word,label_receipt):
+        return R(
+            source_room_face_record_id=face,
+            area_evidence=R(evidence_id=evidence),
+            source_label_observation_ids=(word,),
+            source_label_receipt_ids=(label_receipt,),
+        )
+    first=room("room-a","area-a","native-word-shared","source-label-a")
+    second=room("room-b","area-b","native-word-shared","source-label-b")
+    unaffected=room("room-c","area-c","native-word-c","source-label-c")
+    owners,disputed=_unique_documented_area_owner_receipts(
+        (), (first,second,unaffected)
+    )
+    assert owners=={"room-c":unaffected}
+    assert disputed==("room-a","room-b")
+    # A shared original producer SOURCE LABEL receipt independently proves
+    # the same conflict, even with distinct native word observations.
+    other=room("room-b","area-b","native-word-b","source-label-a")
+    owners,disputed=_unique_documented_area_owner_receipts(
+        (), (first,other,unaffected)
+    )
+    assert owners=={"room-c":unaffected}
+    assert disputed==("room-a","room-b")
+
+
+def test_gpt2_malformed_floor_room_label_receipts_preserve_unrelated_area():
+    from types import SimpleNamespace as R
+    from pb_cross_view_floor_finish_authority import (
+        _unique_documented_area_owner_receipts,
+    )
+    good=R(
+        source_room_face_record_id="room-authentic",
+        area_evidence=R(evidence_id="real-figured-source-area"),
+        source_label_observation_ids=("observed-room-text",),
+        source_label_receipt_ids=("source-room-label",),
+    )
+    for bad_receipts in (
+        "source-label", 73, ["", "native"], [" one", "two"], [[], "one"]
+    ):
+        false=R(
+            source_room_face_record_id="room-unsupported",
+            area_evidence=R(evidence_id="different-source-area"),
+            source_label_observation_ids=("different-native-text",),
+            source_label_receipt_ids=bad_receipts,
+        )
+        owners,disputed=_unique_documented_area_owner_receipts(
+            (), (good,false)
+        )
+        assert owners=={"room-authentic":good}
+        assert disputed==("room-unsupported",)
