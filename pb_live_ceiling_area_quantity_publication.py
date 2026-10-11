@@ -157,10 +157,10 @@ def _publish_one(
         figured_ids = tuple(
             sorted({_clean(value) for value in raw_figured_ids if _clean(value)})
         )
-        # One observed dimension cannot define a documented two-axis area.
-        # This canonical adapter does not infer the missing orthogonal axis
-        # from PDF points, a nominal sheet scale, or benchmark quantities.
-        if len(figured_ids) < 2:
+        # Exactly one orthogonal source-owned dimension pair is required.
+        # Additional distinct source systems are ambiguous, not extra
+        # permission to resolve area from whichever pair happens to fit.
+        if len(figured_ids) != 2:
             return None
         resolved_scale_id = None
     elif measurement_authority == MeasurementAuthorityType.PDF_SCALED.value:
