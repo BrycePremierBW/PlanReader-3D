@@ -929,3 +929,34 @@ def test_gpt2_b02_duplicate_source_face_or_receipt_blocks_room_composite():
         assert result.unresolved_label_candidate_ids == ("split_label_1",)
         # Original source record universe must remain auditable, never deleted.
         assert len(corrupted.records) in (2,3)
+
+
+def test_gpt2_b02_invalid_w4_source_key_cannot_impersonate_grid_wall():
+    """Fail closed even when a typed GRID atom points to an apparent string ID."""
+    from dataclasses import replace
+    from pb_source_composite_room_face_authority import (
+        _fully_grid_opposed_wall_evidence,
+    )
+    for invalid in (None, 42, "", "  ", " w_sep"):
+        source = _wall_scope((_grid_atom("e_sep"),))
+        original = source.records[0]
+        forged = SimpleNamespace(
+            wall_candidate_id=invalid,
+            wall_candidate=original.wall_candidate,
+        )
+        amended = replace(source, records=(forged, *source.records[1:]))
+        grid, receipts = _fully_grid_opposed_wall_evidence(amended)
+        assert "w_sep" not in grid
+        assert "w_sep" not in receipts
+        assert not grid
+    # Unaffected producer-owned walls still publish their exact independent
+    # grid opposition when another wall has an invalid address.
+    source=_wall_scope((_grid_atom("e_sep"),_grid_atom("e_left")))
+    forged=SimpleNamespace(
+        wall_candidate_id=None,
+        wall_candidate=source.records[0].wall_candidate,
+    )
+    amended=replace(source, records=(forged,*source.records[1:]))
+    grid,receipts=_fully_grid_opposed_wall_evidence(amended)
+    assert grid=={"w_left"}
+    assert receipts["w_left"]
