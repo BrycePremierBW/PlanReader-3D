@@ -101,9 +101,10 @@ def nonpublishing_w2_input_scope(segments, published, *, page_id: str) -> dict:
 
 def _validate_aperture_basis(opening) -> None:
     try:
-        origin, axis, normal = (tuple(float(v) for v in getattr(opening, name))
+        origin, axis, normal = (_finite_coordinates(getattr(opening, name), 2, "source aperture vector")
                                 for name in ("origin", "axis", "normal"))
-        length, thickness = float(opening.length), float(opening.thickness)
+        length, thickness = _finite_coordinates(
+            (opening.length, opening.thickness), 2, "source aperture dimensions")
     except (AttributeError, TypeError, ValueError, OverflowError):
         raise ValueError("invalid source aperture coordinate basis") from None
     if (any(len(v) != 2 for v in (origin, axis, normal))
@@ -117,8 +118,8 @@ def _validate_aperture_basis(opening) -> None:
 
 def _finite_source_axis(raw, opening) -> tuple[tuple[float, ...] | None, tuple | None, str | None]:
     try:
-        coords = tuple(float(v) for v in raw)
-    except (TypeError, ValueError, OverflowError):
+        coords = _finite_coordinates(raw, 4, "source geometry")
+    except ValueError:
         return None, None, "invalid_source_geometry"
     if len(coords) != 4 or any(not math.isfinite(v) for v in coords):
         return None, None, "invalid_source_geometry"

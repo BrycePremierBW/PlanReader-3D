@@ -97,6 +97,26 @@ def test_duplicate_raw_parent_address_cannot_silently_select_an_owner():
         audit(report)
 
 
+def test_numeric_strings_in_reported_faces_do_not_manufacture_sealed_flanks():
+    report = source_report()
+    support = report['opening_rows'][0]['original_g17_support_receipts']
+    support[0]['original_source_support_geometry_pt'] = ['-5', '-1', '0', '-1']
+    result = audit(report)
+    assert not result['opening_rows'][0]['reported_flank_geometry_available']
+    assert result['opening_rows'][0]['flanks'] == []
+    assert not result['host_publication_allowed']
+
+
+@pytest.mark.parametrize('line', [['10', 0., 15., 0.], [10., False, 15., 0.]])
+def test_coercible_reported_raw_lines_do_not_gain_flank_membership(line):
+    report = source_report()
+    raw = report['opening_rows'][0]['source_w4_ancestry_audit']['diagnostic_local_raster_lines'][0]
+    raw['original_source_line_pt'] = line
+    result = audit(report)
+    assert all(not r['reported_source_primitive_candidates'] for r in result['opening_rows'][0]['flanks'])
+    assert not result['host_publication_allowed']
+
+
 def test_required_flank_candidates_survive_rotation_translation_and_reversed_source_direction():
     report = source_report()
     ordinary = audit(report)

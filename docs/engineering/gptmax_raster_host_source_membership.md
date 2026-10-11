@@ -239,6 +239,12 @@ zero lost or changed proofs. The exact source-workflow assertions pass locally.
 | Strict source-retention comparison | `bf79fca8c5ae4a0ed989ae86292a32faac5cb285f2f0211d2456b6e3aa14f553` |
 | Required-flank report | `3100908d00529376c33b3b6daa08590d551370ba23af35640e724adb2cbab99f` |
 
+The diagnostic raw-line and aperture readers also reject numeric strings,
+booleans and non-sequence coordinate containers. A malformed reported face
+cannot manufacture sealed-flank geometry, and a coercible raw line cannot
+gain diagnostic flank membership. These are diagnostic-only typed negatives;
+the producer geometry, host predicates and all tolerances are unchanged.
+
 Final focused source-receipt, required-flank, producer-integrity, strict-retention
 and W3 regressions: 216 passed. No host recovery or frozen V2 accuracy gain is
 asserted. The semantic opening universe remains incomplete.

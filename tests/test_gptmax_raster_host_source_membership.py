@@ -219,6 +219,9 @@ def test_positive_exact_source_ancestry_is_never_local_wall_host_authority():
 @pytest.mark.parametrize("line", [
     (float("nan"), 0., 1., 0.), (0., float("inf"),1.,0.),
     (0.,0.,1.), ("invalid",0.,1.,0.),
+    (False, 0., 1., 0.), (0., 0., True, 0.),
+    ("0", 0., 1., 0.), (0., 0., "1", 0.),
+    "0010", {"0": 0., "1": 0., "2": 1., "3": 0.},
 ])
 def test_bad_original_source_geometry_does_not_create_candidate_ancestry(line):
     result=nonpublishing_raster_source_w4_membership(
@@ -339,6 +342,9 @@ def test_w2_source_edge_parent_not_in_w4_identity_is_quarantined_as_contradictio
     {"axis": (2., 0.)}, {"normal": (1., 0.)}, {"normal": (0., 0.)},
     {"origin": (float("nan"), 0.)}, {"origin": (0.,)},
     {"length": 0.}, {"thickness": -1.}, {"length": float("inf")},
+    {"origin": (False, 0.)}, {"axis": (True, False)},
+    {"normal": (0., "1")}, {"origin": ("0", 0.)},
+    {"length": "10"}, {"thickness": True},
 ])
 def test_invalid_aperture_basis_cannot_make_geometry_look_local(changes):
     with pytest.raises(ValueError, match="aperture coordinate basis"):
